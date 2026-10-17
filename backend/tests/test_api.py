@@ -627,4 +627,28 @@ def test_merge_frame_items_spelling_out():
              {"t": 54, "kind": "word", "tifinagh": "ⵉⴱⴱⴰ", "latin": "ibba", "meaning_en": "my father"},
              {"t": 56, "kind": "word", "tifinagh": "ⵉⴱⴱⴰ", "latin": "ibba", "meaning_en": "my father"}]
     segs = main.merge_frame_items(items, every=2.0)
-    assert len(segs) == 1 and segs[0]["latin"] == "ibba" and segs[0]["start"] == 50.0 and segs[0]["end"] == 58.0
+    assert len(segs) == 1 and segs[0]["latin"] == "ibba" and segs[0]["start"] == 48.0 and segs[0]["end"] == 58.0
+
+
+def test_gloss_key_tolerates_bidi_marks_and_dots():
+    assert main._gloss_key("‫- ثم جاء صاحب البستان....") == main._gloss_key("ثم جاء صاحب البستان")
+    t = main._parse_gloss_json('{"ثم جاء صاحب البستان": {"ca": "Llavors va arribar l’amo de l’hort", "ar": "x"}}')
+    assert t[main._gloss_key("‫- ثم جاء صاحب البستان....")]["ca"].startswith("Llavors")
+
+
+def test_apply_lesson_vocabulary_windows():
+    """With audio chunk windows, each spoken word takes the on-screen span inside its window."""
+    vocab = {"letters": [{"name": "yab", "latin": "b", "t0": 30, "t1": 60}],
+             "words": [{"latin": "ibba", "meaning_en": "my father", "t0": 30, "t1": 60},
+                       {"latin": "abghan", "meaning_en": "black", "t0": 90, "t1": 120},
+                       {"latin": "ibbi", "meaning_en": "to cut", "t0": 150, "t1": 180},
+                       {"latin": "abgur", "meaning_en": "squirrel", "t0": 180, "t1": 210}]}
+    segs = [
+        {"start": 36, "end": 40, "text": "ⴱ", "tifinagh": "ⴱ", "latin": "b", "gloss": None, "gloss_lang": None, "kind": "letter"},
+        {"start": 48, "end": 66, "text": "x", "tifinagh": "ⵄⴱⵔ", "latin": "ɛbr", "gloss": "", "gloss_lang": None, "kind": "word"},
+        {"start": 96, "end": 120, "text": "x", "tifinagh": "ⴰⴱⵅⵅⵍ", "latin": "abxxl", "gloss": "", "gloss_lang": None, "kind": "word"},
+        {"start": 156, "end": 170, "text": "x", "tifinagh": "ⵄⴱⴱ", "latin": "ɛbb", "gloss": "", "gloss_lang": None, "kind": "word"},
+        {"start": 182, "end": 196, "text": "x", "tifinagh": "ⴱⵅⵔⵓ", "latin": "bxru", "gloss": "", "gloss_lang": None, "kind": "word"},
+    ]
+    out = main.apply_lesson_vocabulary(segs, vocab)
+    assert [(x["latin"], x["start"]) for x in out] == [("b", 36), ("ibba", 48), ("abɣan", 96), ("ibbi", 156), ("abgur", 182)]

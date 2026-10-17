@@ -33,7 +33,13 @@ Tamazight + translated gloss (Catalan/Arabic via Gemini), with the video section
 its illustration frame. Captions in another language (a story subtitled in Arabic) give
 Arabic + Catalan drills with the machine Tachelhit kept as a *draft* for a speaker to
 confirm; automatic (machine) captions are only used when they match the language you
-asked for. Every drill is catalogued and credited: channel, video title, playlist and
+asked for. Videos with NO usable captions (talking-head lessons) go through *lesson mode*:
+the teacher's speech (sent to Gemini in 30 s chunks) gives the letters taught and the example
+words with their meanings; each candidate is rendered as a Tifinagh image and every frame is
+asked which candidate is on screen, which gives the seconds and the screenshot; Tifinagh is
+spelled deterministically from the Latin. Speech recognition of Tamazight itself is NOT used
+for drill text (it hallucinates); it only remains as a last-resort fallback. Every drill is
+catalogued and credited: channel, video title, playlist and
 licence travel with it, and the app shows "Font: <channel> · <title> ↗" linking to the
 original at the exact second. Downloads are kept 7 days in `downloads/` (tray menu →
 "Obre les descàrregues") so you can see exactly what was captured.

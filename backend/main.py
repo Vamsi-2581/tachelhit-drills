@@ -420,6 +420,16 @@ def split_bilingual_cue(text: Optional[str]) -> Tuple[str, Optional[str], Option
     return (a, b, "en") if score_a > score_b else (b, a, "en")
 
 
+def _gloss_key(text: str) -> str:
+    """Lookup key for a translated item: no bidi/format marks, no surrounding
+    punctuation, collapsed spaces, lowercase — the model drops the invisible
+    RTL mark and trailing dots of Arabic subtitle cues from its JSON keys."""
+    import unicodedata
+    t = "".join(ch for ch in str(text or "") if unicodedata.category(ch) != "Cf")
+    t = " ".join(t.split()).strip(" .…-–—:;,!?\"'«»")
+    return t.lower()
+
+
 def _parse_gloss_json(answer: str) -> Dict[str, Dict[str, str]]:
     """Gemini answers a JSON object {gloss: {"ca": ..., "ar": ...}}; tolerate fences."""
     m = re.search(r"\{.*\}", answer or "", re.S)
@@ -432,7 +442,7 @@ def _parse_gloss_json(answer: str) -> Dict[str, Dict[str, str]]:
     out: Dict[str, Dict[str, str]] = {}
     for k, v in (data.items() if isinstance(data, dict) else []):
         if isinstance(v, dict):
-            out[str(k).strip().lower()] = {t: str(v.get(t) or "").strip() for t in ("ca", "ar")}
+            out[_gloss_key(k)] = {t: str(v.get(t) or "").strip() for t in ("ca", "ar")}
     return out
 
 
@@ -462,7 +472,7 @@ def translate_glosses(glosses: List[str], src_lang: str = "English",
                                          [{"role": "user", "text": prompt}], max_output_tokens=8000, temperature=0.1, timeout=180)
                 parsed = _parse_gloss_json(answer)
                 for g in part:
-                    hit = parsed.get(g.lower())
+                    hit = parsed.get(_gloss_key(g))
                     if hit and all(hit.get(t) for t in want):
                         result[g] = hit
                 print(f"[AUTO] Gemini translated {sum(1 for g in part if g in result)}/{len(part)} items ({src_lang} -> {','.join(want)})")
@@ -502,25 +512,39 @@ def lesson_audio_vocabulary(video_path: str, tmp_dir: str) -> Dict[str, Any]:
     Returns {"speech_language", "letters": [{name, latin}], "words": [{latin, meaning_en}]} or {}."""
     import base64
     from gemini_client import _generate_content
-    audio = os.path.join(tmp_dir, "lesson_audio.mp3")
+    # The audio goes in LABELLED 30 s chunks: Gemini's own timestamps drift, but
+    # "which chunk" is reliable, and 30 s is enough to find the word on screen.
+    CHUNK = 30.0
+    parts: List[Dict[str, Any]] = []
     try:
-        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", video_path, "-vn", "-ac", "1", "-ar", "16000",
-                        "-b:a", "40k", audio], check=True, capture_output=True, timeout=600)
-        if os.path.getsize(audio) > 18_000_000:  # inline limit; a 1-hour lecture is not a lesson clip
+        probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", video_path],
+                               capture_output=True, text=True, timeout=60).stdout.strip()
+        duration = float(probe or 0) or 600.0
+        if duration > 1800:  # a 30-minute lecture is not a lesson clip
             return {}
-        with open(audio, "rb") as fh:
-            data = base64.b64encode(fh.read()).decode()
+        n = 0
+        t = 0.0
+        while t < duration:
+            chunk = os.path.join(tmp_dir, f"lesson_audio_{n:03d}.mp3")
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-ss", str(t), "-t", str(CHUNK), "-i", video_path, "-vn",
+                            "-ac", "1", "-ar", "16000", "-b:a", "40k", chunk], check=True, capture_output=True, timeout=600)
+            with open(chunk, "rb") as fh:
+                parts.append({"text": f"[audio chunk {n}: {t:.0f}s to {min(t + CHUNK, duration):.0f}s]"})
+                parts.append({"inline_data": {"mime_type": "audio/mpeg", "data": base64.b64encode(fh.read()).decode()}})
+            n += 1
+            t += CHUNK
     except Exception as e:
         print(f"[LESSON] audio extraction failed: {e}")
         return {}
-    prompt = ("This is a Tamazight (Amazigh) language lesson. Identify the language the teacher speaks. List the "
-              "Tifinagh letters being taught (IRCAM name such as yab, and the Latin sound) and EVERY Tamazight example "
-              "word or phrase the teacher gives, spelled in academic Latin (ɣ ḍ ḥ ṭ ẓ ɛ; write 'gh' as ɣ), each with "
-              "the meaning in English exactly as the teacher explains it. Answer ONLY with JSON "
-              "{\"speech_language\": \"...\", \"letters\": [{\"name\": \"yab\", \"latin\": \"b\"}], "
-              "\"words\": [{\"latin\": \"ibba\", \"meaning_en\": \"my father\"}]}.")
+    prompt = ("These are consecutive 30-second chunks of a Tamazight (Amazigh) language lesson, each labelled with its "
+              "chunk number and seconds. Identify the language the teacher speaks. List the Tifinagh letters being "
+              "taught (IRCAM name such as yab, and the Latin sound) and EVERY Tamazight example word or phrase the "
+              "teacher gives, spelled in academic Latin (ɣ ḍ ḥ ṭ ẓ ɛ; write 'gh' as ɣ), with the meaning in English "
+              "exactly as the teacher explains it, and the chunk number in which the teacher FIRST says it. Answer ONLY "
+              "with JSON {\"speech_language\": \"...\", \"letters\": [{\"name\": \"yab\", \"latin\": \"b\", \"chunk\": 1}], "
+              "\"words\": [{\"latin\": \"ibba\", \"meaning_en\": \"my father\", \"chunk\": 1}]}.")
     payload = {"systemInstruction": {"parts": [{"text": "You transcribe language lessons precisely."}]},
-               "contents": [{"role": "user", "parts": [{"inline_data": {"mime_type": "audio/mpeg", "data": data}}, {"text": prompt}]}],
+               "contents": [{"role": "user", "parts": parts + [{"text": prompt}]}],
                "generationConfig": {"maxOutputTokens": 3000, "temperature": 0.1, "thinkingConfig": {"thinkingBudget": 0}}}
     try:
         out = _generate_content(payload, 240)
@@ -529,8 +553,14 @@ def lesson_audio_vocabulary(video_path: str, tmp_dir: str) -> Dict[str, Any]:
         vocab = json.loads(m.group(0)) if m else {}
         vocab["words"] = [w for w in (vocab.get("words") or []) if isinstance(w, dict) and (w.get("latin") or "").strip()]
         vocab["letters"] = [l for l in (vocab.get("letters") or []) if isinstance(l, dict) and (l.get("latin") or "").strip()]
-        print(f"[LESSON] audio: {vocab.get('speech_language')}; letters {[l.get('name') for l in vocab['letters']]}; "
-              f"words {[(w['latin'], w.get('meaning_en')) for w in vocab['words']]}")
+        for item in vocab["words"] + vocab["letters"]:
+            try:
+                c = int(item.get("chunk"))
+                item["t0"], item["t1"] = c * CHUNK, (c + 1) * CHUNK
+            except (TypeError, ValueError):
+                item["t0"] = item["t1"] = None
+        print(f"[LESSON] audio: {vocab.get('speech_language')}; letters {[(l.get('name'), l.get('chunk')) for l in vocab['letters']]}; "
+              f"words {[(w['latin'], w.get('meaning_en'), w.get('chunk')) for w in vocab['words']]}")
         return vocab
     except Exception as e:
         print(f"[LESSON] audio vocabulary failed: {e}")
@@ -551,47 +581,78 @@ def apply_lesson_vocabulary(segs: List[Dict[str, Any]], vocab: Dict[str, Any]) -
     for w in vocab.get("words") or []:
         f = to_forms(w["latin"])
         words.append({"key": f["key"], "latin": f["clean_latin"], "tifinagh": f["tifinagh"],
-                      "meaning_en": (w.get("meaning_en") or "").strip()})
+                      "meaning_en": (w.get("meaning_en") or "").strip(), "t0": w.get("t0"), "t1": w.get("t1")})
     letters = {}
+    letter_windows = []
     for l in vocab.get("letters") or []:
         f = to_forms(l["latin"])
         letters[f["key"]] = {"latin": f["clean_latin"], "tifinagh": f["tifinagh"], "name": (l.get("name") or "").strip()}
+        if l.get("t0") is not None:
+            letter_windows.append((l["t0"] - 5.0, l["t1"] + 25.0))
     if not words and not letters:
         return segs
     out: List[Dict[str, Any]] = []
     word_spans: List[Dict[str, Any]] = []
+    seen_letters: set = set()
     for sg in segs:
         key = to_forms(sg.get("latin") or "")["key"] if sg.get("latin") else ""
-        if sg.get("kind") == "letter" or len(key) == 1:
+        in_letter_window = (not letter_windows) or any(lo <= sg["start"] <= hi for lo, hi in letter_windows)
+        if (sg.get("kind") == "letter" or len(key) == 1) and in_letter_window:
             hit = letters.get(key)
-            if hit:
+            if hit and key not in seen_letters:  # one drill per letter taught
+                seen_letters.add(key)
                 out.append({**sg, "text": hit["tifinagh"], "tifinagh": hit["tifinagh"], "latin": hit["latin"],
                             "gloss": f"letter {hit['name']} ({hit['latin']})" if hit["name"] else sg.get("gloss"),
                             "gloss_lang": "en", "kind": "letter"})
             continue
+        # a "letter" read outside the letter's window is usually a misread word: let the
+        # window/order assignment decide
         word_spans.append({**sg, "_key": key})
-    # monotonic alignment (longest-common-subsequence style DP on similarity)
-    n, m = len(word_spans), len(words)
+    pairs = []
+    if words and all(w.get("t0") is not None for w in words):
+        # Time windows from the audio chunks + the order the words are taught: each
+        # spoken word takes the earliest still-free on-screen span that overlaps
+        # [t0 - 5, t1 + 25] and starts after the previous word's span. Glyph
+        # similarity only breaks ties (frame OCR of Tifinagh is unreliable).
+        taken: set = set()
+        prev_end = -1.0
+        for wj, w in enumerate(words):
+            lo, hi = w["t0"] - 5.0, w["t1"] + 25.0
+            cands = [(si, sg) for si, sg in enumerate(word_spans)
+                     if si not in taken and sg["end"] >= lo and sg["start"] <= hi and sg["start"] >= prev_end]
+            if not cands:
+                continue
+            best_sim = max(difflib.SequenceMatcher(None, norm(c[1]["_key"]), norm(w["key"])).ratio() for c in cands)
+            strong = [c for c in cands if difflib.SequenceMatcher(None, norm(c[1]["_key"]), norm(w["key"])).ratio() >= max(0.6, best_sim)]
+            si, sg = (strong or sorted(cands, key=lambda c: c[1]["start"]))[0]
+            taken.add(si)
+            prev_end = sg["end"]
+            pairs.append((si, wj))
+    if pairs:
+        n, m = len(word_spans), len(words)
+    else:
+        # monotonic alignment (longest-common-subsequence style DP on similarity)
+        n, m = len(word_spans), len(words)
     sim = [[difflib.SequenceMatcher(None, norm(word_spans[i]["_key"]), norm(words[j]["key"])).ratio() for j in range(m)] for i in range(n)]
     best = [[0.0] * (m + 1) for _ in range(n + 1)]
     choice = [[None] * (m + 1) for _ in range(n + 1)]
-    for i in range(1, n + 1):
+    for i in range(1, n + 1 if not pairs else 0):
         for j in range(1, m + 1):
             cands = [(best[i - 1][j], "skip_span"), (best[i][j - 1], "skip_word")]
             # Order carries most of the information (the teacher shows the words as he
             # says them); glyph similarity only breaks ties, so every match earns a bonus.
             cands.append((best[i - 1][j - 1] + 0.5 + sim[i - 1][j - 1], "match"))
             best[i][j], choice[i][j] = max(cands)
-    i, j = n, m
-    pairs = []
-    while i > 0 and j > 0:
-        c = choice[i][j]
-        if c == "match":
-            pairs.append((i - 1, j - 1)); i -= 1; j -= 1
-        elif c == "skip_span":
-            i -= 1
-        else:
-            j -= 1
+    if not pairs:
+        i, j = n, m
+        while i > 0 and j > 0:
+            c = choice[i][j]
+            if c == "match":
+                pairs.append((i - 1, j - 1)); i -= 1; j -= 1
+            elif c == "skip_span":
+                i -= 1
+            else:
+                j -= 1
     matched_words = set()
     for si, wj in sorted(pairs):
         sg, w = word_spans[si], words[wj]
@@ -610,6 +671,134 @@ def apply_lesson_vocabulary(segs: List[Dict[str, Any]], vocab: Dict[str, Any]) -
             out.append({"start": None, "end": None, "order": last_end + 0.001 * (wj + 1), "text": w["tifinagh"],
                         "tifinagh": w["tifinagh"], "latin": w["latin"], "gloss": w["meaning_en"] or None,
                         "gloss_lang": "en" if w["meaning_en"] else None, "kind": "word", "no_media": True})
+    return sorted(out, key=lambda x: x["start"] if x["start"] is not None else x["order"])
+
+
+_TIFINAGH_FONTS = ["C:/Windows/Fonts/ebrima.ttf", "/usr/share/fonts/truetype/noto/NotoSansTifinagh-Regular.ttf",
+                   "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"]
+
+
+def render_tifinagh(text: str, path: str, size: int = 96) -> Optional[str]:
+    """Render a Tifinagh string to a PNG (reference image for picture-to-picture
+    matching). Returns the path or None when no Tifinagh font is available."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return None
+    font = None
+    for f in _TIFINAGH_FONTS:
+        if os.path.exists(f):
+            try:
+                font = ImageFont.truetype(f, size)
+                break
+            except Exception:
+                continue
+    if font is None:
+        return None
+    probe = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    l, t, r, b = probe.textbbox((0, 0), text, font=font)
+    img = Image.new("RGB", (r - l + 60, b - t + 50), "white")
+    ImageDraw.Draw(img).text((30 - l, 25 - t), text, font=font, fill=(235, 120, 20))
+    img.save(path)
+    return path
+
+
+def _frame_choices_from_gemini(frames: List[Tuple[float, str]], options: List[Dict[str, str]],
+                               ref_dir: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Multiple choice per frame: which of the known lesson items is written on
+    screen (or none). Candidates are shown as RENDERED images (the model compares
+    shapes far better than it reads Tifinagh code points). Returns
+    [{"t": sec, "choice": option id or "N"}]."""
+    import base64
+    from gemini_client import _generate_content
+    parts: List[Dict[str, Any]] = [{"text": (
+        "These are frames from a Tamazight language lesson, each labelled with its second. The lesson's items are "
+        "listed below; each candidate is shown as a reference image of the exact same Tifinagh letters (the on-screen "
+        "font differs, the letter shapes are the same).")}]
+    for o in options:
+        parts.append({"text": f"Candidate {o['id']}: {o['tifinagh']} (Latin {o['latin']}{', ' + o['meaning'] if o.get('meaning') else ''})"})
+        ref = render_tifinagh(o["tifinagh"], os.path.join(ref_dir or tempfile.gettempdir(), f"ref_{o['id']}.png")) if ref_dir is not None else None
+        if ref:
+            with open(ref, "rb") as fh:
+                parts.append({"inline_data": {"mime_type": "image/png", "data": base64.b64encode(fh.read()).decode()}})
+    parts.append({"text": (
+        "Candidate N: none of them / no lesson text on screen.\n"
+        "For EACH frame below, which ONE candidate is written on screen? Match letter by letter against the reference "
+        "images; a word being written letter by letter counts as that word once its first letters match and no other "
+        "candidate fits. Ignore channel names, watermarks and logos. Answer ONLY with a JSON array of "
+        "{\"t\": second, \"choice\": \"A\"|\"B\"|...|\"N\"}, one object per frame.")})
+    for t, path in frames:
+        parts.append({"text": f"[frame t={t:.1f}s]"})
+        with open(path, "rb") as fh:
+            parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(fh.read()).decode()}})
+    payload = {"systemInstruction": {"parts": [{"text": "You compare Tifinagh text on screen with a short list of candidates."}]},
+               "contents": [{"role": "user", "parts": parts}],
+               "generationConfig": {"maxOutputTokens": 2000, "temperature": 0.0, "thinkingConfig": {"thinkingBudget": 0}}}
+    data = _generate_content(payload, 180)
+    text = "".join(pp.get("text", "") for pp in data["candidates"][0]["content"]["parts"])
+    m = re.search(r"\[.*\]", text, re.S)
+    items = json.loads(m.group(0)) if m else []
+    return [i for i in items if isinstance(i, dict)]
+
+
+def lesson_items_by_choice(frames: List[Tuple[float, str]], vocab: Dict[str, Any], every: float = 2.0,
+                           batch: int = 12) -> List[Dict[str, Any]]:
+    """Frames -> multiple-choice labels -> one span per lesson item (the longest run
+    of frames labelled with it, inside the item's audio window when known)."""
+    from transliteration import to_forms
+    options: List[Dict[str, Any]] = []
+    for l in vocab.get("letters") or []:
+        f = to_forms(l["latin"])
+        options.append({"kind": "letter", "latin": f["clean_latin"], "tifinagh": f["tifinagh"],
+                        "meaning": f"letter {l.get('name')}" if l.get("name") else "", "name": l.get("name") or "",
+                        "t0": l.get("t0"), "t1": l.get("t1")})
+    for w in vocab.get("words") or []:
+        f = to_forms(w["latin"])
+        options.append({"kind": "word", "latin": f["clean_latin"], "tifinagh": f["tifinagh"],
+                        "meaning": (w.get("meaning_en") or "").strip(), "t0": w.get("t0"), "t1": w.get("t1")})
+    # de-duplicate by spelling
+    uniq: Dict[str, Dict[str, Any]] = {}
+    for o in options:
+        uniq.setdefault(o["tifinagh"], o)
+    options = list(uniq.values())
+    for n, o in enumerate(options):
+        o["id"] = chr(ord("A") + n)
+    labels: Dict[float, str] = {}
+    ref_dir = os.path.join(os.path.dirname(frames[0][1]) if frames else tempfile.gettempdir(), "refs")
+    os.makedirs(ref_dir, exist_ok=True)
+    for i in range(0, len(frames), batch):
+        chunk = frames[i:i + batch]
+        try:
+            for c in _frame_choices_from_gemini(chunk, options, ref_dir):
+                labels[round(float(c.get("t") or 0), 1)] = str(c.get("choice") or "N").strip().upper()[:1]
+        except Exception as e:
+            print(f"[LESSON] choice batch {i // batch} failed: {e}")
+    # runs of frames with the same label -> spans
+    runs: List[Dict[str, Any]] = []
+    for t, _ in frames:
+        lab = labels.get(round(t, 1), "N")
+        if lab == "N":
+            continue
+        if runs and runs[-1]["id"] == lab and t - runs[-1]["end"] <= every + 0.01:
+            runs[-1]["end"] = t + every
+        else:
+            runs.append({"id": lab, "start": t, "end": t + every})
+    out: List[Dict[str, Any]] = []
+    for o in options:
+        mine = [r for r in runs if r["id"] == o["id"]]
+        if o.get("t0") is not None:
+            inside = [r for r in mine if r["end"] >= o["t0"] - 5.0 and r["start"] <= o["t1"] + 25.0]
+            mine = inside or mine
+        if not mine:
+            print(f"[LESSON] {o['latin']!r} ({o['meaning']}) never recognised on screen: text-only drill")
+            out.append({"start": None, "end": None, "order": (o.get("t0") or 0) + 0.001, "text": o["tifinagh"], "tifinagh": o["tifinagh"],
+                        "latin": o["latin"], "gloss": o["meaning"] or None, "gloss_lang": "en" if o["meaning"] else None,
+                        "kind": o["kind"], "no_media": True})
+            continue
+        best = max(mine, key=lambda r: r["end"] - r["start"])
+        out.append({"start": best["start"], "end": best["end"], "text": o["tifinagh"], "tifinagh": o["tifinagh"],
+                    "latin": o["latin"], "gloss": (o["meaning"] if o["kind"] == "word" else f"letter {o['name']} ({o['latin']})" if o["name"] else None),
+                    "gloss_lang": "en", "kind": o["kind"]})
     return sorted(out, key=lambda x: x["start"] if x["start"] is not None else x["order"])
 
 
@@ -680,8 +869,10 @@ def merge_frame_items(items: List[Dict[str, Any]], every: float = 2.0, min_len: 
             i["tifinagh"] = _tifinagh_or_none(str(i["tifinagh"]))
         k = key(i)
         kind = (i.get("kind") or "none").lower()
-        if kind in ("none", "partial") or not k:
+        if kind == "none" or not k:
             continue
+        if kind == "partial":
+            kind = "word"  # a word being spelled out: same span as the finished word
         gloss = " ".join(str(i.get("meaning_en") or "").lower().split())
         if ign and gloss and difflib.SequenceMatcher(None, gloss, ign).ratio() >= 0.6:
             continue  # channel slogan ("Amazigh for all" ~ "Tamazight For All"), not vocabulary
@@ -723,6 +914,10 @@ def read_onscreen_vocabulary(video_path: str, tmp_dir: str, every: float = 2.0, 
         return []
     vocab = lesson_audio_vocabulary(video_path, tmp_dir)
     frames = extract_frames(video_path, os.path.join(tmp_dir, "frames"), every=every)
+    if vocab and (vocab.get("words") or vocab.get("letters")):
+        segs = lesson_items_by_choice(frames, vocab, every=every, batch=batch)
+        print(f"[LESSON] {len(frames)} frames -> {len(segs)} lesson items (multiple choice against the spoken lesson)")
+        return segs
     items: List[Dict[str, Any]] = []
     for i in range(0, len(frames), batch):
         chunk = frames[i:i + batch]
@@ -3007,9 +3202,11 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                     seg["text_catalan"] = tr["ca"]
                 if "ar" in tr:
                     seg["text_arabic"] = tr["ar"]
-        if foreign and plain and has_segments:
+        if foreign and plain and has_segments and os.getenv("NARRATION_DRAFTS", "0") == "1":
             # What is actually SPOKEN (draft): transcribe the narration per cue, with the
-            # caption as the meaning anchor. A speaker confirms before it becomes attested.
+            # caption as the meaning anchor. OFF by default: evaluated on the hedgehog
+            # story, 9 of 14 drafts were unrelated to the Arabic — Tamazight ASR is not
+            # solved, even anchored. Enable with NARRATION_DRAFTS=1 for experiments.
             try:
                 spoken = await asyncio.to_thread(transcribe_narration, video_path, tmp_dir, plain, src_name)
                 for i, seg in enumerate(plain):
