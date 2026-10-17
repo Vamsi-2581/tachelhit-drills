@@ -153,6 +153,7 @@ export const api = {
       body: JSON.stringify({ url, ...(opts || {}) }),
     }),
   captureStatus: (id: number) => request<CaptureStatus>(`/capture/${id}`),
+  captureAgent: () => request<{ online: boolean; last_seen: string | null; version: string | null }>('/capture/agent'),
 
   // --- AI Space health (reliability) ---
   spacesHealth: () => request<SpacesHealth>('/health/spaces'),

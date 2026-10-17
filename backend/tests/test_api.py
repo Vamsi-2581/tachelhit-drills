@@ -525,3 +525,16 @@ def test_looks_like_junk_asr():
     # foreign-source draft mode: English is expected, only repeats are junk
     assert main.looks_like_junk_asr("I actually grab a bus to the station with them and they tell me", attested=False) is None
     assert main.looks_like_junk_asr("", attested=True) is None
+
+
+def test_capture_agent_liveness():
+    """The web app asks whether a local capture agent is polling before it queues a URL."""
+    main._capture_agent_seen.update({"at": None, "version": None})
+    r = client.get("/capture/agent")
+    assert r.status_code == 200 and r.json()["online"] is False
+    # an agent poll (with its version header) marks it online
+    r = client.get("/capture/pending", headers={"X-Agent-Version": "2.0.0"})
+    assert r.status_code == 200 and r.json()["request"] is None
+    r = client.get("/capture/agent")
+    assert r.json()["online"] is True and r.json()["version"] == "2.0.0"
+    assert r.json()["last_seen"].endswith("Z")

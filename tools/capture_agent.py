@@ -1,111 +1,578 @@
 #!/usr/bin/env python3
 """
-Tachelhit local capture AGENT — run once, then forget it.
+Tachelhit Capture Agent — download on YOUR computer, let the server make drills.
 
-Runs quietly in the background on your computer. It polls the Render backend for
-queued capture requests; when you paste a URL in the web app, this agent grabs
-it, downloads the video on YOUR residential IP (which YouTube doesn't block),
-and uploads it back to Render, which transcribes → translates → makes drills.
-You never run anything per-video — you just use the web app.
+YouTube blocks downloads from Render's datacenter IP. This agent runs on your own
+computer: it watches the backend for URLs you paste in the web app's "Captura"
+screen, downloads them on your home IP with yt-dlp, uploads the file to the
+backend, and the backend transcribes -> corrects -> translates -> creates drills.
 
-Install once:
-    pip install yt-dlp requests
-    # and have ffmpeg on your PATH
+Two ways to use it
+  1. The installable build (recommended): download TachelhitCaptureAgent.exe
+     (Windows) or TachelhitCaptureAgent-macos.zip from the GitHub release
+     "capture-agent" and double-click it ONCE. It copies itself to a per-user
+     folder, registers itself to start at login, and lives in the system tray.
+  2. As a script:  pip install requests yt-dlp pystray pillow
+                   python tools/capture_agent.py --console
 
-Run it (leave it running; or set it to auto-start at login — see tools/README):
-    python capture_agent.py
+Command line
+  --api URL        backend base URL (default https://tachelhit-drills-api.onrender.com)
+  --key KEY        X-API-Key, only if the backend enforces one
+  --poll SECONDS   queue check interval (default 8)
+  --console        no tray icon; log to the terminal (what the .py defaults to)
+  --install        copy to the per-user folder + start at login, then exit
+  --uninstall      remove the start-at-login entry
+  --once           process whatever is queued now, then exit (for tests)
+  --version
 
-Config (optional env vars):
-    TACHELHIT_API      backend base URL (default: the Render URL below)
-    TACHELHIT_API_KEY  X-API-Key, only if the backend enforces one
-    CAPTURE_POLL_SECS  how often to check the queue (default 8)
+Nothing is sent anywhere except your own backend. yt-dlp (and the deno JS
+runtime it needs for YouTube) are fetched from their official GitHub releases
+into the agent folder and yt-dlp self-updates once a day, so YouTube changes
+don't leave the agent stale.
 """
+from __future__ import annotations
+
+import argparse
 import glob
+import io
+import json
 import os
+import platform
+import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import urllib.request
+import webbrowser
+import zipfile
+from datetime import datetime, timedelta, timezone
 
 try:
     import requests
-except ImportError:
+except ImportError:  # the frozen build always has it
     sys.exit("Missing dependency. Run:  pip install requests yt-dlp")
 
-API = os.getenv("TACHELHIT_API", "https://tachelhit-drills-api.onrender.com").rstrip("/")
-API_KEY = os.getenv("TACHELHIT_API_KEY", "")
-POLL = int(os.getenv("CAPTURE_POLL_SECS", "8"))
-HDRS = {"X-API-Key": API_KEY} if API_KEY else {}
+__version__ = "2.0.0"
+APP_NAME = "TachelhitCapture"
+DEFAULT_API = "https://tachelhit-drills-api.onrender.com"
+WEB_APP = "https://tachelhit-drills.vercel.app/video-creator"
+YTDLP_RELEASE = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/"
+DENO_RELEASE = "https://github.com/denoland/deno/releases/latest/download/"
+FROZEN = bool(getattr(sys, "frozen", False))
+IS_WIN = platform.system() == "Windows"
+IS_MAC = platform.system() == "Darwin"
+ARM = platform.machine().lower() in ("arm64", "aarch64")
 
 
-def log(msg):
+# ---------------------------------------------------------------- paths/config
+def app_dir() -> str:
+    if IS_WIN:
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    elif IS_MAC:
+        base = os.path.expanduser("~/Library/Application Support")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    d = os.path.join(base, APP_NAME)
+    os.makedirs(os.path.join(d, "bin"), exist_ok=True)
+    return d
+
+
+CONFIG_PATH = os.path.join(app_dir(), "config.json")
+LOG_PATH = os.path.join(app_dir(), "agent.log")
+LOCK_PATH = os.path.join(app_dir(), "agent.lock")
+
+
+def load_config() -> dict:
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_config(cfg: dict) -> None:
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+
+
+# ---------------------------------------------------------------- logging
+_console = True
+_status_cb = None  # tray hook: (state, text)
+
+
+def log(msg: str) -> None:
     line = time.strftime("%H:%M:%S") + " " + str(msg)
     try:
-        print(line, flush=True)
-    except UnicodeEncodeError:
-        # Windows consoles (cp1252) can't print some chars — never crash on a log
-        print(line.encode("ascii", "replace").decode("ascii"), flush=True)
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+    if _console:
+        try:
+            print(line, flush=True)
+        except Exception:
+            try:
+                print(line.encode("ascii", "replace").decode("ascii"), flush=True)
+            except Exception:
+                pass
 
 
-def download(url, out_dir, audio_only):
-    fmt = "bestaudio/best" if audio_only else "best[height<=720][ext=mp4]/best[height<=720]/best"
+def set_status(state: str, text: str) -> None:
+    if _status_cb:
+        try:
+            _status_cb(state, text)
+        except Exception:
+            pass
+
+
+def notify_user(title: str, text: str) -> None:
+    """Message box when there is no console (frozen windowed build)."""
+    log(f"{title}: {text}")
+    if FROZEN and IS_WIN and not _console:
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(0, text, title, 0x40)
+        except Exception:
+            pass
+
+
+def trim_log() -> None:
+    try:
+        if os.path.getsize(LOG_PATH) > 2_000_000:
+            with open(LOG_PATH, encoding="utf-8", errors="replace") as f:
+                tail = f.read()[-500_000:]
+            with open(LOG_PATH, "w", encoding="utf-8") as f:
+                f.write(tail)
+    except Exception:
+        pass
+
+
+def _no_window() -> dict:
+    if IS_WIN:
+        return {"creationflags": 0x08000000}  # CREATE_NO_WINDOW
+    return {}
+
+
+# ---------------------------------------------------------------- yt-dlp + deno
+def ytdlp_binary_name() -> str:
+    if IS_WIN:
+        return "yt-dlp.exe"
+    if IS_MAC:
+        return "yt-dlp_macos"
+    return "yt-dlp"
+
+
+def ytdlp_path() -> str:
+    return os.path.join(app_dir(), "bin", ytdlp_binary_name())
+
+
+def deno_path() -> str:
+    return os.path.join(app_dir(), "bin", "deno.exe" if IS_WIN else "deno")
+
+
+def ensure_deno() -> str | None:
+    """yt-dlp needs a JavaScript runtime for YouTube (its 'EJS' challenge
+    solver); deno is the one it supports by default. Best effort: without it
+    yt-dlp still works for most videos, with fewer formats."""
+    p = deno_path()
+    if os.path.exists(p):
+        return p
+    if IS_WIN:
+        asset = "deno-x86_64-pc-windows-msvc.zip"
+    elif IS_MAC:
+        asset = "deno-aarch64-apple-darwin.zip" if ARM else "deno-x86_64-apple-darwin.zip"
+    else:
+        asset = "deno-aarch64-unknown-linux-gnu.zip" if ARM else "deno-x86_64-unknown-linux-gnu.zip"
+    try:
+        set_status("busy", "Baixant deno (runtime JS)…")
+        log("downloading deno from its official release…")
+        with urllib.request.urlopen(DENO_RELEASE + asset, timeout=120) as r:
+            data = r.read()
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            name = next(n for n in z.namelist() if n.startswith("deno"))
+            with z.open(name) as src, open(p, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+        if not IS_WIN:
+            os.chmod(p, 0o755)
+        log("deno ready")
+        return p
+    except Exception as e:
+        log(f"(deno unavailable: {e}; YouTube may offer fewer formats)")
+        return None
+
+
+def ensure_ytdlp(cfg: dict) -> str | None:
+    """Return a runnable yt-dlp binary path, downloading/updating it when needed.
+    None means: fall back to the bundled Python library."""
+    path = ytdlp_path()
+    try:
+        if not os.path.exists(path):
+            set_status("busy", "Baixant yt-dlp…")
+            log("downloading yt-dlp from its official release…")
+            urllib.request.urlretrieve(YTDLP_RELEASE + ytdlp_binary_name(), path)
+            if not IS_WIN:
+                os.chmod(path, 0o755)
+            cfg["ytdlp_updated"] = datetime.now(timezone.utc).isoformat()
+            save_config(cfg)
+            log("yt-dlp ready")
+        else:
+            last = cfg.get("ytdlp_updated")
+            stale = True
+            if last:
+                try:
+                    stale = datetime.now(timezone.utc) - datetime.fromisoformat(last) > timedelta(days=1)
+                except ValueError:
+                    pass
+            if stale:
+                log("checking yt-dlp updates…")
+                subprocess.run([path, "-U"], capture_output=True, timeout=300, **_no_window())
+                cfg["ytdlp_updated"] = datetime.now(timezone.utc).isoformat()
+                save_config(cfg)
+        return path
+    except Exception as e:
+        log(f"(yt-dlp binary unavailable: {e}; using the bundled library)")
+        return None
+
+
+def download(url: str, out_dir: str, audio_only: bool, cfg: dict) -> str:
+    fmt = "bestaudio[ext=m4a]/bestaudio/best" if audio_only else "best[height<=720][ext=mp4]/best[height<=720]/best"
     out_tmpl = os.path.join(out_dir, "video.%(ext)s")
-    subprocess.run(
-        [sys.executable, "-m", "yt_dlp", "-f", fmt, "-o", out_tmpl, "--no-playlist", url],
-        check=True,
-    )
+    binary = ensure_ytdlp(cfg)
+    deno = ensure_deno()
+    if binary:
+        cmd = [binary, "-f", fmt, "-o", out_tmpl, "--no-playlist", "--no-progress", "--no-update"]
+        if deno:
+            cmd += ["--js-runtimes", f"deno:{deno}"]
+        subprocess.run(cmd + [url], check=True, capture_output=True, timeout=1800, **_no_window())
+    else:
+        import yt_dlp  # bundled fallback
+        opts = {"format": fmt, "outtmpl": out_tmpl, "noplaylist": True, "quiet": True}
+        with yt_dlp.YoutubeDL(opts) as y:
+            y.download([url])
     files = glob.glob(os.path.join(out_dir, "video.*"))
     if not files:
         raise RuntimeError("download produced no file")
     return max(files, key=os.path.getsize)
 
 
-def handle(req):
-    rid = req["id"]
-    log(f"claimed request #{rid}: {req['url']}")
-    with tempfile.TemporaryDirectory() as d:
-        try:
-            path = download(req["url"], d, req.get("audio_only", True))
-            log(f"  downloaded {os.path.basename(path)} ({os.path.getsize(path)//1024} KB); uploading…")
-            data = {"apply_correction": str(bool(req.get("apply_correction", True))).lower()}
-            if req.get("tag"):
-                data["tag"] = req["tag"]
-            if req.get("language"):
-                data["language"] = req["language"]
-            with open(path, "rb") as f:
-                r = requests.post(
-                    f"{API}/video-analysis/auto-drills-upload",
-                    files={"video": (os.path.basename(path), f, "application/octet-stream")},
-                    data=data, headers=HDRS, timeout=900,
-                )
-            r.raise_for_status()
-            job_id = r.json().get("job_id")
-            requests.post(f"{API}/capture/{rid}/done", json={"job_id": job_id}, headers=HDRS, timeout=60)
-            log(f"  uploaded -> pipeline job {job_id}. Render is making drills.")
-        except Exception as e:
-            log(f"  FAILED: {e}")
+# ---------------------------------------------------------------- queue worker
+class Agent:
+    def __init__(self, api: str, api_key: str, poll: int, cfg: dict):
+        self.api = api.rstrip("/")
+        self.poll = poll
+        self.cfg = cfg
+        self.hdrs = {"X-Agent-Version": __version__}
+        if api_key:
+            self.hdrs["X-API-Key"] = api_key
+        self.stop = threading.Event()
+        self.done_count = 0
+
+    def handle(self, req: dict) -> None:
+        rid = req["id"]
+        log(f"claimed request #{rid}: {req['url']}")
+        set_status("busy", f"Descarregant #{rid}…")
+        with tempfile.TemporaryDirectory() as d:
             try:
-                requests.post(f"{API}/capture/{rid}/fail", json={"error": str(e)[:400]}, headers=HDRS, timeout=60)
-            except Exception:
-                pass
+                path = download(req["url"], d, req.get("audio_only", True), self.cfg)
+                log(f"  downloaded {os.path.basename(path)} ({os.path.getsize(path)//1024} KB); uploading...")
+                set_status("busy", f"Pujant #{rid}…")
+                data = {"apply_correction": str(bool(req.get("apply_correction", True))).lower()}
+                if req.get("tag"):
+                    data["tag"] = req["tag"]
+                if req.get("language"):
+                    data["language"] = req["language"]
+                with open(path, "rb") as f:
+                    r = requests.post(
+                        f"{self.api}/video-analysis/auto-drills-upload",
+                        files={"video": (os.path.basename(path), f, "application/octet-stream")},
+                        data=data, headers=self.hdrs, timeout=900,
+                    )
+                r.raise_for_status()
+                job_id = r.json().get("job_id")
+                requests.post(f"{self.api}/capture/{rid}/done", json={"job_id": job_id}, headers=self.hdrs, timeout=60)
+                self.done_count += 1
+                log(f"  uploaded -> pipeline job {job_id}. The server is making drills.")
+                set_status("idle", f"Fet #{rid} · el servidor crea els drills")
+            except subprocess.CalledProcessError as e:
+                err = (e.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+                msg = err[-1] if err else f"yt-dlp exit {e.returncode}"
+                self.fail(rid, msg)
+            except Exception as e:
+                self.fail(rid, str(e))
 
-
-def main():
-    log(f"agent started - backend {API} - polling every {POLL}s. Leave this running.")
-    while True:
+    def fail(self, rid: int, msg: str) -> None:
+        log(f"  FAILED #{rid}: {msg}")
+        set_status("error", f"Ha fallat #{rid}: {msg[:80]}")
         try:
-            r = requests.get(f"{API}/capture/pending", headers=HDRS, timeout=40)
-            req = (r.json() or {}).get("request") if r.status_code == 200 else None
-            if req:
-                handle(req)
-                continue  # check again immediately in case more are queued
+            requests.post(f"{self.api}/capture/{rid}/fail", json={"error": msg[:400]}, headers=self.hdrs, timeout=60)
+        except Exception:
+            pass
+
+    def run(self, once: bool = False) -> None:
+        log(f"agent v{__version__} started - backend {self.api} - polling every {self.poll}s")
+        set_status("idle", "Connectat · esperant URLs")
+        errors = 0
+        while not self.stop.is_set():
+            try:
+                r = requests.get(f"{self.api}/capture/pending", headers=self.hdrs, timeout=40)
+                req = (r.json() or {}).get("request") if r.status_code == 200 else None
+                if errors:
+                    errors = 0
+                    set_status("idle", "Connectat · esperant URLs")
+                if req:
+                    self.handle(req)
+                    continue
+                if once:
+                    return
+            except Exception as e:
+                errors += 1
+                log(f"(poll error: {e})")
+                set_status("error", "Sense connexió amb el servidor" if errors > 2 else "Connectant…")
+                if once:
+                    return
+            self.stop.wait(min(self.poll * (2 if errors > 5 else 1), 60))
+
+
+# ---------------------------------------------------------------- install
+def install_dir() -> str:
+    return app_dir()
+
+
+def installed_exe() -> str:
+    return os.path.join(install_dir(), "TachelhitCaptureAgent.exe" if IS_WIN else "TachelhitCaptureAgent")
+
+
+def startup_entry() -> str:
+    if IS_WIN:
+        return os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Start Menu",
+                            "Programs", "Startup", "Tachelhit Capture Agent.lnk")
+    if IS_MAC:
+        return os.path.expanduser("~/Library/LaunchAgents/com.tachelhit.capture.plist")
+    return os.path.expanduser("~/.config/autostart/tachelhit-capture.desktop")
+
+
+def do_install(args) -> str:
+    """Copy the frozen executable to the per-user folder and register autostart."""
+    if not FROZEN:
+        raise SystemExit("--install is for the packaged build; as a script see tools/README.md.")
+    target = installed_exe()
+    src = os.path.abspath(sys.executable)
+    if os.path.abspath(src) != os.path.abspath(target):
+        shutil.copy2(src, target)
+        if not IS_WIN:
+            os.chmod(target, 0o755)
+    cfg = load_config()
+    if args.api:
+        cfg["api"] = args.api
+    if args.key:
+        cfg["api_key"] = args.key
+    cfg.setdefault("api", DEFAULT_API)
+    save_config(cfg)
+    entry = startup_entry()
+    os.makedirs(os.path.dirname(entry), exist_ok=True)
+    if IS_WIN:
+        ps = (f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{entry}');"
+              f"$s.TargetPath='{target}';$s.WorkingDirectory='{install_dir()}';"
+              f"$s.Description='Tachelhit Capture Agent';$s.Save()")
+        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                       check=True, capture_output=True, **_no_window())
+    elif IS_MAC:
+        with open(entry, "w") as f:
+            f.write(
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+                '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+                '<plist version="1.0"><dict>\n'
+                '  <key>Label</key><string>com.tachelhit.capture</string>\n'
+                f'  <key>ProgramArguments</key><array><string>{target}</string></array>\n'
+                '  <key>RunAtLoad</key><true/>\n'
+                '  <key>KeepAlive</key><false/>\n'
+                '</dict></plist>\n')
+    else:
+        with open(entry, "w") as f:
+            f.write("[Desktop Entry]\nType=Application\nName=Tachelhit Capture Agent\n"
+                    f"Exec={target}\nX-GNOME-Autostart-enabled=true\n")
+    log(f"installed to {target}; autostart entry {entry}")
+    return target
+
+
+def do_uninstall() -> None:
+    for p in (startup_entry(), LOCK_PATH):
+        try:
+            os.remove(p)
+        except FileNotFoundError:
+            pass
+    notify_user("Agent de captura", "Desinstal·lat: ja no s'engegarà en iniciar sessió.\n"
+                f"Pots esborrar la carpeta {install_dir()} si vols.")
+
+
+def acquire_lock() -> bool:
+    """One agent per user: refuse to start if another instance is alive."""
+    try:
+        if os.path.exists(LOCK_PATH):
+            with open(LOCK_PATH) as f:
+                pid = int(f.read().strip() or 0)
+            if pid and pid != os.getpid() and _pid_alive(pid):
+                return False
+        with open(LOCK_PATH, "w") as f:
+            f.write(str(os.getpid()))
+        return True
+    except Exception:
+        return True
+
+
+def _pid_alive(pid: int) -> bool:
+    if IS_WIN:
+        import ctypes
+        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        ctypes.windll.kernel32.CloseHandle(h)
+        return True
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+# ---------------------------------------------------------------- tray
+def run_tray(agent: Agent) -> None:
+    """System-tray icon with live status; falls back to console mode if pystray is missing."""
+    global _status_cb
+    try:
+        import pystray
+        from PIL import Image, ImageDraw
+    except ImportError:
+        log("(pystray/Pillow not available: running in console mode)")
+        agent.run()
+        return
+
+    colors = {"idle": (46, 75, 140), "busy": (217, 119, 6), "error": (190, 24, 93)}
+
+    def make_icon(state: str) -> Image.Image:
+        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        d.rounded_rectangle((2, 2, 62, 62), radius=14, fill=colors.get(state, colors["idle"]))
+        # a stylised yaz: vertical bar + two arcs
+        d.line((32, 14, 32, 50), fill="white", width=6)
+        d.arc((14, 4, 50, 34), 0, 180, fill="white", width=6)
+        d.arc((14, 30, 50, 60), 180, 360, fill="white", width=6)
+        return img
+
+    status = {"state": "idle", "text": "Engegant…"}
+
+    def on_status(state: str, text: str) -> None:
+        status.update(state=state, text=text)
+        try:
+            icon.icon = make_icon(state)
+            icon.title = f"Tachelhit Capture · {text}"
+            icon.update_menu()
+        except Exception:
+            pass
+
+    def quit_(icon_, _item):
+        agent.stop.set()
+        icon_.stop()
+
+    menu = pystray.Menu(
+        pystray.MenuItem(lambda _i: status["text"], None, enabled=False),
+        pystray.MenuItem(lambda _i: f"Captures fetes: {agent.done_count}", None, enabled=False),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Obre l'app (Captura)", lambda: webbrowser.open(WEB_APP)),
+        pystray.MenuItem("Obre el registre", lambda: _open_path(LOG_PATH)),
+        pystray.MenuItem("Obre la carpeta de l'agent", lambda: _open_path(install_dir())),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem(f"Versió {__version__}", None, enabled=False),
+        pystray.MenuItem("Surt", quit_),
+    )
+    icon = pystray.Icon("tachelhit-capture", make_icon("idle"), "Tachelhit Capture", menu)
+    _status_cb = on_status
+    threading.Thread(target=agent.run, daemon=True).start()
+    icon.run()
+
+
+def _open_path(p: str) -> None:
+    try:
+        if IS_WIN:
+            os.startfile(p)  # type: ignore[attr-defined]
+        elif IS_MAC:
+            subprocess.Popen(["open", p])
+        else:
+            subprocess.Popen(["xdg-open", p])
+    except Exception as e:
+        log(f"(cannot open {p}: {e})")
+
+
+# ---------------------------------------------------------------- main
+def main(argv=None) -> int:
+    global _console
+    ap = argparse.ArgumentParser(description="Tachelhit capture agent")
+    ap.add_argument("--api", help=f"backend URL (default {DEFAULT_API})")
+    ap.add_argument("--key", help="X-API-Key if the backend enforces one")
+    ap.add_argument("--poll", type=int, help="seconds between queue checks (default 8)")
+    ap.add_argument("--console", action="store_true", help="no tray icon, log to the terminal")
+    ap.add_argument("--install", action="store_true")
+    ap.add_argument("--uninstall", action="store_true")
+    ap.add_argument("--once", action="store_true", help="process the queue once and exit")
+    ap.add_argument("--version", action="version", version=f"TachelhitCaptureAgent {__version__}")
+    args = ap.parse_args(argv)
+
+    trim_log()
+    cfg = load_config()
+    # env vars keep working for scripted use; CLI flags win; config.json remembers.
+    api = args.api or os.getenv("TACHELHIT_API") or cfg.get("api") or DEFAULT_API
+    key = args.key or os.getenv("TACHELHIT_API_KEY") or cfg.get("api_key", "")
+    poll = args.poll or int(os.getenv("CAPTURE_POLL_SECS") or cfg.get("poll") or 8)
+    if args.api or args.key or args.poll:
+        cfg.update({k: v for k, v in (("api", args.api), ("api_key", args.key), ("poll", args.poll)) if v})
+        save_config(cfg)
+
+    if args.uninstall:
+        do_uninstall()
+        return 0
+    if args.install:
+        target = do_install(args)
+        notify_user("Agent de captura", f"Instal·lat. S'engegarà sol en iniciar sessió.\n{target}")
+        return 0
+
+    # Frozen build, double-clicked from the Downloads folder: install itself and
+    # hand over to the installed copy, so one click is the whole setup.
+    if FROZEN and not args.once and os.path.abspath(sys.executable) != os.path.abspath(installed_exe()):
+        _console = False
+        try:
+            target = do_install(args)
         except Exception as e:
-            log(f"(poll error: {e})")
-        time.sleep(POLL)
+            notify_user("Agent de captura", f"No s'ha pogut instal·lar: {e}")
+            return 1
+        subprocess.Popen([target], cwd=install_dir(), close_fds=True, **_no_window())
+        notify_user("Agent de captura", "Instal·lat i en marxa a la safata del sistema.\n"
+                    "S'engegarà sol cada cop que iniciïs sessió.\n"
+                    "Ja pots enganxar URLs a la pantalla Captura de l'app.")
+        return 0
+
+    _console = args.console or not FROZEN
+    if not acquire_lock():
+        notify_user("Agent de captura", "Ja hi ha un agent en marxa (mira la safata del sistema).")
+        return 0
+
+    agent = Agent(api, key, poll, cfg)
+    try:
+        if args.once or _console:
+            agent.run(once=args.once)
+        else:
+            run_tray(agent)
+    except KeyboardInterrupt:
+        log("agent stopped.")
+    finally:
+        try:
+            os.remove(LOCK_PATH)
+        except OSError:
+            pass
+    return 0
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        log("agent stopped.")
+    sys.exit(main())

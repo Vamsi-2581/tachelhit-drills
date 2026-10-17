@@ -1,58 +1,54 @@
-# Local capture — download on your computer, process on Render
+# Local capture — download on your computer, process on the server
 
-YouTube blocks `yt-dlp` from Render's datacenter IP, so URL capture in the app
-often fails. This helper does the **download on your own computer** (your home
-IP isn't blocked) and then hands the file to Render, which does the rest
-server-side: **transcribe → correct → translate → create drills**. The drills
-appear in the app's Drills list.
+YouTube blocks `yt-dlp` from Render's datacenter IP, so URL capture done by the
+server fails (and risks the server IP being banned). The **capture agent** runs on
+your own computer instead: it downloads on your home IP and hands the file to the
+backend, which does the rest — **transcribe → correct → translate → create drills**.
+You only paste URLs in the app's *Captura* screen.
 
-## One-time setup
+## Install it (one double-click)
+Download from the GitHub release **`capture-agent`** (the *Captura* screen links to
+it when no agent is connected):
+
+| | File | Notes |
+|---|---|---|
+| Windows | `TachelhitCaptureAgent.exe` | SmartScreen may ask "Run anyway" (unsigned). |
+| macOS | `TachelhitCaptureAgent-macos.zip` | Unzip → right-click → Open (not notarised). |
+
+Double-click it **once**. It copies itself to a per-user folder
+(`%LOCALAPPDATA%\TachelhitCapture` on Windows, `~/Library/Application Support/TachelhitCapture`
+on macOS), registers itself to **start at login**, and lives in the **system tray**
+(blue = idle, orange = downloading/uploading, red = error). The tray menu opens the
+app, the log, and quits.
+
+On first use it fetches `yt-dlp` (and the `deno` JS runtime YouTube now needs) from
+their official releases into that folder; `yt-dlp` self-updates once a day.
+
+The *Captura* screen shows a green dot "Agent de captura connectat" when it is polling.
+
+### Uninstall
+Run `TachelhitCaptureAgent.exe --uninstall` (removes the start-at-login entry), then
+delete the folder above.
+
+## Run it as a script instead
 ```
-pip install yt-dlp requests
+pip install requests yt-dlp pystray pillow
+python tools/capture_agent.py --console                       # against Render
+python tools/capture_agent.py --console --api http://127.0.0.1:8000   # local backend
 ```
-Also install **ffmpeg** and make sure it's on your PATH (needed to extract audio).
+Flags: `--api URL`, `--key X-API-KEY`, `--poll SECONDS`, `--once` (drain the queue and
+exit), `--install` / `--uninstall` (packaged build only). Env vars `TACHELHIT_API`,
+`TACHELHIT_API_KEY`, `CAPTURE_POLL_SECS` still work. Settings are remembered in
+`config.json` in the agent folder.
 
-## Use it
-Double-click **`capture.bat`** and paste a URL, or from a terminal:
-```
-python capture_youtube.py "https://www.youtube.com/watch?v=XXXX"
-```
-Options:
-```
-python capture_youtube.py "<url>" --tag lesson1 --lang shi --audio-only
-```
-- `--tag`  tag to put on the created drills
-- `--lang` ASR language hint (e.g. `shi`)
-- `--audio-only` download just the audio (faster; use when you don't need the video clip)
+`capture_agent.bat` / `start_agent_hidden.vbs` are the pre-installer way to run the
+script on Windows; `capture_youtube.py` / `capture.bat` do one URL per run.
 
-It downloads, uploads to Render, then prints progress
-(`TRANSCRIBING → CORRECTING → TRANSLATING → CREATING_DRILLS`) until it reports
-`drills_created`. Then open the app and review them.
-
-## Hands-off mode: the background AGENT (recommended)
-Instead of running a command per video, run the **agent** once and then just use
-the web app. The agent watches Render for URLs you queue and downloads them
-automatically on your IP.
-
-**One-time setup:** `pip install yt-dlp requests` + ffmpeg on PATH.
-
-**Start it:**
-- Double-click **`capture_agent.bat`** (a window stays open showing activity), or
-- For silent auto-start at login: put a shortcut to **`start_agent_hidden.vbs`**
-  in your Startup folder — press `Win+R`, type `shell:startup`, drop the shortcut
-  there. Now it runs invisibly every time you log in.
-
-**Then:** in the web app's *Captura* screen, paste a YouTube URL and submit. The
-agent downloads it and Render makes drills — you don't touch anything else.
-
-(The one-shot `capture.bat` above still works too, if you prefer per-video.)
-
-## Config (optional)
-- `TACHELHIT_API` — backend URL (defaults to the Render one)
-- `TACHELHIT_API_KEY` — only if the backend enforces `X-API-Key`
-- `CAPTURE_POLL_SECS` — agent poll interval (default 8)
+## How the builds are made
+`.github/workflows/capture-agent.yml` packages `tools/capture_agent.py` with
+PyInstaller on Windows and macOS runners and attaches both files to the
+`capture-agent` release on every push to `main` that touches the agent.
 
 ## Notes
-- Still needs the **ASR + translation Spaces awake** on HuggingFace (that's the
-  work the server does). Keep them running / deploy the consolidated NLP Space.
-- Nothing is uploaded to YouTube or anywhere except your own Render backend.
+- The server still needs the ASR + translation HuggingFace Spaces awake.
+- Nothing is uploaded anywhere except your own backend.

@@ -14,7 +14,7 @@ from fastapi.encoders import jsonable_encoder
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 import hashlib
 import re
 import secrets
@@ -2761,6 +2761,20 @@ async def auto_drills_from_upload(
 # The web app queues a URL here; a local agent (tools/capture_agent.py) running
 # on the user's machine polls, downloads it on their residential IP (dodging
 # YouTube's block of Render's IP), and uploads the file back — no manual step.
+# Liveness of the local agent: the single-worker backend remembers the last
+# poll so the web app can tell the user whether an agent is connected before
+# they queue a URL that nobody will download.
+_capture_agent_seen: Dict[str, Any] = {"at": None, "version": None}
+
+
+@app.get("/capture/agent")
+def capture_agent_status():
+    at = _capture_agent_seen.get("at")
+    online = bool(at and (datetime.utcnow() - at).total_seconds() < 45)
+    return {"online": online, "last_seen": at.isoformat() + "Z" if at else None,
+            "version": _capture_agent_seen.get("version")}
+
+
 @app.post("/capture/request")
 def capture_request(
     url: str = Body(..., embed=True),
@@ -2783,9 +2797,11 @@ def capture_request(
 
 
 @app.get("/capture/pending")
-def capture_pending(db: Session = Depends(get_db)):
+def capture_pending(request: Request, db: Session = Depends(get_db)):
     """The local agent polls this: returns and CLAIMS the oldest pending
     request, or {request: null} when the queue is empty."""
+    _capture_agent_seen["at"] = datetime.utcnow()
+    _capture_agent_seen["version"] = request.headers.get("X-Agent-Version")
     req = (db.query(CaptureRequestModel)
            .filter(CaptureRequestModel.status == "pending")
            .order_by(CaptureRequestModel.created_at.asc()).first())
