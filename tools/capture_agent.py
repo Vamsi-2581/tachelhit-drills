@@ -16,7 +16,8 @@ Two ways to use it
                    python tools/capture_agent.py --console
 
 Command line
-  --api URL        backend base URL (default https://tachelhit-drills-api.onrender.com)
+  --api URL[,URL]  backend base URL(s), comma-separated to serve several (default
+                   https://tachelhit-drills-api.onrender.com)
   --key KEY        X-API-Key, only if the backend enforces one
   --poll SECONDS   queue check interval (default 8)
   --console        no tray icon; log to the terminal (what the .py defaults to)
@@ -54,7 +55,7 @@ try:
 except ImportError:  # the frozen build always has it
     sys.exit("Missing dependency. Run:  pip install requests yt-dlp")
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 APP_NAME = "TachelhitCapture"
 DEFAULT_API = "https://tachelhit-drills-api.onrender.com"
 WEB_APP = "https://tachelhit-drills.vercel.app/video-creator"
@@ -260,7 +261,10 @@ def download(url: str, out_dir: str, audio_only: bool, cfg: dict) -> str:
 # ---------------------------------------------------------------- queue worker
 class Agent:
     def __init__(self, api: str, api_key: str, poll: int, cfg: dict):
-        self.api = api.rstrip("/")
+        # One agent can serve several backends (e.g. production + a local dev
+        # server): each request is answered to the backend that queued it.
+        self.apis = [a.strip().rstrip("/") for a in api.split(",") if a.strip()]
+        self.api = self.apis[0]
         self.poll = poll
         self.cfg = cfg
         self.hdrs = {"X-Agent-Version": __version__}
@@ -269,7 +273,8 @@ class Agent:
         self.stop = threading.Event()
         self.done_count = 0
 
-    def handle(self, req: dict) -> None:
+    def handle(self, req: dict, api: str | None = None) -> None:
+        api = api or self.api
         rid = req["id"]
         log(f"claimed request #{rid}: {req['url']}")
         set_status("busy", f"Descarregant #{rid}…")
@@ -285,54 +290,59 @@ class Agent:
                     data["language"] = req["language"]
                 with open(path, "rb") as f:
                     r = requests.post(
-                        f"{self.api}/video-analysis/auto-drills-upload",
+                        f"{api}/video-analysis/auto-drills-upload",
                         files={"video": (os.path.basename(path), f, "application/octet-stream")},
                         data=data, headers=self.hdrs, timeout=900,
                     )
                 r.raise_for_status()
                 job_id = r.json().get("job_id")
-                requests.post(f"{self.api}/capture/{rid}/done", json={"job_id": job_id}, headers=self.hdrs, timeout=60)
+                requests.post(f"{api}/capture/{rid}/done", json={"job_id": job_id}, headers=self.hdrs, timeout=60)
                 self.done_count += 1
                 log(f"  uploaded -> pipeline job {job_id}. The server is making drills.")
                 set_status("idle", f"Fet #{rid} · el servidor crea els drills")
             except subprocess.CalledProcessError as e:
                 err = (e.stderr or b"").decode("utf-8", "replace").strip().splitlines()
                 msg = err[-1] if err else f"yt-dlp exit {e.returncode}"
-                self.fail(rid, msg)
+                self.fail(rid, msg, api)
             except Exception as e:
-                self.fail(rid, str(e))
+                self.fail(rid, str(e), api)
 
-    def fail(self, rid: int, msg: str) -> None:
+    def fail(self, rid: int, msg: str, api: str | None = None) -> None:
+        api = api or self.api
         log(f"  FAILED #{rid}: {msg}")
         set_status("error", f"Ha fallat #{rid}: {msg[:80]}")
         try:
-            requests.post(f"{self.api}/capture/{rid}/fail", json={"error": msg[:400]}, headers=self.hdrs, timeout=60)
+            requests.post(f"{api}/capture/{rid}/fail", json={"error": msg[:400]}, headers=self.hdrs, timeout=60)
         except Exception:
             pass
 
     def run(self, once: bool = False) -> None:
-        log(f"agent v{__version__} started - backend {self.api} - polling every {self.poll}s")
+        log(f"agent v{__version__} started - backends {', '.join(self.apis)} - polling every {self.poll}s")
         set_status("idle", "Connectat · esperant URLs")
-        errors = 0
+        errors = {a: 0 for a in self.apis}
         while not self.stop.is_set():
-            try:
-                r = requests.get(f"{self.api}/capture/pending", headers=self.hdrs, timeout=40)
-                req = (r.json() or {}).get("request") if r.status_code == 200 else None
-                if errors:
-                    errors = 0
-                    set_status("idle", "Connectat · esperant URLs")
-                if req:
-                    self.handle(req)
-                    continue
-                if once:
-                    return
-            except Exception as e:
-                errors += 1
-                log(f"(poll error: {e})")
-                set_status("error", "Sense connexió amb el servidor" if errors > 2 else "Connectant…")
-                if once:
-                    return
-            self.stop.wait(min(self.poll * (2 if errors > 5 else 1), 60))
+            handled = False
+            for api in self.apis:
+                try:
+                    r = requests.get(f"{api}/capture/pending", headers=self.hdrs, timeout=40)
+                    req = (r.json() or {}).get("request") if r.status_code == 200 else None
+                    errors[api] = 0
+                    if req:
+                        self.handle(req, api)
+                        handled = True
+                except Exception as e:
+                    errors[api] += 1
+                    if errors[api] <= 3 or errors[api] % 50 == 0:
+                        log(f"(poll error {api}: {e})")
+            if all(v > 2 for v in errors.values()):
+                set_status("error", "Sense connexió amb cap servidor")
+            elif not handled:
+                set_status("idle", "Connectat · esperant URLs")
+            if handled:
+                continue  # check again right away in case more are queued
+            if once:
+                return
+            self.stop.wait(min(self.poll * (2 if min(errors.values()) > 5 else 1), 60))
 
 
 # ---------------------------------------------------------------- install
