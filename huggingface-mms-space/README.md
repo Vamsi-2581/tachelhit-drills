@@ -1,11 +1,10 @@
 ---
-title: ASR MMS (Amazigh varieties)
+title: ASR MMS (Amazigh varieties) — tachelhit-asr-service
 emoji: 🎙️
 colorFrom: indigo
 colorTo: yellow
-sdk: gradio
-sdk_version: 4.44.1
-app_file: app.py
+sdk: docker
+app_port: 7860
 pinned: false
 license: cc-by-nc-4.0
 ---

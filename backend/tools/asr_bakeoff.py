@@ -113,8 +113,15 @@ def cmd_build(args) -> None:
         if not url or not text:
             print(f"skip #{r['id']}: needs media and text")
             continue
+        if url.startswith("/"):  # media served by the backend itself (speaker recordings)
+            url = args.api.rstrip("/") + url
         wav = os.path.join(WORK, f"clip_{r['id']}.wav")
-        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", url, "-vn", "-ac", "1", "-ar", "16000", wav], check=True, timeout=300)
+        try:
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", url, "-vn", "-ac", "1", "-ar", "16000", wav],
+                           check=True, capture_output=True, timeout=300)
+        except subprocess.CalledProcessError as e:
+            print(f"skip #{r['id']}: media unreadable ({(e.stderr or b'').decode(errors='replace').strip()[:80]})")
+            continue
         gold.append({"id": r["id"], "wav": wav, "ref": text, "latin": r.get("text_tachelhit_latin"),
                      "variety": args.variety or r.get("variety"), "seconds": [r.get("video_start_time"), r.get("video_end_time")]})
         print(f"#{r['id']} {text}  ({os.path.getsize(wav) // 32000}s)")
