@@ -600,3 +600,31 @@ def test_merge_frame_items_lookalikes_and_slogan():
     segs = main.merge_frame_items(items, every=2.0, ignore="Tamazight For All")
     assert [x["text"] for x in segs] == ["ⴱ", "ⴰⵖⵔⵓⵎ"]
     assert segs[1]["end"] == 172.0  # the misread frame extended the span instead of making a drill
+
+
+def test_apply_lesson_vocabulary():
+    vocab = {"letters": [{"name": "yab", "latin": "b"}],
+             "words": [{"latin": "ibba", "meaning_en": "my father"}, {"latin": "abghan", "meaning_en": "black"},
+                       {"latin": "ibbi", "meaning_en": "to cut"}, {"latin": "abgur", "meaning_en": "squirrel"}]}
+    segs = [  # what the frame reader actually produced on Lesson #02 (misreads included)
+        {"start": 36, "end": 40, "text": "ⴱ", "tifinagh": "ⴱ", "latin": "b", "gloss": None, "gloss_lang": None, "kind": "letter"},
+        {"start": 48, "end": 66, "text": "ⵄⴱⵔ", "tifinagh": "ⵄⴱⵔ", "latin": "ɛbr", "gloss": "april", "gloss_lang": "en", "kind": "word"},
+        {"start": 96, "end": 120, "text": "ⴰⴱⵅⵅⵍ", "tifinagh": "ⴰⴱⵅⵅⵍ", "latin": "abxxl", "gloss": "unknown", "gloss_lang": "en", "kind": "word"},
+        {"start": 134, "end": 142, "text": "ⵄⴱⴱ", "tifinagh": "ⵄⴱⴱ", "latin": "ɛbb", "gloss": "carry", "gloss_lang": "en", "kind": "word"},
+        {"start": 168, "end": 196, "text": "ⴱⵅⵔⵓ", "tifinagh": "ⴱⵅⵔⵓ", "latin": "bxru", "gloss": "none", "gloss_lang": "en", "kind": "word"},
+    ]
+    out = main.apply_lesson_vocabulary(segs, vocab)
+    assert [(x["tifinagh"], x["latin"], x["gloss"]) for x in out] == [
+        ("ⴱ", "b", "letter yab (b)"), ("ⵉⴱⴱⴰ", "ibba", "my father"), ("ⴰⴱⵖⴰⵏ", "abɣan", "black"),
+        ("ⵉⴱⴱⵉ", "ibbi", "to cut"), ("ⴰⴱⴳⵓⵔ", "abgur", "squirrel")]
+    assert [x["start"] for x in out] == [36, 48, 96, 134, 168]
+
+
+def test_merge_frame_items_spelling_out():
+    items = [{"t": 48, "kind": "partial", "tifinagh": "ⵉ", "latin": "i"},
+             {"t": 50, "kind": "word", "tifinagh": "ⵉⴱ", "latin": "ib"},
+             {"t": 52, "kind": "word", "tifinagh": "ⵉⴱⴱ", "latin": "ibb"},
+             {"t": 54, "kind": "word", "tifinagh": "ⵉⴱⴱⴰ", "latin": "ibba", "meaning_en": "my father"},
+             {"t": 56, "kind": "word", "tifinagh": "ⵉⴱⴱⴰ", "latin": "ibba", "meaning_en": "my father"}]
+    segs = main.merge_frame_items(items, every=2.0)
+    assert len(segs) == 1 and segs[0]["latin"] == "ibba" and segs[0]["start"] == 50.0 and segs[0]["end"] == 58.0

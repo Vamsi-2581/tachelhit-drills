@@ -48,7 +48,8 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
     const [isMobile, setIsMobile] = useState(isMobileLayout);
     const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
     // Inline media preview (video/audio) opened from the grid or the cards.
-    const [preview, setPreview] = useState<{ url: string; kind: 'video' | 'audio'; title?: string } | null>(null);
+    const [preview, setPreview] = useState<{ url: string; kind: 'video' | 'audio'; title?: string; drillId?: number } | null>(null);
+    const [autoNext, setAutoNext] = useState(true); // keep playing the next clip when one ends
     const [selectedRows, setSelectedRows] = useState<Drill[]>([]);
     const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
     const [recordDrill, setRecordDrill] = useState<Drill | null>(null);
@@ -372,16 +373,50 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
         </div>
     );
 
+    // Walk the current (filtered, ordered) list: a story or lesson plays in video order.
+    const playable = rowData.filter((d) => d.video_url || d.audio_url);
+    const previewIndex = preview?.drillId != null ? playable.findIndex((d) => d.id === preview.drillId) : -1;
+    const openPreviewOf = (d: Drill) => {
+        const url = d.video_url ? getMediaUrl(d.video_url) : getMediaUrl(d.audio_url!);
+        setPreview({ url, kind: d.video_url ? 'video' : 'audio', title: d.text_catalan || d.text_tachelhit || `Drill #${d.id}`, drillId: d.id });
+    };
+    const previewStep = (delta: number) => {
+        if (previewIndex < 0) return;
+        const next = playable[previewIndex + delta];
+        if (next) openPreviewOf(next);
+    };
+
+    useEffect(() => {
+        if (!preview) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'ArrowRight') previewStep(1);
+            else if (e.key === 'ArrowLeft') previewStep(-1);
+            else if (e.key === 'Escape') setPreview(null);
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [preview, previewIndex]);
+
     const previewDialog = preview && (
         <div style={overlayStyle} onClick={() => setPreview(null)}>
             <div onClick={(e) => e.stopPropagation()} style={{ background: '#000', borderRadius: 'var(--r-xl)', width: '100%', maxWidth: preview.kind === 'video' ? '720px' : '420px', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }}>
                 {preview.kind === 'video' ? (
-                    <video src={preview.url} controls autoPlay playsInline style={{ display: 'block', width: '100%', maxHeight: '75vh', background: '#000' }} />
+                    <video key={preview.url} src={preview.url} controls autoPlay playsInline onEnded={() => { if (autoNext) previewStep(1); }} style={{ display: 'block', width: '100%', maxHeight: '75vh', background: '#000' }} />
                 ) : (
-                    <audio src={preview.url} controls autoPlay style={{ display: 'block', width: '100%', padding: '16px', background: 'var(--surface)' }} />
+                    <audio key={preview.url} src={preview.url} controls autoPlay onEnded={() => { if (autoNext) previewStep(1); }} style={{ display: 'block', width: '100%', padding: '16px', background: 'var(--surface)' }} />
                 )}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--surface)' }}>
-                    <span style={{ flex: 1, fontSize: '13px', color: 'var(--text-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preview.title || ''}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--surface)', flexWrap: 'wrap' }}>
+                    <button onClick={() => previewStep(-1)} disabled={previewIndex <= 0} aria-label="Drill anterior" title="Anterior (←)"
+                        style={{ padding: '8px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: previewIndex <= 0 ? 'not-allowed' : 'pointer', opacity: previewIndex <= 0 ? 0.5 : 1, color: 'var(--text)' }}>◀</button>
+                    <button onClick={() => previewStep(1)} disabled={previewIndex < 0 || previewIndex >= playable.length - 1} aria-label="Drill següent" title="Següent (→)"
+                        style={{ padding: '8px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer', opacity: (previewIndex < 0 || previewIndex >= playable.length - 1) ? 0.5 : 1, color: 'var(--text)' }}>▶</button>
+                    <span style={{ flex: 1, fontSize: '13px', color: 'var(--text-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {previewIndex >= 0 ? `${previewIndex + 1}/${playable.length} · ` : ''}{preview.title || ''}
+                    </span>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-soft)', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={autoNext} onChange={(e) => setAutoNext(e.target.checked)} /> Seguit
+                    </label>
                     <a href={preview.url} target="_blank" rel="noreferrer" style={{ fontSize: '13px', color: 'var(--brand-1)', fontWeight: 700 }}>Obre en una pestanya</a>
                     <button onClick={() => setPreview(null)} style={{ padding: '8px 14px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer', color: 'var(--text)' }}>Tanca</button>
                 </div>
@@ -507,7 +542,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                             )}
                             {drill.video_url && (
                                 <button
-                                    onClick={() => setPreview({ url: getMediaUrl(drill.video_url!), kind: 'video', title: drill.text_catalan || drill.text_tachelhit || `Drill #${drill.id}` })}
+                                    onClick={() => openPreviewOf(drill)}
                                     style={{
                                         flex: 1,
                                         padding: '11px',
@@ -609,7 +644,11 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
           cellStyle: { 'line-height': '20px', 'padding-top': '10px', 'padding-bottom': '10px', 'color': 'var(--text)', 'font-weight': '600' } },
         { field: 'text_tachelhit', headerName: 'Tamazight', flex: 2, minWidth: 150, filter: true, wrapText: true, autoHeight: true, editable: true,
           tooltipValueGetter: (p: { data?: Drill }) => p.data?.text_tachelhit_suggested ? `Suggeriment IA: ${p.data.text_tachelhit_suggested}` : undefined,
-          cellRenderer: (p: { value?: string; data?: Drill }) => <span>{p.value}{p.data?.text_tachelhit_suggested ? <span title={`Suggeriment IA: ${p.data.text_tachelhit_suggested}`} style={{ marginLeft: 6, fontSize: 12 }}>💡</span> : null}</span>,
+          cellRenderer: (p: { value?: string; data?: Drill }) => p.value
+            ? <span>{p.value}{p.data?.text_tachelhit_suggested ? <span title={`Suggeriment IA: ${p.data.text_tachelhit_suggested}`} style={{ marginLeft: 6, fontSize: 12 }}>💡</span> : null}</span>
+            : (p.data?.text_tachelhit_suggested
+                ? <span title="Esborrany automàtic (no verificat): edita el drill per confirmar-lo" style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontWeight: 500 }}>{p.data.text_tachelhit_suggested}{p.data.text_tachelhit_latin ? <span style={{ display: 'block', fontSize: 11, fontFamily: 'var(--font-body)' }}>{p.data.text_tachelhit_latin}</span> : null}<span style={{ display: 'block', fontSize: 10, letterSpacing: '0.04em', textTransform: 'uppercase' }}>esborrany</span></span>
+                : null),
           cellStyle: { 'line-height': '20px', 'padding-top': '10px', 'padding-bottom': '10px', 'font-family': 'var(--font-tifinagh)', 'color': 'var(--brand-1)', 'font-weight': '700' } },
         { field: 'text_arabic', headerName: 'العربية', flex: 2, minWidth: 150, filter: true, wrapText: true, autoHeight: true, editable: true, cellStyle: { 'line-height': '20px', 'padding-top': '10px', 'padding-bottom': '10px', 'direction': 'rtl', 'color': 'var(--emerald)', 'font-weight': '600' } },
         { field: 'tag', headerName: 'Etiqueta', width: 120, filter: true, editable: true },
@@ -622,7 +661,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                         <button onClick={() => new Audio(getMediaUrl(params.data.audio_url)).play()} style={{ background: 'var(--brand-gradient-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '8px', cursor: 'pointer', color: 'var(--brand-1)' }} title="Reprodueix l'àudio" aria-label="Reprodueix l'àudio"><FaVolumeUp size={16} /></button>
                     )}
                     {params.data.video_url && (
-                        <button onClick={() => setPreview({ url: getMediaUrl(params.data.video_url), kind: 'video', title: params.data.text_catalan || params.data.text_tachelhit || `Drill #${params.data.id}` })} style={{ background: 'var(--brand-gradient-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '8px', cursor: 'pointer', color: 'var(--brand-2)' }} title="Reprodueix el vídeo" aria-label="Reprodueix el vídeo"><FaVideo size={16} /></button>
+                        <button onClick={() => openPreviewOf(params.data)} style={{ background: 'var(--brand-gradient-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '8px', cursor: 'pointer', color: 'var(--brand-2)' }} title="Reprodueix el vídeo" aria-label="Reprodueix el vídeo"><FaVideo size={16} /></button>
                     )}
                 </div>
             )

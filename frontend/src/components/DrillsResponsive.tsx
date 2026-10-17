@@ -165,6 +165,16 @@ export default function DrillsResponsive() {
       result = result.filter((drill: Drill) => (drill.variety || '') === varietyFilter);
     }
 
+    // A filtered list that comes from ONE captured video (a story, a lesson) reads
+    // in the video's order, not newest-first: sort by the clip's start second.
+    const filtering = Boolean(searchQuery.trim() || varietyFilter);
+    const sources = new Set(result.map((d: Drill) => d.source_url || ''));
+    const timed = result.filter((d: Drill) => d.video_start_time != null).length;
+    if (filtering && result.length > 1 && sources.size === 1 && !sources.has('') && timed >= result.length * 0.5) {
+      result = [...result].sort((a: Drill, b: Drill) =>
+        (a.video_start_time ?? Number.MAX_SAFE_INTEGER) - (b.video_start_time ?? Number.MAX_SAFE_INTEGER) || a.id - b.id);
+    }
+
     setFilteredDrills(result);
   }, [drills, searchQuery, searchCategory, varietyFilter, location.search]);
 
