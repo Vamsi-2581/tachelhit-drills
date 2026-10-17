@@ -104,9 +104,11 @@ export function sourceLink(d: { source_url?: string | null; video_start_time?: n
 }
 
 /** "Tamazight For All · Vocabulary of Tamazight" — what to credit, or null when the drill has no external source. */
-export function sourceCredit(d: { source_url?: string | null; source_channel?: string | null; source_title?: string | null }): string | null {
+export function sourceCredit(d: { source_url?: string | null; source_channel?: string | null; source_title?: string | null }, compact = false): string | null {
   if (!sourceLink(d)) return null;
-  const parts = [d.source_channel, d.source_title].map((x) => (x || '').trim()).filter(Boolean);
+  const channel = (d.source_channel || '').trim();
+  if (compact && channel) return channel;  // the grid column names the author
+  const parts = [channel, d.source_title].map((x) => (x || '').trim()).filter(Boolean);
   if (parts.length) return parts.join(' · ');
   try { return new URL(d.source_url as string).hostname.replace(/^www\./, ''); } catch { return 'font externa'; }
 }

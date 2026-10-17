@@ -30,7 +30,12 @@ best caption track** (uploaded captions first, automatic ones otherwise; languag
 shi/ber/zgh/tzm/kab/ar/ca/fr/es/en). With captions the server skips speech recognition:
 exact timings, one drill per cue, and bilingual cues like `agmar` / `horse` become
 Tamazight + translated gloss (Catalan/Arabic via Gemini), with the video section and
-its illustration frame. Downloads are kept 7 days in `downloads/` (tray menu →
+its illustration frame. Captions in another language (a story subtitled in Arabic) give
+Arabic + Catalan drills with the machine Tachelhit kept as a *draft* for a speaker to
+confirm; automatic (machine) captions are only used when they match the language you
+asked for. Every drill is catalogued and credited: channel, video title, playlist and
+licence travel with it, and the app shows "Font: <channel> · <title> ↗" linking to the
+original at the exact second. Downloads are kept 7 days in `downloads/` (tray menu →
 "Obre les descàrregues") so you can see exactly what was captured.
 
 The *Captura* screen shows a green dot "Agent de captura connectat" when it is polling.

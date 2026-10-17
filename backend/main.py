@@ -1,6 +1,8 @@
 # INFO: Project: Tachelhit Drills. Feature: ASR, Correction, Translation, Video Processing. Status: Active.
 import asyncio
 import os
+import glob
+import subprocess
 import json
 import traceback
 import tempfile
@@ -464,6 +466,128 @@ def translate_glosses(glosses: List[str], src_lang: str = "English",
                 print(f"[AUTO] Translation ({tgt}) failed for {g[:40]!r}: {e}")
         result[g] = entry
     return result
+
+
+# ---------------------------------------------------------------------------
+# Lesson mode (frame reading). Talking-head lessons show the letter / word on
+# screen (Tifinagh and often Latin) while the teacher explains in English or
+# Arabic; speech recognition of that is useless, the frames are the content.
+def extract_frames(video_path: str, out_dir: str, every: float = 2.0, width: int = 640) -> List[Tuple[float, str]]:
+    """One JPEG every `every` seconds -> [(second, path)]. Needs ffmpeg."""
+    os.makedirs(out_dir, exist_ok=True)
+    pattern = os.path.join(out_dir, "f_%05d.jpg")
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", video_path,
+                    "-vf", f"fps=1/{every},scale={width}:-2", "-q:v", "4", pattern],
+                   check=True, capture_output=True, timeout=600)
+    files = sorted(glob.glob(os.path.join(out_dir, "f_*.jpg")))
+    return [(i * every, f) for i, f in enumerate(files)]
+
+
+def _frame_items_from_gemini(frames: List[Tuple[float, str]]) -> List[Dict[str, Any]]:
+    """Ask Gemini what vocabulary is written on each frame (batched images)."""
+    import base64
+    from gemini_client import _generate_content
+    parts: List[Dict[str, Any]] = [{"text": (
+        "These are frames from a Tamazight (Amazigh) language lesson, each labelled with its second. "
+        "For EACH frame report the vocabulary text written on screen as part of the lesson: a Tifinagh "
+        "letter, a word or a short phrase, with its Latin transliteration (ɣ ḍ ḥ ṭ ẓ ɛ conventions) and "
+        "English meaning if it can be read or inferred from the frame. Write the tifinagh field with REAL "
+        "Tifinagh code points (U+2D30–U+2D7F), never Greek or Latin look-alikes (the letter that looks like Θ "
+        "is ⴱ yab, Ɛ is ⵄ yaɛ, O is ⵔ yar, X is ⵅ yax, E is ⵉ yai). For a single letter put its IRCAM name in "
+        "meaning_en (e.g. \"letter yab (b)\"). Ignore channel names, slogans, watermarks, social handles, "
+        "logos, UI chrome and background decorations. Answer ONLY with a JSON array of "
+        "objects {\"t\": second, \"kind\": \"letter\"|\"word\"|\"phrase\"|\"none\", \"tifinagh\": \"...\", "
+        "\"latin\": \"...\", \"meaning_en\": \"...\"} — one object per frame, kind \"none\" when there is no lesson text.")}]
+    for t, path in frames:
+        parts.append({"text": f"[frame t={t:.1f}s]"})
+        with open(path, "rb") as fh:
+            parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(fh.read()).decode()}})
+    payload = {"systemInstruction": {"parts": [{"text": "You are a careful reader of Tifinagh and Latin Amazigh text on screen."}]},
+               "contents": [{"role": "user", "parts": parts}],
+               "generationConfig": {"maxOutputTokens": 4000, "temperature": 0.1, "thinkingConfig": {"thinkingBudget": 0}}}
+    data = _generate_content(payload, 180)
+    text = "".join(pp.get("text", "") for pp in data["candidates"][0]["content"]["parts"])
+    m = re.search(r"\[.*\]", text, re.S)
+    items = json.loads(m.group(0)) if m else []
+    return [i for i in items if isinstance(i, dict)]
+
+
+_TIFINAGH_LOOKALIKES = str.maketrans({"Θ": "ⴱ", "θ": "ⴱ", "Ɛ": "ⵄ", "ɛ": "ⵄ", "O": "ⵔ", "X": "ⵅ", "Σ": "ⵙ",
+                                      "E": "ⵉ", "Λ": "ⵍ", "I": "ⵏ", "C": "ⵛ", "U": "ⵓ", "H": "ⵀ", "Z": "ⵣ",
+                                      "W": "ⵡ", "N": "ⴻ", "K": "ⴽ", "Q": "ⵇ", "+": "ⵜ", "V": "ⵖ", "Δ": "ⴷ"})
+
+
+def _tifinagh_or_none(txt: str) -> str:
+    """Gemini sometimes types Greek/Latin look-alikes for isolated Tifinagh
+    letters; map them when the string has no real Tifinagh at all."""
+    t = (txt or "").strip()
+    if not t or _TIFINAGH_RE.search(t):
+        return t
+    mapped = t.translate(_TIFINAGH_LOOKALIKES)
+    return mapped if _TIFINAGH_RE.search(mapped) and len(mapped) <= 3 else t
+
+
+def merge_frame_items(items: List[Dict[str, Any]], every: float = 2.0, min_len: float = 1.5,
+                      ignore: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Consecutive frames showing the same item -> one span. Returns segments
+    {start, end, text, tifinagh, latin, gloss, gloss_lang, kind}. Pure, testable.
+    `ignore`: the channel name — a slogan that reads like it is not a lesson item."""
+    def key(i):
+        return " ".join(str(i.get("tifinagh") or i.get("latin") or "").split()).lower()
+    import difflib
+    ign = " ".join((ignore or "").lower().replace("-", " ").split())
+    spans: List[Dict[str, Any]] = []
+    for i in sorted(items, key=lambda x: float(x.get("t") or 0)):
+        if i.get("tifinagh"):
+            i["tifinagh"] = _tifinagh_or_none(str(i["tifinagh"]))
+        k = key(i)
+        kind = (i.get("kind") or "none").lower()
+        if kind == "none" or not k:
+            continue
+        gloss = " ".join(str(i.get("meaning_en") or "").lower().split())
+        if ign and gloss and difflib.SequenceMatcher(None, gloss, ign).ratio() >= 0.6:
+            continue  # channel slogan ("Amazigh for all" ~ "Tamazight For All"), not vocabulary
+        t = float(i.get("t") or 0)
+        near_dup = bool(spans) and bool(spans[-1]["meaning_en"]) and spans[-1]["meaning_en"] == (i.get("meaning_en") or "") \
+            and difflib.SequenceMatcher(None, spans[-1]["_key"], k).ratio() >= 0.6
+        if spans and (spans[-1]["_key"] == k or near_dup) and t - spans[-1]["end"] <= every + 0.01:
+            spans[-1]["end"] = t + every
+            for f in ("latin", "meaning_en"):
+                if not spans[-1].get(f) and i.get(f):
+                    spans[-1][f] = i[f]
+            continue
+        spans.append({"_key": k, "start": t, "end": t + every, "kind": kind,
+                      "tifinagh": (i.get("tifinagh") or "").strip(), "latin": (i.get("latin") or "").strip(),
+                      "meaning_en": (i.get("meaning_en") or "").strip()})
+    out = []
+    for sp in spans:
+        if sp["end"] - sp["start"] < min_len:
+            sp["end"] = sp["start"] + min_len
+        text = sp["tifinagh"] or sp["latin"]
+        out.append({"start": round(sp["start"], 2), "end": round(sp["end"], 2), "text": text,
+                    "tifinagh": sp["tifinagh"] or None, "latin": sp["latin"] or None,
+                    "gloss": sp["meaning_en"] or None, "gloss_lang": "en" if sp["meaning_en"] else None,
+                    "kind": sp["kind"]})
+    return out
+
+
+def read_onscreen_vocabulary(video_path: str, tmp_dir: str, every: float = 2.0, batch: int = 12,
+                             ignore: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Frame reading end to end: frames -> Gemini (batched) -> merged spans.
+    Returns [] when Gemini is unavailable or nothing lesson-like is on screen."""
+    if not gemini_available():
+        return []
+    frames = extract_frames(video_path, os.path.join(tmp_dir, "frames"), every=every)
+    items: List[Dict[str, Any]] = []
+    for i in range(0, len(frames), batch):
+        chunk = frames[i:i + batch]
+        try:
+            items.extend(_frame_items_from_gemini(chunk))
+        except Exception as e:
+            print(f"[LESSON] frame batch {i // batch} failed: {e}")
+    segs = merge_frame_items(items, every=every, ignore=ignore)
+    print(f"[LESSON] {len(frames)} frames -> {len(items)} readings -> {len(segs)} on-screen items")
+    return segs
 
 
 def looks_like_junk_asr(text: Optional[str], attested: bool = True) -> Optional[str]:
@@ -2561,7 +2685,25 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         if not job:
             return
 
-        # Phase 1: transcription (skipped when platform subtitles already gave segments)
+        # Phase 1: no captions -> read the lesson text off the frames first
+        # (letters / words burned into the picture); only if the frames carry no
+        # lesson text do we fall back to speech recognition.
+        lesson_segments: List[Dict[str, Any]] = []
+        if not has_segments and not is_audio_file(video_path):
+            job.status = "READING_FRAMES"
+            db.commit()
+            try:
+                lesson_segments = await asyncio.to_thread(read_onscreen_vocabulary, video_path, tmp_dir,
+                                                          2.0, 12, meta.get("channel"))
+            except Exception as e:
+                print(f"[LESSON] frame reading failed: {e}")
+            if lesson_segments:
+                for seg in lesson_segments:
+                    db.add(VideoSegmentModel(job_id=job.id, segment_start_time=seg["start"],
+                                             segment_end_time=seg["end"], text_original=seg["text"]))
+                job.status = "COMPLETED"
+                db.commit()
+                has_segments = True
         if not has_segments:
             job.status = "TRANSCRIBING"
             db.commit()
@@ -2572,15 +2714,21 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                 return  # ASR failed; its task already recorded the error
 
         segments = []
-        for s_ in job.segments:
-            text_, gloss_, gloss_lang_ = split_bilingual_cue(s_.text_original) if has_segments else ((s_.text_original or ""), None, None)
-            segments.append({
-                "start": s_.segment_start_time,
-                "end": s_.segment_end_time,
-                "text": text_,
-                "gloss": gloss_,            # e.g. "horse" — translated instead of the Tamazight
-                "gloss_lang": gloss_lang_,  # "en"
-            })
+        if lesson_segments:
+            segments = lesson_segments
+            effective_source = "shi" if language in (None, "", "auto") else language
+        else:
+            db.expire_all()
+            job = db.query(VideoProcessingJobModel).filter(VideoProcessingJobModel.id == job_id).first()
+            for s_ in job.segments:
+                text_, gloss_, gloss_lang_ = split_bilingual_cue(s_.text_original) if has_segments else ((s_.text_original or ""), None, None)
+                segments.append({
+                    "start": s_.segment_start_time,
+                    "end": s_.segment_end_time,
+                    "text": text_,
+                    "gloss": gloss_,            # e.g. "horse" — translated instead of the Tamazight
+                    "gloss_lang": gloss_lang_,  # "en"
+                })
 
         if not segments:
             job.status = "FAILED"
@@ -2706,6 +2854,7 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                 text_catalan=seg.get("text_catalan"),
                 text_tachelhit=drill_tachelhit,
                 text_arabic=drill_arabic,
+                text_tachelhit_latin=seg.get("latin") or None,
                 text_tachelhit_suggested=seg.get("text_tachelhit_suggested"),
                 tag=tag or "auto_capture",
                 author="Auto Capture",

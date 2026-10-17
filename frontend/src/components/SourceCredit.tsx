@@ -5,7 +5,7 @@ import type { Drill } from '../types';
 /** Credit line for drills captured from an external source: author/channel, title,
  *  and a link to the original at the exact second. Renders nothing for own content. */
 export default function SourceCredit({ drill, compact = false, style }: { drill: Partial<Drill>; compact?: boolean; style?: React.CSSProperties }) {
-  const credit = sourceCredit(drill);
+  const credit = sourceCredit(drill, compact);
   const link = sourceLink(drill);
   if (!credit || !link) return null;
   return (

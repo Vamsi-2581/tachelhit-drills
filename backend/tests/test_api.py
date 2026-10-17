@@ -572,3 +572,31 @@ def test_parse_gloss_json():
     t = main._parse_gloss_json(ans)
     assert t["horse"] == {"ca": "cavall", "ar": "حصان"} and t["owl"]["ca"] == "mussol"
     assert main._parse_gloss_json("no json here") == {}
+
+
+def test_merge_frame_items():
+    items = [
+        {"t": 0, "kind": "none"},
+        {"t": 2, "kind": "letter", "tifinagh": "ⴱ", "latin": "b", "meaning_en": ""},
+        {"t": 4, "kind": "letter", "tifinagh": "ⴱ", "latin": "b"},
+        {"t": 6, "kind": "word", "tifinagh": "ⴰⵟⵟⵓⵍ", "latin": "aṭṭul", "meaning_en": "long"},
+        {"t": 8, "kind": "word", "tifinagh": "ⴰⵟⵟⵓⵍ", "latin": "", "meaning_en": ""},
+        {"t": 10, "kind": "none"},
+        {"t": 14, "kind": "word", "tifinagh": "ⴰⵟⵟⵓⵍ", "latin": "aṭṭul", "meaning_en": "long"},
+    ]
+    segs = main.merge_frame_items(items, every=2.0)
+    assert [(x["text"], x["start"], x["end"]) for x in segs] == [("ⴱ", 2.0, 6.0), ("ⴰⵟⵟⵓⵍ", 6.0, 10.0), ("ⴰⵟⵟⵓⵍ", 14.0, 16.0)]
+    assert segs[1]["gloss"] == "long" and segs[1]["latin"] == "aṭṭul" and segs[1]["gloss_lang"] == "en"
+    assert segs[0]["gloss"] is None and segs[0]["kind"] == "letter"
+
+
+def test_merge_frame_items_lookalikes_and_slogan():
+    items = [
+        {"t": 8, "kind": "phrase", "tifinagh": "ⴰⵎⴰⵣⵉⵖ ⵉⴳⴰ ⵉⵎⴷⴷⵏ", "latin": "Amaziɣ iga imddn", "meaning_en": "Amazigh for all"},
+        {"t": 36, "kind": "letter", "tifinagh": "Θ", "latin": "b", "meaning_en": "letter yab (b)"},
+        {"t": 168, "kind": "word", "tifinagh": "ⴰⵖⵔⵓⵎ", "latin": "aɣrum", "meaning_en": "bread"},
+        {"t": 170, "kind": "word", "tifinagh": "ⴰⵖⵓⵔⵓ", "latin": "aɣuru", "meaning_en": "bread"},
+    ]
+    segs = main.merge_frame_items(items, every=2.0, ignore="Tamazight For All")
+    assert [x["text"] for x in segs] == ["ⴱ", "ⴰⵖⵔⵓⵎ"]
+    assert segs[1]["end"] == 172.0  # the misread frame extended the span instead of making a drill

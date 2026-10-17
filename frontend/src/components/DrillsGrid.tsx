@@ -93,7 +93,13 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             if (!preservedText) { toast.error('La traducció ha retornat un text buit.'); return; }
 
             // Commit the safe update to the backend DB
-            await axios.put(`${API_BASE}/drills/${drill.id}`, { [targetField]: preservedText });
+            // Never overwrite text that is already there (it may be attested or captured
+            // from a source): the machine output goes to the suggestion field instead.
+            const existing = (target === 'shi' ? drill.text_tachelhit : drill.text_catalan)?.trim();
+            const field = existing ? `${targetField}_suggested` : targetField;
+            await axios.put(`${API_BASE}/drills/${drill.id}`, { [field]: preservedText });
+            if (existing) toast.success(`Suggeriment IA desat, el text «${existing}» es manté: ${preservedText}`);
+            else toast.success(`Traducció: ${preservedText}`);
             await refreshData();
         } catch (err) {
             console.error('Translation workflow crashed:', err);
@@ -149,7 +155,10 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             if (!preservedText) { toast.error('La transcripció ha retornat un text buit.'); return; }
 
             console.log(`[Transcribe] Saving updated Tachelhit text: ${preservedText}`);
-            await axios.put(`${API_BASE}/drills/${drill.id}`, { text_tachelhit: preservedText });
+            // Same rule as translation: keep what is there, store ASR as a suggestion.
+            const existingTa = (drill.text_tachelhit || '').trim();
+            await axios.put(`${API_BASE}/drills/${drill.id}`, existingTa ? { text_tachelhit_suggested: preservedText } : { text_tachelhit: preservedText });
+            if (existingTa) toast.success(`Transcripció desada com a suggeriment (es manté «${existingTa}»): ${preservedText}`);
             await refreshData();
             console.log('[Transcribe] Success.');
         } catch (error) {
@@ -591,8 +600,14 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             width: 90,
             cellRenderer: (p: any) => p.value ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}><img src={getMediaUrl(p.value)} alt="Imatge del drill" style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }} /></div> : null
         },
-        { field: 'text_catalan', headerName: 'Català', flex: 2, minWidth: 150, filter: true, wrapText: true, autoHeight: true, editable: true, cellStyle: { 'line-height': '20px', 'padding-top': '10px', 'padding-bottom': '10px', 'color': 'var(--text)', 'font-weight': '600' } },
-        { field: 'text_tachelhit', headerName: 'Tamazight', flex: 2, minWidth: 150, filter: true, wrapText: true, autoHeight: true, editable: true, cellStyle: { 'line-height': '20px', 'padding-top': '10px', 'padding-bottom': '10px', 'font-family': 'var(--font-tifinagh)', 'color': 'var(--brand-1)', 'font-weight': '700' } },
+        { field: 'text_catalan', headerName: 'Català', flex: 2, minWidth: 150, filter: true, wrapText: true, autoHeight: true, editable: true,
+          tooltipValueGetter: (p: { data?: Drill }) => p.data?.text_catalan_suggested ? `Suggeriment IA: ${p.data.text_catalan_suggested}` : undefined,
+          cellRenderer: (p: { value?: string; data?: Drill }) => <span>{p.value}{p.data?.text_catalan_suggested ? <span title={`Suggeriment IA: ${p.data.text_catalan_suggested}`} style={{ marginLeft: 6, fontSize: 12 }}>💡</span> : null}</span>,
+          cellStyle: { 'line-height': '20px', 'padding-top': '10px', 'padding-bottom': '10px', 'color': 'var(--text)', 'font-weight': '600' } },
+        { field: 'text_tachelhit', headerName: 'Tamazight', flex: 2, minWidth: 150, filter: true, wrapText: true, autoHeight: true, editable: true,
+          tooltipValueGetter: (p: { data?: Drill }) => p.data?.text_tachelhit_suggested ? `Suggeriment IA: ${p.data.text_tachelhit_suggested}` : undefined,
+          cellRenderer: (p: { value?: string; data?: Drill }) => <span>{p.value}{p.data?.text_tachelhit_suggested ? <span title={`Suggeriment IA: ${p.data.text_tachelhit_suggested}`} style={{ marginLeft: 6, fontSize: 12 }}>💡</span> : null}</span>,
+          cellStyle: { 'line-height': '20px', 'padding-top': '10px', 'padding-bottom': '10px', 'font-family': 'var(--font-tifinagh)', 'color': 'var(--brand-1)', 'font-weight': '700' } },
         { field: 'text_arabic', headerName: 'العربية', flex: 2, minWidth: 150, filter: true, wrapText: true, autoHeight: true, editable: true, cellStyle: { 'line-height': '20px', 'padding-top': '10px', 'padding-bottom': '10px', 'direction': 'rtl', 'color': 'var(--emerald)', 'font-weight': '600' } },
         { field: 'tag', headerName: 'Etiqueta', width: 120, filter: true, editable: true },
         {
