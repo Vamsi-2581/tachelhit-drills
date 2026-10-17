@@ -1,8 +1,21 @@
+:root {
+  /* Height of the sticky top nav (App.tsx) incl. the status-bar inset. */
+  --nav-h: calc(58px + env(safe-area-inset-top, 0px));
+}
+
 #root {
   width: 100%;
-  height: 100vh;
+  min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
   padding: 0;
+}
+
+/* App-like pages (drill list, tests dashboard) that own their scroller and
+   must fit exactly under the nav instead of using 100vh. */
+.app-page-fixed {
+  height: calc(100vh - var(--nav-h));
+  height: calc(100dvh - var(--nav-h));
 }
 
 @keyframes pulse {

@@ -4,7 +4,7 @@ import axios from 'axios';
 import { API_BASE } from './config';
 import { api } from './api';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import { FaLayerGroup, FaVideo, FaBookOpen, FaGraduationCap, FaFilm, FaComments, FaUser, FaRedo, FaFire } from 'react-icons/fa';
+import { FaLayerGroup, FaVideo, FaBookOpen, FaGraduationCap, FaFilm, FaComments, FaUser, FaRedo, FaFire, FaPlay } from 'react-icons/fa';
 import { syncManager } from './services/OfflineSyncManager';
 import ToastHost from './components/ToastHost';
 import AiCopilot from './components/AiCopilot';
@@ -17,7 +17,6 @@ const TestsDashboard = lazy(() => import('./components/TestsDashboard'));
 const YouTubeShorts = lazy(() => import('./components/YouTubeShorts'));
 const DrillPlayerPage = lazy(() => import('./components/DrillPlayerPage'));
 const PublicTestView = lazy(() => import('./components/PublicTestView'));
-const MediaRecorderTest = lazy(() => import('./components/MediaRecorderTest'));
 const VideoDrillCreator = lazy(() => import('./components/VideoDrillCreator'));
 const SrtImport = lazy(() => import('./components/SrtImport'));
 const VideoLibraryPage = lazy(() => import('./components/VideoLibraryPage'));
@@ -30,8 +29,8 @@ const RouteLoader = () => (
   </div>
 );
 
-// Spaced-repetition entry point in the top nav (saffron signature accent).
-// Self-hides when there's nothing due or new to learn.
+// Learner entry point in the top nav (saffron signature accent): review when
+// something is due/new, otherwise plain practice — never hidden.
 const ReviewNavButton = () => {
   const navigate = useNavigate();
   const [counts, setCounts] = useState<{ due: number; new: number } | null>(null);
@@ -43,7 +42,23 @@ const ReviewNavButton = () => {
   }, []);
 
   const pending = (counts?.due || 0) + (counts?.new || 0);
-  if (!pending) return null;
+
+  if (!pending) {
+    return (
+      <button
+        onClick={() => navigate('/player')}
+        title="Practica tots els drills"
+        style={{
+          flexShrink: 0, display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap',
+          padding: '8px 14px', background: 'var(--emerald-soft)', color: 'var(--emerald)',
+          border: '1px solid var(--emerald)', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: '14px', cursor: 'pointer'
+        }}
+      >
+        <FaPlay size={12} /> Practica
+        {streak > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}><FaFire size={12} />{streak}</span>}
+      </button>
+    );
+  }
 
   return (
     <button
@@ -60,15 +75,6 @@ const ReviewNavButton = () => {
     </button>
   );
 };
-
-// Placeholder component for /demo-videos
-const DemoVideosPage = () => (
-  <div style={{ padding: '20px', textAlign: 'center' }}>
-    <h1>Demo Videos</h1>
-    <p>This page will contain various demo videos.</p>
-    {/* You can add more content here later */}
-  </div>
-);
 
 function App() {
   const navigate = useNavigate();
@@ -131,7 +137,7 @@ function App() {
   });
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <ToastHost />
       {aiOpen && <AiCopilot onClose={() => setAiOpen(false)} />}
 
@@ -139,7 +145,8 @@ function App() {
         <nav style={{
           position: 'sticky', top: 0, zIndex: 1000, background: 'var(--surface)',
           borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '10px',
-          padding: '10px 14px', boxShadow: '0 1px 3px rgba(15,23,42,0.04)'
+          padding: 'calc(10px + env(safe-area-inset-top, 0px)) 14px 10px', boxSizing: 'border-box',
+          height: 'var(--nav-h)', boxShadow: '0 1px 3px rgba(15,23,42,0.04)'
         }}>
           <button onClick={() => navigate('/')} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
             <span style={{ width: '30px', height: '30px', borderRadius: '9px', background: 'var(--brand-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>ⵣ</span>
@@ -159,6 +166,7 @@ function App() {
         </nav>
       )}
 
+      <main style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <Suspense fallback={<RouteLoader />}>
       <Routes>
         <Route path="/" element={<DrillsResponsive />} />
@@ -168,13 +176,12 @@ function App() {
         <Route path="/video-creator" element={<VideoDrillCreator />} />
         <Route path="/srt-import" element={<SrtImport />} />
         <Route path="/player" element={<DrillPlayerPage />} />
-        <Route path="/media-test" element={<MediaRecorderTest />} />
-        <Route path="/demo-videos" element={<DemoVideosPage />} />
         <Route path="/library" element={<VideoLibraryPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/corpus" element={<CorpusPage />} />
       </Routes>
       </Suspense>
+      </main>
     </div>
   );
 }

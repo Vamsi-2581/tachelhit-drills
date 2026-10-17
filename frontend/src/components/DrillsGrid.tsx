@@ -32,6 +32,8 @@ import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
 import type { Drill } from '../types';
+import { toast } from '../toast';
+import { isMobileLayout } from '../utils/layout';
 
 interface DrillsGridProps {
     rowData: Drill[];
@@ -40,7 +42,7 @@ interface DrillsGridProps {
 }
 
 export default function DrillsGrid({ rowData, refreshData, onEditDrill }: DrillsGridProps) {
-    const [isMobile, setIsMobile] = useState(window.innerWidth < 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
+    const [isMobile, setIsMobile] = useState(isMobileLayout);
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [passwordInput, setPasswordInput] = useState('');
     const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
@@ -53,7 +55,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
 
     // Track responsive screen resize configurations
     useEffect(() => {
-        const handleResize = () => setIsMobile(window.innerWidth < 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
+        const handleResize = () => setIsMobile(isMobileLayout());
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
     }, []);
@@ -63,7 +65,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
         console.log(`[DrillsGrid] Starting translation: ${source} -> ${target} for drill ${drill.id}`);
         const sourceText = source === 'ca' ? drill.text_catalan : drill.text_tachelhit;
         if (!sourceText) {
-            alert(`Introdueix primer el text en ${source === 'ca' ? 'català' : 'taixelhit'}.`);
+            toast.error(`Introdueix primer el text en ${source === 'ca' ? 'català' : 'taixelhit'}.`);
             return;
         }
 
@@ -74,7 +76,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
         try {
             const status = await Network.getStatus();
             if (!status.connected) {
-                alert("⚠️ La traducció requereix una connexió a internet activa.");
+                toast.error("⚠️ La traducció requereix una connexió a internet activa.");
                 return;
             }
 
@@ -86,20 +88,15 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             });
             console.log('[DrillsGrid] API Success:', res.data.translated_text);
 
-            const freshTranslation = res.data.translated_text;
-            const currentText = (drill as any)[targetField] || '';
-
-            // Guard against deleting text: append in parentheses if text exists
-            const preservedText = currentText.trim()
-                ? `${currentText} (${freshTranslation})`
-                : freshTranslation;
+            const preservedText = (res.data.translated_text || '').trim();
+            if (!preservedText) { toast.error('La traducció ha retornat un text buit.'); return; }
 
             // Commit the safe update to the backend DB
             await axios.put(`${API_BASE}/drills/${drill.id}`, { [targetField]: preservedText });
             await refreshData();
         } catch (err) {
             console.error('Translation workflow crashed:', err);
-            alert("No s'ha pogut completar la traducció amb IA.");
+            toast.error("No s'ha pogut completar la traducció amb IA.");
         } finally {
             setActionLoadingId(null);
         }
@@ -115,7 +112,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
         console.log(`[Transcribe] Starting for drill ${drill.id}, source type: ${sourceType || 'auto'}, url: ${mediaSource}`);
 
         if (!mediaSource) {
-            alert('No hi ha cap mèdia per transcriure.');
+            toast.error('No hi ha cap mèdia per transcriure.');
             return;
         }
 
@@ -126,7 +123,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             const status = await Network.getStatus();
             if (!status.connected) {
                 console.warn('[Transcribe] Offline. Aborting.');
-                alert("⚠️ La transcripció de veu requereix una connexió a internet.");
+                toast.error("⚠️ La transcripció de veu requereix una connexió a internet.");
                 return;
             }
 
@@ -147,12 +144,8 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                 freshTranscription = `[Video] ${freshTranscription}`;
             }
 
-            const currentTachelhit = drill.text_tachelhit || '';
-
-            // Guard against deleting text: append text gracefully
-            const preservedText = currentTachelhit.trim()
-                ? `${currentTachelhit} (${freshTranscription})`
-                : freshTranscription;
+            const preservedText = (freshTranscription || '').trim();
+            if (!preservedText) { toast.error('La transcripció ha retornat un text buit.'); return; }
 
             console.log(`[Transcribe] Saving updated Tachelhit text: ${preservedText}`);
             await axios.put(`${API_BASE}/drills/${drill.id}`, { text_tachelhit: preservedText });
@@ -160,7 +153,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             console.log('[Transcribe] Success.');
         } catch (error) {
             console.error('[Transcribe] Transcription loop error:', error);
-            alert('El procés de transcripció amb IA ha fallat.');
+            toast.error('El procés de transcripció amb IA ha fallat.');
         } finally {
             setActionLoadingId(null);
         }
@@ -170,7 +163,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
     const handleTachelhitTTS = async (drill: Drill) => {
         const text = drill.text_tachelhit;
         if (!text) {
-            alert('El camp de taixelhit és buit.');
+            toast.error('El camp de taixelhit és buit.');
             return;
         }
 
@@ -180,7 +173,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
         try {
             const status = await Network.getStatus();
             if (!status.connected) {
-                alert("⚠️ El TTS requereix una connexió a internet activa.");
+                toast.error("⚠️ El TTS requereix una connexió a internet activa.");
                 return;
             }
 
@@ -195,7 +188,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             }
         } catch (err) {
             console.error('TTS workflow crashed:', err);
-            alert("No s'ha pogut generar l'àudio de TTS.");
+            toast.error("No s'ha pogut generar l'àudio de TTS.");
         } finally {
             setActionLoadingId(null);
         }
@@ -206,8 +199,8 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
         const field = colDef.field;
         try {
             await axios.put(`${API_BASE}/drills/${data.id}`, { [field]: newValue });
-        } catch (err) {
-            console.error('Failed to save inline edit:', err);
+        } catch (err: any) {
+            toast.error(`No s'ha pogut desar el canvi: ${err?.response?.data?.detail || err?.message || 'error'}`);
             refreshData();
         }
     };
@@ -223,10 +216,10 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                     await axios.delete(`${API_BASE}/drills/${drill.id}`);
                 }
             }
-            alert('Eliminació massiva completada.');
+            toast.success('Eliminació massiva completada.');
             await refreshData();
         } catch (error) {
-            alert('Una o més eliminacions han fallat.');
+            toast.error('Una o més eliminacions han fallat.');
         }
     };
 
@@ -239,10 +232,10 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             for (const drill of selectedRows) {
                 await axios.put(`${API_BASE}/drills/${drill.id}`, { tag: newTag });
             }
-            alert("Actualització massiva d'etiquetes completada.");
+            toast.success("Actualització massiva d'etiquetes completada.");
             await refreshData();
         } catch (error) {
-            alert("L'actualització d'etiquetes ha fallat.");
+            toast.error("L'actualització d'etiquetes ha fallat.");
         }
     };
 
@@ -268,7 +261,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                 executeDeletePipeline(pendingDeleteId);
             }
         } else {
-            alert('❌ Contrasenya incorrecta. Accés denegat.');
+            toast.error('❌ Contrasenya incorrecta. Accés denegat.');
             setPasswordInput('');
         }
     };
@@ -349,7 +342,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             // Artificial delay to allow Preferences to settle before refresh
             setTimeout(() => refreshData(), 100);
         } catch (err) {
-            alert("No s'ha pogut desar el mèdia.");
+            toast.error("No s'ha pogut desar el mèdia.");
         } finally {
             setActionLoadingId(null);
         }
@@ -364,11 +357,11 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             // and waits for a sync attempt so refreshData sees the result.
             await syncManager.deleteDrill(id);
 
-            alert('🗑️ Drill eliminat correctament.');
+            toast.success('🗑️ Drill eliminat correctament.');
             await refreshData();
         } catch (error) {
             console.error('Failed to complete delete request:', error);
-            alert("S'ha produït un error en intentar eliminar el registre.");
+            toast.error("S'ha produït un error en intentar eliminar el registre.");
         } finally {
             setPendingDeleteId(null);
         }
@@ -537,7 +530,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                     {pendingMedia[drill.id].image && <img src={pendingMedia[drill.id].image} alt="" style={{ width: '40px', height: '40px', borderRadius: 'var(--r-sm)', objectFit: 'cover' }} />}
                                     {pendingMedia[drill.id].audioUrl && <button onClick={() => new Audio(pendingMedia[drill.id].audioUrl).play()} aria-label="Reprodueix l'àudio" style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: 'var(--sky)' }}><FaVolumeUp /></button>}
-                                    {pendingMedia[drill.id].videoUrl && <button onClick={() => window.open(pendingMedia[drill.id].videoUrl, '_blank')} aria-label="Obre el vídeo" style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: 'var(--brand-1)' }}><FaVideo /></button>}
+                                    {pendingMedia[drill.id].videoUrl && <video src={pendingMedia[drill.id].videoUrl} controls playsInline preload="metadata" aria-label="Vídeo pendent" style={{ width: '96px', height: '54px', borderRadius: 'var(--r-sm)', background: '#000' }} />}
                                     <div style={{ flex: 1 }}></div>
                                     <button
                                         onClick={() => handleQuickSave(drill)}
@@ -679,7 +672,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                                 const mediaType = audio ? 'audio' : 'video';
                                 await syncManager.downloadAndCacheMedia(media, mediaType);
                                 setActionLoadingId(null);
-                                alert('Mèdia descarregat per a ús fora de línia!');
+                                toast.success('Mèdia descarregat per a ús fora de línia!');
                             }
                         }}
                         disabled={actionLoadingId !== null || !(params.data.audio_url || params.data.video_url)}

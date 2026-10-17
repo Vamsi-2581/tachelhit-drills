@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { Preferences } from '@capacitor/preferences';
 
 // Backend selection, in priority order:
 // 1. VITE_API_URL (frontend/.env) always wins when set.
@@ -9,11 +10,14 @@ import axios from 'axios';
 // 4. Production web builds default to the Render API.
 const PROD_API = 'https://tachelhit-drills-api.onrender.com';
 const envApiUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
-const isNativeApp = !!((window as any).Capacitor?.isNativePlatform?.() ?? (window as any).Capacitor?.isNative);
+// Single source of truth for "are we inside the Capacitor shell?". Capacitor 8
+// removed the old `Capacitor.isNative` boolean; only isNativePlatform() exists.
+export const isNativeApp = (): boolean =>
+  !!((window as any).Capacitor?.isNativePlatform?.() ?? (window as any).Capacitor?.isNative);
 
 const rawApiBase =
   envApiUrl ||
-  (import.meta.env.DEV && !isNativeApp ? `http://${window.location.hostname}:8000` : PROD_API);
+  (import.meta.env.DEV && !isNativeApp() ? `http://${window.location.hostname}:8000` : PROD_API);
 
 // Strip trailing slashes: a trailing slash in VITE_API_URL turns every
 // `${API_BASE}/drills/` into a double-slash `//drills/`, which the backend
@@ -28,16 +32,39 @@ export const API_BASE = rawApiBase.replace(/\/+$/, '');
 //   read from localStorage on every request so login applies immediately.
 const API_KEY = import.meta.env.VITE_API_KEY as string | undefined;
 
+// localStorage is the synchronous cache every request reads; on a device the
+// same values are mirrored to Capacitor Preferences (UserDefaults on iOS),
+// which survives WKWebView storage eviction. restoreUserIdentity() copies
+// them back on boot (see main.tsx).
+const NATIVE_TOKEN_KEY = 'user_token';
+const NATIVE_NAME_KEY = 'user_name';
+
 export const getUserToken = () => localStorage.getItem('user_token') || '';
 export const getUserName = () => localStorage.getItem('user_name') || '';
 export const setUserIdentity = (token: string, username: string) => {
   localStorage.setItem('user_token', token);
   if (username) localStorage.setItem('user_name', username);
+  Preferences.set({ key: NATIVE_TOKEN_KEY, value: token }).catch(() => {});
+  if (username) Preferences.set({ key: NATIVE_NAME_KEY, value: username }).catch(() => {});
 };
 export const clearUserIdentity = () => {
   localStorage.removeItem('user_token');
   localStorage.removeItem('user_name');
+  Preferences.remove({ key: NATIVE_TOKEN_KEY }).catch(() => {});
+  Preferences.remove({ key: NATIVE_NAME_KEY }).catch(() => {});
 };
+export async function restoreUserIdentity(): Promise<void> {
+  try {
+    if (localStorage.getItem('user_token')) return;
+    const { value: token } = await Preferences.get({ key: NATIVE_TOKEN_KEY });
+    if (!token) return;
+    const { value: name } = await Preferences.get({ key: NATIVE_NAME_KEY });
+    localStorage.setItem('user_token', token);
+    if (name) localStorage.setItem('user_name', name);
+  } catch {
+    /* storage unavailable (private mode): stay anonymous */
+  }
+}
 
 axios.interceptors.request.use((cfg) => {
   const url = typeof cfg.url === 'string' ? cfg.url : '';

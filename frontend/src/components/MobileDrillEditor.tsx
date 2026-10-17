@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { 
-  FaTimes, 
-  FaSave, 
-  FaCamera, 
-  FaVideo, 
-  FaMicrophone, 
-  FaKeyboard, 
+import {
+  FaTimes,
+  FaSave,
+  FaCamera,
+  FaVideo,
+  FaMicrophone,
+  FaKeyboard,
   FaFolderOpen,
   FaVolumeUp,
   FaFileAlt,
@@ -15,7 +15,7 @@ import {
   FaCheck,
   FaRegSquare,
   FaLanguage,
-  FaChevronLeft, 
+  FaChevronLeft,
   FaChevronRight,
   FaCut as FaScissors
 } from 'react-icons/fa';
@@ -25,7 +25,8 @@ import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { VoiceRecorder } from 'capacitor-voice-recorder';
 import TransliterationPreview from './TransliterationPreview';
 import { SpeechRecognition } from '@capacitor-community/speech-recognition';
-import { API_BASE, getMediaUrl } from '../config';
+import { API_BASE, getMediaUrl, isNativeApp } from '../config';
+import { fileNameFor, kindOf, type MediaKind } from '../utils/media';
 import { syncManager, type Drill } from '../services/OfflineSyncManager';
 import { api } from '../api';
 import { toast } from '../toast';
@@ -73,15 +74,25 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
   }, [drill]);
 
   useEffect(() => {
-    if ((window as any).Capacitor?.isNative) {
+    if (isNativeApp()) {
       VoiceRecorder.requestAudioRecordingPermission().catch(e => console.warn('VoiceRecorder permissions not available', e));
       SpeechRecognition.requestPermissions().catch(e => console.warn('SpeechRecognition permissions not available', e));
     }
   }, [drill]);
 
+  // blob:/data:/file:/capacitor: URLs are previews that only exist on this
+  // device; they must never be persisted as the drill's media URL.
+  const isLocalUrl = (u?: string) => !!u && /^(blob:|data:|file:|capacitor:|https?:\/\/localhost\/_capacitor)/i.test(u);
+  const stripLocalUrls = (d: Drill): Drill => {
+    const out = { ...d };
+    (['audio_url', 'video_url', 'image_url'] as const).forEach(k => { if (isLocalUrl(out[k])) delete (out as any)[k]; });
+    return out;
+  };
+
   const triggerSave = async (updatedDrill: Drill) => {
     try {
       const status = await Network.getStatus();
+      updatedDrill = stripLocalUrls(updatedDrill);
       if (status.connected && !updatedDrill.is_local) {
         await axios.put(`${API_BASE}/drills/${updatedDrill.id}`, updatedDrill);
         onUpdate();
@@ -115,6 +126,38 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
     setLocalDrill(updated);
   };
 
+  /** Upload a blob for this drill (online) or queue it (native, offline).
+   *  The server URL goes into the drill; the blob URL is only the preview. */
+  const attachMedia = async (blob: Blob, kind: MediaKind, prefix?: string) => {
+    const fileName = fileNameFor(blob, kind, `${prefix || kind}_${localDrill.id}`);
+    const previewUrl = URL.createObjectURL(blob);
+    setLocalMediaUrls(prev => ({ ...prev, [kind]: previewUrl }));
+    setAiLoadingKey(`upload-${kind}`);
+    try {
+      const status = await Network.getStatus();
+      if (status.connected && !localDrill.is_local) {
+        const fd = new FormData();
+        fd.append('file', blob, fileName);
+        const res = await axios.post(`${API_BASE}/upload-media/${localDrill.id}/${kind}`, fd);
+        const url: string | undefined = res.data?.url;
+        if (!url) throw new Error('El servidor no ha retornat cap URL');
+        setLocalDrill(prev => ({ ...prev, [`${kind}_url`]: url }));
+        toast.success(kind === 'image' ? 'Foto pujada' : kind === 'video' ? 'Vídeo pujat' : 'Àudio pujat');
+        onUpdate();
+      } else if (isNativeApp()) {
+        await syncManager.saveMediaLocally(blob, fileName);
+        await syncManager.queueAction({ type: 'UPLOAD_MEDIA', drillId: localDrill.id, mediaType: kind, localPath: fileName, fileName });
+        toast.info('Sense connexió: es pujarà quan tornis a estar en línia');
+      } else {
+        throw new Error('Sense connexió: no es pot pujar des del navegador.');
+      }
+    } catch (err: any) {
+      toast.error(`No s'ha pogut pujar: ${err?.response?.data?.detail || err?.message || 'error'}`);
+    } finally {
+      setAiLoadingKey(null);
+    }
+  };
+
   const capturePhoto = async () => {
     try {
       addLog('Triggering native photo camera...');
@@ -138,37 +181,27 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
       });
 
       if (image && image.base64String) {
-        addLog('Photo data received');
-        const base64Data = `data:image/${image.format};base64,${image.base64String}`;
-        const response = await fetch(base64Data);
-        const blob = await response.blob();
-        const fileName = `photo_${localDrill.id}_${Date.now()}.jpg`;
-        
-        await syncManager.saveMediaLocally(blob, fileName);
-        await syncManager.queueAction({
-          type: 'UPLOAD_MEDIA',
-          drillId: localDrill.id,
-          mediaType: 'image',
-          localPath: fileName,
-          fileName: fileName
-        });
-        addLog('Photo captured & queued');
-        setLocalDrill(prev => ({ ...prev, image_url: image.webPath }));
+        const blob = await (await fetch(`data:image/${image.format};base64,${image.base64String}`)).blob();
+        await attachMedia(blob, 'image', 'photo');
       }
     } catch (err: any) {
-      addLog(`Photo error: ${err.message}`);
+      if (!/cancel/i.test(err?.message || '')) toast.error(`Foto: ${err?.message || 'error'}`);
     }
   };
 
   const startVoiceRecording = async () => {
     try {
-      const result = await VoiceRecorder.startRecording();
-      if (result.value) {
-        setIsRecording(true);
-        addLog('Recording started...');
+      if (isNativeApp()) {
+        const perm = await VoiceRecorder.hasAudioRecordingPermission();
+        if (!perm.value) {
+          const req = await VoiceRecorder.requestAudioRecordingPermission();
+          if (!req.value) return toast.error('Cal permís de micròfon');
+        }
       }
+      const result = await VoiceRecorder.startRecording();
+      if (result.value) setIsRecording(true);
     } catch (err: any) {
-      addLog(`Mic error: ${err.message}`);
+      toast.error(`Micròfon: ${err?.message || 'no disponible'}`);
     }
   };
 
@@ -188,7 +221,7 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
             addLog('Audio trimmed successfully');
         }
     } catch (err: any) {
-        addLog(`Trim error: ${err.message}`);
+        toast.error(`Retallar ha fallat: ${err?.response?.data?.detail || err?.message || 'error'}`);
     } finally {
         setAiLoadingKey(null);
     }
@@ -199,41 +232,28 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
       const result = await VoiceRecorder.stopRecording();
       setIsRecording(false);
       if (result.value && result.value.recordDataBase64) {
-        const base64Response = await fetch(`data:${result.value.mimeType};base64,${result.value.recordDataBase64}`);
-        const blob = await base64Response.blob();
-        const fileName = `audio_${localDrill.id}_${Date.now()}.m4a`;
-        
-        const localUri = await syncManager.saveMediaLocally(blob, fileName);
-        await syncManager.queueAction({
-          type: 'UPLOAD_MEDIA',
-          drillId: localDrill.id,
-          mediaType: 'audio',
-          localPath: fileName,
-          fileName: fileName
-        });
-        addLog('Audio recorded & queued');
-        // Update local media URLs to use the new local file immediately
-        const resolvedPath = (window as any).Capacitor.convertFileSrc(localUri);
-        setLocalMediaUrls(prev => ({ ...prev, audio: resolvedPath }));
-        setLocalDrill(prev => ({ ...prev, audio_url: resolvedPath }));
+        const mime = result.value.mimeType || 'audio/aac';
+        const blob = await (await fetch(`data:${mime};base64,${result.value.recordDataBase64}`)).blob();
+        await attachMedia(blob, 'audio', 'rec');
       }
     } catch (err: any) {
-      addLog(`Mic stop error: ${err.message}`);
+      setIsRecording(false);
+      toast.error(`Micròfon: ${err?.message || 'error en aturar'}`);
     }
   };
 
   const startDictation = async () => {
     try {
-      if ((window as any).Capacitor?.isNative) {
+      if (isNativeApp()) {
         const perm = await SpeechRecognition.checkPermissions();
         if (perm.speechRecognition !== 'granted') {
             const req = await SpeechRecognition.requestPermissions();
-            if (req.speechRecognition !== 'granted') return addLog('Mic permission denied');
+            if (req.speechRecognition !== 'granted') return toast.error('Cal permís de reconeixement de veu');
         }
       }
 
       const supported = await SpeechRecognition.available();
-      if (!supported) return addLog('Speech not supported');
+      if (!supported) return toast.error('El dictat no està disponible en aquest dispositiu');
 
       addLog('Starting dictation...');
       await SpeechRecognition.removeAllListeners();
@@ -251,7 +271,7 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
           }
       });
     } catch (err: any) {
-      addLog(`Dictation error: ${err.code || err.message || JSON.stringify(err)}`);
+      toast.error(`Dictat: ${err?.code || err?.message || 'error'}`);
     }
   };
 
@@ -261,26 +281,25 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
         else if (sourceType === 'video') mediaSource = localDrill.video_url || '';
         else mediaSource = localDrill.audio_url || localDrill.video_url || '';
 
-        if (!mediaSource) return alert('Primer enregistra i desa el contingut.');
-        
+        if (!mediaSource) return toast.error('Primer enregistra o puja àudio/vídeo.');
+
         const status = await Network.getStatus();
-        if (!status.connected) return alert('La transcripció requereix connexió a internet.');
+        if (!status.connected) return toast.error('La transcripció requereix connexió a internet.');
 
         setAiLoadingKey('transcribe-voice');
         addLog(`Transcribing ${sourceType || 'media'}...`);
         try {
             const res = await axios.post(`${API_BASE}/transcribe/`, { audio_url: mediaSource });
-            const currentContent = localDrill.text_tachelhit || '';
-            const safeText = currentContent.trim() ? `${currentContent} (${res.data.corrected_transcription})` : res.data.corrected_transcription;
-            
+            const safeText = (res.data.corrected_transcription || '').trim();
+            if (!safeText) return toast.error('La transcripció ha retornat un text buit.');
+
             const updated = { ...localDrill, text_tachelhit: safeText };
             setLocalDrill(updated);
             triggerSave(updated);
             addLog('Transcription success');
         } catch (err: any) {
             const msg = err.response?.data?.detail || err.message;
-            alert(`La transcripció ha fallat: ${msg}`);
-            addLog(`ASR Error: ${msg}`);
+            toast.error(`La transcripció ha fallat: ${msg}`);
         } finally {
             setAiLoadingKey(null);
         }
@@ -288,10 +307,10 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
 
   const handleTachelhitTTS = async () => {
     const text = localDrill.text_tachelhit;
-    if (!text) return alert('El camp de tachelhit és buit.');
-    
+    if (!text) return toast.error('El camp de tachelhit és buit.');
+
     const status = await Network.getStatus();
-    if (!status.connected) return alert('El TTS requereix connexió a internet.');
+    if (!status.connected) return toast.error('El TTS requereix connexió a internet.');
 
     setAiLoadingKey('tts-shi');
     addLog('Generating Tachelhit TTS...');
@@ -303,8 +322,7 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
         }
     } catch (err: any) {
         const msg = err.response?.data?.detail || err.message;
-        alert(`El TTS ha fallat: ${msg}`);
-        addLog(`TTS Error: ${msg}`);
+        toast.error(`El TTS ha fallat: ${msg}`);
     } finally {
         setAiLoadingKey(null);
     }
@@ -312,81 +330,37 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
 
   const handleTranslateAction = async (source: 'ca' | 'shi', target: 'ca' | 'shi') => {
     const status = await Network.getStatus();
-    if (!status.connected) return alert('La traducció requereix internet.');
+    if (!status.connected) return toast.error('La traducció requereix internet.');
 
     const sourceText = source === 'ca' ? localDrill.text_catalan : localDrill.text_tachelhit;
-    if (!sourceText) return alert('El camp és buit.');
-    
+    if (!sourceText) return toast.error("El camp d'origen és buit.");
+
     const targetField = target === 'shi' ? 'text_tachelhit' : 'text_catalan';
     setAiLoadingKey(`trans-${targetField}`);
     try {
       const res = await axios.post(`${API_BASE}/translate`, { text: sourceText, source_lang: source, target_lang: target });
-      const currentContent = (localDrill as any)[targetField] || '';
-      const safeText = currentContent.trim() ? `${currentContent} (${res.data.translated_text})` : res.data.translated_text;
-      
+      const safeText = (res.data.translated_text || '').trim();
+      if (!safeText) return toast.error('La traducció ha retornat un text buit.');
+
       const updated = { ...localDrill, [targetField]: safeText };
       setLocalDrill(updated);
       triggerSave(updated);
-    } catch (err) { 
-      alert('La traducció ha fallat.');
-    } finally { 
-      setAiLoadingKey(null); 
+    } catch (err: any) {
+      toast.error(`La traducció ha fallat: ${err?.response?.data?.detail || err?.message || ''}`);
+    } finally {
+      setAiLoadingKey(null);
     }
   };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) {
-        addLog('No file chosen in editor handleFileChange');
-        return;
-    }
-
-    addLog(`Editor: File chosen ${file.name} (${file.type})`);
-    const type = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'audio';
-    const fileName = `${type}_${localDrill.id}_${Date.now()}_${file.name}`;
-    
-    try {
-        // Create an object URL only for UI preview purposes
-        // IMPORTANT: We must NOT use this URL for any state that triggers re-renders 
-        // which might involve components that don't handle blobs well (like some native listeners)
-        const blobUrl = URL.createObjectURL(file);
-        addLog(`Editor: Mapping ${type} URL to ${blobUrl}`);
-        
-        // Use a functional update to ensure we're not closing over stale state
-        // and to avoid immediate re-render issues in the main drill object
-        setLocalMediaUrls(prev => {
-          const newUrls = { ...prev };
-          newUrls[type] = blobUrl;
-          return newUrls;
-        });
-
-        setLocalDrill(prev => {
-          const updated = { ...prev };
-          (updated as any)[`${type}_url`] = blobUrl;
-          return updated;
-        });
-
-        addLog(`Editor: Saving ${type} locally...`);
-        await syncManager.saveMediaLocally(file, fileName);
-        addLog('Editor: Local save complete. Queuing upload...');
-        await syncManager.queueAction({
-            type: 'UPLOAD_MEDIA',
-            drillId: localDrill.id,
-            mediaType: type as any,
-            localPath: fileName,
-            fileName: fileName
-        });
-        addLog(`Editor: ${type} upload action created`);
-    } catch (err: any) {
-        addLog(`Editor error: ${err.message}`);
-    }
+    event.target.value = '';
+    if (!file) return;
+    await attachMedia(file, kindOf(file, 'audio'));
   };
 
   const handleTrimVideo = async (mode: 'video' | 'audio') => {
-    if (!localDrill.video_url) {
-        addLog('Error: No video URL available for trimming');
-        return;
-    }
+    if (!localDrill.video_url) return toast.error('No hi ha cap vídeo pujat per retallar.');
     setAiLoadingKey(`trim-${mode}`);
     addLog(`API Call: Trimming ${mode} (${trimTimes.start}s - ${trimTimes.end}s) via ${API_BASE}`);
     try {
@@ -397,10 +371,10 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
         });
         addLog(`API Response: ${JSON.stringify(res.data).substring(0, 100)}...`);
         if (res.data.url) {
-            const updated = mode === 'video' 
+            const updated = mode === 'video'
                 ? { ...localDrill, video_url: res.data.url }
                 : { ...localDrill, audio_url: res.data.url };
-            
+
             setLocalDrill(updated);
             triggerSave(updated);
             addLog(`${mode === 'video' ? 'Video' : 'Audio'} trim applied successfully`);
@@ -408,7 +382,7 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
             addLog('Warning: Trim API returned success but no URL');
         }
     } catch (err: any) {
-        addLog(`Trim API Error: ${err.message}`);
+        toast.error(`Retallar ha fallat: ${err?.response?.data?.detail || err?.message || 'error'}`);
     } finally {
         setAiLoadingKey(null);
     }
@@ -477,13 +451,13 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="editor-title" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'var(--bg)', zIndex: 11000, display: 'flex', flexDirection: 'column', fontFamily: 'var(--font-sans)' }}>
-            <div style={{ background: 'var(--surface)', padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ background: 'var(--surface)', padding: 'calc(12px + env(safe-area-inset-top, 0px)) 18px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border)' }}>
                 <button onClick={handleClose} aria-label="Tanca" style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text-soft)', borderRadius: 'var(--r-pill)', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><FaTimes size={18} /></button>
                 <div id="editor-title" style={{ color: 'var(--text)', fontSize: '18px', fontWeight: 700, letterSpacing: '-0.01em', fontFamily: 'var(--font-display)' }}>Edita</div>
                 <button onClick={() => triggerSave(localDrill)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--brand-1)', color: '#fff', border: 'none', borderRadius: 'var(--r-md)', padding: '10px 18px', fontWeight: 700, fontSize: '14px', cursor: 'pointer' }}><FaSave /> Desa</button>
             </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '18px', paddingBottom: '120px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '20px', display: 'flex', flexDirection: 'column', gap: '18px', paddingBottom: 'calc(120px + env(safe-area-inset-bottom, 0px))' }}>
         <div style={{ background: 'var(--surface)', padding: '16px', borderRadius: 'var(--r-xl)', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border)' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px' }}>
               <button onClick={capturePhoto} aria-label="Fes una foto" style={{ height: '56px', background: 'var(--emerald-soft)', color: 'var(--emerald)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} title="Càmera"><FaCamera size={22} /></button>
@@ -493,7 +467,7 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
               <button onClick={() => document.getElementById('gallery-upload')?.click()} aria-label="Tria de la galeria" style={{ height: '56px', background: 'var(--sky-soft)', color: 'var(--sky)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} title="Galeria"><FaFolderOpen size={22} /></button>
             </div>
             <input type="file" accept="video/*" capture={"camcorder" as any} id="native-video-input" style={{ display: 'none' }} onChange={handleFileChange} />
-            <input type="file" id="gallery-upload" style={{ display: 'none' }} onChange={handleFileChange} />
+            <input type="file" accept="image/*,audio/*,video/*" id="gallery-upload" style={{ display: 'none' }} onChange={handleFileChange} />
         </div>
 
         {localDrill.image_url && (
@@ -502,18 +476,18 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
 
         {localDrill.video_url && (
           <div style={{ background: '#000', borderRadius: 'var(--r-xl)', overflow: 'hidden', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', boxShadow: 'var(--shadow-lg)', marginBottom: '0', border: '1px solid var(--border-strong)' }}>
-            <video 
+            <video
                 ref={videoRef}
                 key={getSourceUrl(localDrill.video_url, 'video')}
                 id="editor-video-preview"
-                src={getSourceUrl(localDrill.video_url, 'video')} 
-                controls 
-                playsInline 
+                src={getSourceUrl(localDrill.video_url, 'video')}
+                controls
+                playsInline
                 preload="auto"
                 crossOrigin="anonymous"
                 onPlay={() => addLog('Video: Play event triggered')}
                 onError={(e) => addLog(`Video: Playback error: ${(e.target as any).error?.message || 'unknown'}`)}
-                style={{ width: '100%', minHeight: '150px', maxHeight: '300px', display: 'block', backgroundColor: '#333' }} 
+                style={{ width: '100%', minHeight: '150px', maxHeight: '300px', display: 'block', backgroundColor: '#333' }}
                 onLoadedMetadata={(e) => {
                   const dur = (e.target as HTMLVideoElement).duration;
                   if (dur) {
@@ -528,14 +502,14 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
                         onClick={() => {
                             if (videoRef.current) setTrimTimes(prev => ({ ...prev, start: videoRef.current!.currentTime }));
                         }}
-                        style={{ background: 'rgba(255,255,255,0.1)', color: 'var(--emerald)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 'var(--r-sm)', padding: '4px 10px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                        style={{ background: 'rgba(255,255,255,0.1)', color: 'var(--emerald)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 'var(--r-sm)', padding: '10px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', minHeight: '44px' }}
                     >INICI</button>
                     <span style={{ color: 'var(--text-muted)' }}>{trimTimes.start.toFixed(1)}s - {trimTimes.end.toFixed(1)}s</span>
                     <button
                         onClick={() => {
                             if (videoRef.current) setTrimTimes(prev => ({ ...prev, end: videoRef.current!.currentTime }));
                         }}
-                        style={{ background: 'rgba(255,255,255,0.1)', color: 'var(--rose)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 'var(--r-sm)', padding: '4px 10px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                        style={{ background: 'rgba(255,255,255,0.1)', color: 'var(--rose)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 'var(--r-sm)', padding: '10px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', minHeight: '44px' }}
                     >FINAL</button>
                 </div>
                 <input
@@ -580,9 +554,9 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
 
         {localDrill.audio_url && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--surface)', padding: '16px', borderRadius: 'var(--r-xl)', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border)' }}>
-            <audio 
+            <audio
                 id="editor-audio-preview"
-                src={getSourceUrl(localDrill.audio_url, 'audio')} 
+                src={getSourceUrl(localDrill.audio_url, 'audio')}
                 onLoadedMetadata={(e) => {
                     const dur = (e.target as HTMLAudioElement).duration;
                     addLog(`Audio: Metadata loaded. Duration: ${dur}`);
@@ -594,11 +568,11 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
                 controls
                 preload="auto"
             />
-            <button 
+            <button
                 onClick={() => {
                     const a = document.getElementById('editor-audio-preview') as HTMLAudioElement;
                     if (a) a.play();
-                }} 
+                }}
                 style={{ width: '100%', padding: '14px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', color: 'var(--text)', cursor: 'pointer' }}
             >
               Reprodueix l'àudio
@@ -610,7 +584,7 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
                             const a = document.getElementById('editor-audio-preview') as HTMLAudioElement;
                             if (a) setTrimTimes(prev => ({ ...prev, start: a.currentTime }));
                         }}
-                        style={{ background: 'var(--surface)', color: 'var(--emerald)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '4px 10px', fontWeight: 700, cursor: 'pointer' }}
+                        style={{ background: 'var(--surface)', color: 'var(--emerald)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '10px 14px', fontWeight: 700, cursor: 'pointer', minHeight: '44px' }}
                     >INICI</button>
                     <span>{trimTimes.start.toFixed(1)}s - {trimTimes.end.toFixed(1)}s</span>
                     <button
@@ -618,7 +592,7 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
                             const a = document.getElementById('editor-audio-preview') as HTMLAudioElement;
                             if (a) setTrimTimes(prev => ({ ...prev, end: a.currentTime }));
                         }}
-                        style={{ background: 'var(--surface)', color: 'var(--rose)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '4px 10px', fontWeight: 700, cursor: 'pointer' }}
+                        style={{ background: 'var(--surface)', color: 'var(--rose)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '10px 14px', fontWeight: 700, cursor: 'pointer', minHeight: '44px' }}
                     >FINAL</button>
                 </div>
                 <input type="range" aria-label="Temps d'inici" min="0" max={audioDuration} step="0.1" value={trimTimes.start} onChange={e => setTrimTimes(p => ({...p, start: parseFloat(e.target.value)}))} style={{ width: '100%', marginBottom: '8px', accentColor: 'var(--brand-1)' }} />
@@ -634,7 +608,7 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
           <button onClick={() => handleTranslateAction('ca', 'shi')} disabled={aiLoadingKey !== null} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', padding: '10px 4px', fontSize: '10px', fontWeight: 700, background: 'var(--brand-gradient-soft)', color: 'var(--brand-1)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', cursor: 'pointer' }}><FaLanguage size={18} /> {aiLoadingKey === 'trans-text_tachelhit' ? '…' : 'CA➔SH'}</button>
           <button onClick={() => handleTranslateAction('shi', 'ca')} disabled={aiLoadingKey !== null} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', padding: '10px 4px', fontSize: '10px', fontWeight: 700, background: 'var(--emerald-soft)', color: 'var(--emerald)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', cursor: 'pointer' }}><FaLanguage size={18} /> {aiLoadingKey === 'trans-text_catalan' ? '…' : 'SH➔CA'}</button>
           <button onClick={handleTachelhitTTS} disabled={aiLoadingKey !== null} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', padding: '10px 4px', fontSize: '10px', fontWeight: 700, background: 'var(--amber-soft)', color: 'var(--amber-strong)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', cursor: 'pointer' }}><FaVolumeUp size={18} /> {aiLoadingKey === 'tts-shi' ? '…' : 'TTS'}</button>
-          <button 
+          <button
                 onClick={() => {
                     const hasAudio = localDrill.audio_url;
                     const hasVideo = localDrill.video_url;
@@ -650,9 +624,9 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
                     } else if (hasAudio) {
                         handleAutoTranscribe('audio');
                     } else {
-                        alert('Primer enregistra i desa el contingut.');
+                        toast.error('Primer enregistra o puja contingut.');
                     }
-                }} 
+                }}
                 disabled={!(localDrill.audio_url || localDrill.video_url) || aiLoadingKey !== null}
                 aria-label="Transcriu automàticament"
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '5px', padding: '10px 4px', fontSize: '10px', fontWeight: 700, background: 'var(--sky-soft)', color: 'var(--sky)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', cursor: 'pointer', opacity: (localDrill.audio_url || localDrill.video_url) ? 1 : 0.5 }}
@@ -660,8 +634,9 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
         </div>
 
                 <div style={{ background: 'var(--surface)', padding: '20px', borderRadius: 'var(--r-xl)', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div><label htmlFor="fld-catalan" style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Català</label><textarea id="fld-catalan" value={localDrill.text_catalan || ''} onChange={(e) => handleFieldChange('text_catalan', e.target.value)} rows={3} style={{ width: '100%', padding: '14px', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontSize: '16px', color: 'var(--text)', background: 'var(--surface-2)', fontFamily: 'var(--font-sans)' }} /></div>
-                  <div><label htmlFor="fld-tachelhit" style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Tachelhit (ⵜⴰⵛⵍⵃⵉⵜ)</label><textarea id="fld-tachelhit" value={localDrill.text_tachelhit || ''} onChange={(e) => handleFieldChange('text_tachelhit', e.target.value)} rows={3} style={{ width: '100%', padding: '14px', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontSize: '16px', color: 'var(--brand-1)', fontWeight: 700, background: 'var(--surface-2)', fontFamily: 'var(--font-tifinagh)' }} /></div>
+                  <div><label htmlFor="fld-catalan" style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Català</label><textarea id="fld-catalan" lang="ca" value={localDrill.text_catalan || ''} onChange={(e) => handleFieldChange('text_catalan', e.target.value)} rows={3} style={{ width: '100%', padding: '14px', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontSize: '16px', color: 'var(--text)', background: 'var(--surface-2)', fontFamily: 'var(--font-sans)' }} /></div>
+                  <div><label htmlFor="fld-tachelhit" style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Tachelhit (ⵜⴰⵛⵍⵃⵉⵜ)</label><textarea id="fld-tachelhit" lang="shi" autoCapitalize="off" autoCorrect="off" spellCheck={false} value={localDrill.text_tachelhit || ''} onChange={(e) => handleFieldChange('text_tachelhit', e.target.value)} rows={3} style={{ width: '100%', padding: '14px', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontSize: '16px', color: 'var(--brand-1)', fontWeight: 700, background: 'var(--surface-2)', fontFamily: 'var(--font-tifinagh)' }} /></div>
+                  <div><label htmlFor="fld-arabic" style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Àrab (العربية)</label><textarea id="fld-arabic" lang="ar" dir="rtl" value={localDrill.text_arabic || ''} onChange={(e) => handleFieldChange('text_arabic', e.target.value)} rows={2} style={{ width: '100%', padding: '14px', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontSize: '16px', color: 'var(--text)', background: 'var(--surface-2)', fontFamily: 'var(--font-sans)' }} /></div>
                   <div>
                     <label htmlFor="fld-tachelhit-latin" style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Tachelhit (llatí)</label>
                     <input id="fld-tachelhit-latin" type="text" value={localDrill.text_tachelhit_latin || ''} onChange={(e) => handleFieldChange('text_tachelhit_latin', e.target.value)} placeholder="Escriu com al mòbil: aghrum, ta7anut, 3ad…" style={{ width: '100%', padding: '14px', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontSize: '16px', color: 'var(--text)', background: 'var(--surface-2)', fontFamily: 'var(--font-sans)' }} />
@@ -746,7 +721,7 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
                   </button>
                 </div>
       </div>
-      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', padding: '16px 20px', background: 'var(--surface)', justifyContent: 'space-between', borderTop: '1px solid var(--border)', gap: '15px' }}>
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', padding: '12px 20px calc(12px + env(safe-area-inset-bottom, 0px))', background: 'var(--surface)', justifyContent: 'space-between', borderTop: '1px solid var(--border)', gap: '15px' }}>
         <button onClick={() => handleNavigate('prev')} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '14px', background: 'var(--surface-2)', color: 'var(--text-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 600, fontSize: '15px', cursor: 'pointer' }}><FaChevronLeft /> Anterior</button>
         <button onClick={() => handleNavigate('next')} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '14px', background: 'var(--brand-gradient)', color: 'white', border: 'none', borderRadius: 'var(--r-md)', fontWeight: 600, fontSize: '15px', cursor: 'pointer' }}>Següent <FaChevronRight /></button>
       </div>

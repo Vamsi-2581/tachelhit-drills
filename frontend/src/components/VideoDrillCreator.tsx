@@ -3,6 +3,7 @@ import { API_BASE } from '../config';
 import { FaHeadphones, FaBolt, FaGlobe, FaVideo, FaUpload, FaMusic, FaTimes, FaClock, FaSpellCheck, FaFont, FaComments } from 'react-icons/fa';
 import ServiceStatusBanner from './ServiceStatusBanner';
 import AutoCapturePanel from './AutoCapturePanel';
+import { toast } from '../toast';
 
 // Turn raw backend/yt-dlp errors into clear, actionable Catalan guidance
 function friendlyCaptureError(msg: string): string {
@@ -91,7 +92,7 @@ const VideoDrillCreator: React.FC = () => {
           setAutoStatus(null);
           setLoading(false);
         } else if (data.drills_created) {
-          alert(`⚡ Captura automàtica: s'han creat ${data.drills_created.length} drills de "${title}"!`);
+          toast.success(`⚡ Captura automàtica: s'han creat ${data.drills_created.length} drills de "${title}"!`);
           setUrl('');
           setVideoInfo(null);
           setTempVideoPath(null);
@@ -156,7 +157,7 @@ const VideoDrillCreator: React.FC = () => {
       });
       if (!cd.ok) throw new Error('No s\'han pogut crear els drills');
       const result = await cd.json();
-      alert(`⚡ Mode automàtic: s'han creat ${result.drills_created.length} drills de "${meta.title}"!`);
+      toast.success(`⚡ Mode automàtic: s'han creat ${result.drills_created.length} drills de "${meta.title}"!`);
       setVideoInfo(null);
       setUrl('');
       setVideoFile(null);
@@ -434,7 +435,7 @@ const VideoDrillCreator: React.FC = () => {
     if (!videoInfo || (!url && !tempVideoPath)) return;
     const selectedSegments = videoInfo.segments.filter(s => s.selected);
     if (!selectedSegments.length) {
-      alert('Selecciona almenys un segment');
+      toast.error('Selecciona almenys un segment');
       return;
     }
 
@@ -454,7 +455,7 @@ const VideoDrillCreator: React.FC = () => {
       });
       if (!response.ok) throw new Error('No s\'han pogut crear els drills');
       const result = await response.json();
-      alert(`S'han creat ${result.drills_created.length} drills correctament!`);
+      toast.success(`S'han creat ${result.drills_created.length} drills correctament!`);
       // Reset after success
       setVideoInfo(null);
       setUrl('');

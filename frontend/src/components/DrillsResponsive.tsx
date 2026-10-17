@@ -1,7 +1,7 @@
 import '../agGridSetup';
 import { useState, useEffect, useRef } from 'react';
 import { VARIETIES } from '../varieties';
-import { FaMicrophone, FaPlus, FaTimes, FaLink, FaChevronDown, FaSearch, FaBook, FaTrash } from 'react-icons/fa';
+import { FaMicrophone, FaPlus, FaTimes, FaLink, FaChevronDown, FaSearch, FaBook, FaTrash, FaFileImport, FaFilm } from 'react-icons/fa';
 import axios from 'axios';
 import { API_BASE } from '../config';
 import { syncManager } from '../services/OfflineSyncManager';
@@ -13,6 +13,8 @@ import DrillsGrid from './DrillsGrid';
 import VoiceDrillCreator from './VoiceDrillCreator';
 import MobileDrillCreator from './MobileDrillCreator';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { isMobileLayout } from '../utils/layout';
+import { toast } from '../toast';
 
 import type { Drill } from '../types';
 
@@ -92,18 +94,18 @@ export default function DrillsResponsive() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
+  const [isMobile, setIsMobile] = useState(isMobileLayout);
   const [drills, setDrills] = useState<Drill[]>([]);
   const [editingDrill, setEditingDrill] = useState<Drill | null>(null);
   const [showVoiceCreator, setShowVoiceCreator] = useState(false);
   const [showMobileDrillCreator, setShowMobileDrillCreator] = useState(false);
   const [showNewDrillOptions, setShowNewDrillOptions] = useState(false);
   const [showGlossary, setShowGlossary] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchCategory, setSearchCategory] = useState('all');
+  const initialParams = new URLSearchParams(location.search);
+  const [searchQuery, setSearchQuery] = useState(initialParams.get('q') || '');
+  const [searchCategory, setSearchCategory] = useState(initialParams.get('in') || 'all');
   const [filteredDrills, setFilteredDrills] = useState<Drill[]>([]);
-  const [varietyFilter, setVarietyFilter] = useState('');
+  const [varietyFilter, setVarietyFilter] = useState(initialParams.get('variety') || '');
   const newDrillOptionsRef = useRef<HTMLDivElement>(null);
 
   // Dismiss the "Més" dropdown on outside-click or Escape
@@ -167,7 +169,7 @@ export default function DrillsResponsive() {
   }, [drills, searchQuery, searchCategory, varietyFilter, location.search]);
 
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
+    const handleResize = () => setIsMobile(isMobileLayout());
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -246,39 +248,6 @@ export default function DrillsResponsive() {
     }
   }, [drills]);
 
-  const addNewDrill = async () => {
-    if (isCreating) return;
-    setIsCreating(true);
-    try {
-      const tempId = Date.now();
-      const newDrillData = {
-        id: tempId,
-        text_catalan: '',
-        text_tachelhit: '',
-        text_arabic: '',
-        date_created: new Date().toISOString(),
-        is_local: true
-      };
-
-      await syncManager.queueAction({
-        type: 'CREATE',
-        drillId: tempId,
-        payload: newDrillData
-      });
-
-      await new Promise(resolve => setTimeout(resolve, 50));
-      await fetchDrills();
-
-      if (isMobile) {
-        setEditingDrill(newDrillData);
-      }
-    } catch (error) {
-      console.error('Error creating drill:', error);
-      alert('No s\'ha pogut crear el drill');
-    } finally {
-      setIsCreating(false);
-    }
-  };
 
   const handleNavigate = (direction: 'next' | 'prev') => {
     if (!editingDrill) return;
@@ -292,7 +261,7 @@ export default function DrillsResponsive() {
 
   return (
     <>
-      <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)', paddingBottom: isMobile ? 'env(safe-area-inset-bottom, 0px)' : '0' }}>
+      <div className="app-page-fixed" style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg)', paddingBottom: isMobile ? 'env(safe-area-inset-bottom, 0px)' : '0', boxSizing: 'border-box' }}>
         <div style={{ background: 'var(--surface)', padding: isMobile ? '12px 14px' : '14px 24px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', gap: '12px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
@@ -319,9 +288,12 @@ export default function DrillsResponsive() {
 
               <button
                 onClick={() => {
-                  const url = window.location.href;
-                  navigator.clipboard.writeText(url);
-                  alert(`Enllaç filtrat copiat!\n${url}`);
+                  const u = new URL(window.location.href);
+                  u.search = '';
+                  if (searchQuery.trim()) u.searchParams.set('q', searchQuery.trim());
+                  if (searchCategory !== 'all') u.searchParams.set('in', searchCategory);
+                  if (varietyFilter) u.searchParams.set('variety', varietyFilter);
+                  navigator.clipboard.writeText(u.toString()).then(() => toast.success('Enllaç filtrat copiat')).catch(() => toast.error("No s'ha pogut copiar"));
                 }}
                 title="Copia l'enllaç filtrat"
                 aria-label="Copia l'enllaç filtrat"
@@ -331,19 +303,30 @@ export default function DrillsResponsive() {
               </button>
               <div ref={newDrillOptionsRef} style={{ position: 'relative' }}>
                 <button
-                  disabled={isCreating}
                   onClick={() => setShowNewDrillOptions(!showNewDrillOptions)}
-                  style={{ padding: '10px 14px', background: 'var(--surface-2)', color: 'var(--text-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontSize: '14px', fontWeight: 700, cursor: 'pointer', opacity: isCreating ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: '8px' }}
+                  style={{ padding: '10px 14px', background: 'var(--surface-2)', color: 'var(--text-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontSize: '14px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                 >
-                  {isCreating ? 'Creant…' : 'Més'} <FaChevronDown size={11} />
+                  Més <FaChevronDown size={11} />
                 </button>
                 {showNewDrillOptions && (
                   <div style={{ position: 'absolute', top: 'calc(100% + 10px)', right: 0, backgroundColor: 'var(--surface)', borderRadius: 'var(--r-lg)', boxShadow: 'var(--shadow-xl)', zIndex: 1000, minWidth: '230px', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border)' }}>
                     <button
-                      onClick={() => { addNewDrill(); setShowNewDrillOptions(false); }}
+                      onClick={() => { setShowMobileDrillCreator(true); setShowNewDrillOptions(false); }}
                       style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 16px', fontSize: '14px', background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', color: 'var(--text)', fontWeight: 600, whiteSpace: 'nowrap' }}
                     >
                       <FaPlus style={{ color: 'var(--emerald)' }} /> Crea un drill buit
+                    </button>
+                    <button
+                      onClick={() => { navigate('/srt-import'); setShowNewDrillOptions(false); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 16px', fontSize: '14px', background: 'none', border: 'none', borderTop: '1px solid var(--border)', textAlign: 'left', cursor: 'pointer', color: 'var(--text)', fontWeight: 600, whiteSpace: 'nowrap' }}
+                    >
+                      <FaFileImport style={{ color: 'var(--sky)' }} /> Importa subtítols (SRT)
+                    </button>
+                    <button
+                      onClick={() => { navigate('/library'); setShowNewDrillOptions(false); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 16px', fontSize: '14px', background: 'none', border: 'none', borderTop: '1px solid var(--border)', textAlign: 'left', cursor: 'pointer', color: 'var(--text)', fontWeight: 600, whiteSpace: 'nowrap' }}
+                    >
+                      <FaFilm style={{ color: 'var(--amber-strong)' }} /> Biblioteca de vídeos
                     </button>
                     <button
                       onClick={() => { setShowGlossary(true); setShowNewDrillOptions(false); }}
@@ -393,11 +376,6 @@ export default function DrillsResponsive() {
           </div>
         </div>
         <div style={{ flex: 1, width: '100%', overflowX: 'hidden', overflowY: 'auto', padding: isMobile ? '12px 4px' : '0', position: 'relative', boxSizing: 'border-box' }}>
-          {isCreating && (
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(255,255,255,0.5)', zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ padding: '10px 20px', background: '#333', color: 'white', borderRadius: '20px', fontWeight: 'bold' }}>Creant…</div>
-            </div>
-          )}
           <DrillsGrid rowData={filteredDrills} refreshData={fetchDrills} onEditDrill={(drill) => setEditingDrill(drill)} />
         </div>
       </div>

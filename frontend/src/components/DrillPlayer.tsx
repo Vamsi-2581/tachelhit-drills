@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { API_BASE, getMediaUrl } from '../config';
+import { fileNameFor, preferredRecorderMime, toPlayableAudioUrl } from '../utils/media';
 import { getMediaWithOfflineFallback } from '../utils/offlineCache';
 import { getYouTubeVideoId, loadYouTubeApi } from '../utils/youtubeUtils';
 import { FaVideo, FaVolumeUp, FaPlay, FaPause, FaSync, FaTimes, FaStepBackward, FaStepForward, FaBullseye, FaThumbsUp, FaRedo, FaExclamationTriangle, FaEye, FaStop, FaMicrophone, FaStar } from 'react-icons/fa';
@@ -133,7 +134,8 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const mime = preferredRecorderMime('audio');
+      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
       recorder.onstop = async () => {
@@ -143,10 +145,10 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
         if (!drillId || !chunks.length) return;
         setPronunciationBusy(true);
         try {
-          const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+          const blob = new Blob(chunks, { type: recorder.mimeType || mime || 'audio/webm' });
           const fd = new FormData();
           fd.append('drill_id', String(drillId));
-          fd.append('audio', blob, 'pronunciation.webm');
+          fd.append('audio', blob, fileNameFor(blob, 'audio', 'pronunciation'));
           const res = await fetch(`${API_BASE}/pronunciation/check`, { method: 'POST', body: fd });
           if (!res.ok) {
             const err = await res.json().catch(() => ({}));
@@ -446,7 +448,7 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
 
     try {
       // Get audio URL with offline fallback
-      const audioUrl = await getMediaWithOfflineFallback(sourceUrl, getMediaUrl);
+      const audioUrl = await getMediaWithOfflineFallback(sourceUrl, (u) => toPlayableAudioUrl(getMediaUrl(u)));
       const audio = new Audio(audioUrl);
       audioRef.current = audio;
       let internalCount = 0;
@@ -497,7 +499,7 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
   const handleSpeakCatalan = async (): Promise<void> => {
     if (currentDrill?.audio_tts_url) {
       try {
-        const audioUrl = await getMediaWithOfflineFallback(currentDrill.audio_tts_url, getMediaUrl);
+        const audioUrl = await getMediaWithOfflineFallback(currentDrill.audio_tts_url, (u) => toPlayableAudioUrl(getMediaUrl(u)));
         const audio = new Audio(audioUrl);
         ttsAudioRef.current = audio;
 
@@ -724,7 +726,7 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
     }}>
       {/* Header */}
       <div style={{
-        padding: '12px 18px',
+        padding: 'calc(12px + env(safe-area-inset-top, 0px)) 18px 12px',
         background: 'var(--brand-1)',
         color: 'white',
         display: 'flex',
@@ -924,9 +926,9 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
         </div>
       </div>
 
-      {/* Navigation Footer */}
+      {/* Navigation Footer — leaves room for the grading bar in review mode */}
       <div style={{
-        padding: '16px 20px',
+        padding: reviewMode && onGrade ? '16px 20px calc(92px + env(safe-area-inset-bottom, 0px))' : '16px 20px calc(16px + env(safe-area-inset-bottom, 0px))',
         background: 'var(--surface)',
         borderTop: '1px solid var(--border)',
         boxShadow: '0 -4px 16px rgba(15,23,42,0.04)',
@@ -1205,7 +1207,7 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
               />
-              
+
               {/* Subtitle Overlay */}
               <div style={{
                 position: 'absolute',
@@ -1233,7 +1235,7 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
                     {currentDrill.text_arabic}
                   </div>
                 )}
-                
+
                 {/* Tachelhit Subtitle */}
                 {currentDrill?.text_tachelhit && (
                   <div style={{
@@ -1589,7 +1591,7 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
       {/* Spaced-repetition grading bar */}
       {reviewMode && onGrade && currentDrill && (
         <div style={{
-          position: 'fixed', bottom: '18px', left: '50%', transform: 'translateX(-50%)',
+          position: 'fixed', bottom: 'calc(18px + env(safe-area-inset-bottom, 0px))', left: '50%', transform: 'translateX(-50%)',
           display: 'flex', gap: '10px', zIndex: 10001,
           flexWrap: 'wrap', justifyContent: 'center', maxWidth: '96vw',
           background: 'rgba(15, 23, 42, 0.85)', padding: '10px 14px',

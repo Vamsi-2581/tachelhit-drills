@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { getUserToken, setUserIdentity, clearUserIdentity } from '../config';
+import { getUserToken, isNativeApp, setUserIdentity, clearUserIdentity } from '../config';
+import { Share } from '@capacitor/share';
+import { syncManager } from '../services/OfflineSyncManager';
 import { api, type Me } from '../api';
 import { VARIETIES } from '../varieties';
 import { FaCheck, FaLayerGroup, FaRedo, FaFire } from 'react-icons/fa';
@@ -38,6 +40,11 @@ export default function ProfilePage() {
   const [region, setRegion] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
   const [savedProfile, setSavedProfile] = useState(false);
+  const [showToken, setShowToken] = useState(false);
+  const [tokenCopied, setTokenCopied] = useState(false);
+  const [deadCount, setDeadCount] = useState(0);
+  const [deadBusy, setDeadBusy] = useState(false);
+  useEffect(() => { syncManager.getDeadLetters().then(d => setDeadCount(d.length)).catch(() => {}); }, []);
   const hasToken = !!getUserToken();
   const initialLoading = hasToken && !me && !newToken && !error;
 
@@ -54,9 +61,16 @@ export default function ProfilePage() {
     api.me()
       .then((data) => {
         if (data) { setMe(data); setVariety(data.variety || ''); setRegion(data.region || ''); }
-        else clearUserIdentity(); // token no longer valid
+        else { clearUserIdentity(); setError('El token ja no és vàlid. Torna a iniciar sessió.'); }
       })
-      .catch(() => {});
+      .catch((e: any) => {
+        if (e?.status === 401 || /401|invalid token/i.test(e?.message || '')) {
+          clearUserIdentity();
+          setError('El token ja no és vàlid. Torna a iniciar sessió.');
+        } else {
+          setError('No s\'ha pogut carregar el perfil (sense connexió?). Torna-ho a provar.');
+        }
+      });
     api.reviewStreak().then(setStreak).catch(() => {});
   }, [hasToken]);
 
@@ -199,9 +213,41 @@ export default function ProfilePage() {
                 Els drills que aportis prendran aquesta varietat i regió per defecte, així sabem com es parla.
               </p>
             </div>
+            <div style={{ marginBottom: '18px', paddingTop: '18px', borderTop: '1px solid var(--border)' }}>
+              <div style={{ fontWeight: 700, marginBottom: '6px' }}>El teu token personal</div>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px' }}>
+                És l&apos;única manera de recuperar el compte en un altre dispositiu o després de reinstal·lar l&apos;app. Guarda&apos;l en un lloc segur.
+              </p>
+              {showToken ? (
+                <code style={{ display: 'block', padding: '12px', background: 'var(--surface-2)', borderRadius: 'var(--r-md)', fontSize: '13px', wordBreak: 'break-all', border: '1px solid var(--border)', marginBottom: '10px' }}>{getUserToken()}</code>
+              ) : null}
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button type="button" onClick={() => setShowToken(v => !v)} style={{ padding: '10px 16px', background: 'var(--surface-2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 'var(--r-pill)', fontWeight: 700, cursor: 'pointer', minHeight: '44px' }}>
+                  {showToken ? 'Amaga' : 'Mostra el token'}
+                </button>
+                <button type="button" onClick={() => { navigator.clipboard.writeText(getUserToken()).then(() => { setTokenCopied(true); setTimeout(() => setTokenCopied(false), 1500); }); }} style={{ padding: '10px 16px', background: 'var(--surface-2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 'var(--r-pill)', fontWeight: 700, cursor: 'pointer', minHeight: '44px' }}>
+                  {tokenCopied ? 'Copiat!' : 'Copia'}
+                </button>
+                {isNativeApp() && (
+                  <button type="button" onClick={() => Share.share({ title: 'Tachelhit Drills · token', text: getUserToken() }).catch(() => {})} style={{ padding: '10px 16px', background: 'var(--surface-2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 'var(--r-pill)', fontWeight: 700, cursor: 'pointer', minHeight: '44px' }}>
+                    Desa / comparteix
+                  </button>
+                )}
+              </div>
+            </div>
+            {deadCount > 0 && (
+              <div style={{ marginBottom: '18px', padding: '12px 14px', background: 'var(--amber-soft)', border: '1px solid var(--amber)', borderRadius: 'var(--r-md)' }}>
+                <div style={{ fontWeight: 700, color: 'var(--amber-strong)', marginBottom: '6px' }}>{deadCount} canvis no s&apos;han pogut sincronitzar</div>
+                <p style={{ fontSize: '12px', color: 'var(--text-soft)', margin: '0 0 10px' }}>Han fallat diverses vegades (per exemple, un drill esborrat o un fitxer no acceptat).</p>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button type="button" disabled={deadBusy} onClick={async () => { setDeadBusy(true); try { await syncManager.retryDeadLetters(); } finally { setDeadBusy(false); syncManager.getDeadLetters().then(d => setDeadCount(d.length)); } }} style={{ padding: '8px 14px', background: 'var(--brand-1)', color: '#fff', border: 'none', borderRadius: 'var(--r-pill)', fontWeight: 700, cursor: 'pointer', minHeight: '40px' }}>Reintenta</button>
+                  <button type="button" disabled={deadBusy} onClick={async () => { if (!window.confirm('Descartar aquests canvis pendents?')) return; await syncManager.discardDeadLetters(); setDeadCount(0); }} style={{ padding: '8px 14px', background: 'var(--surface)', color: 'var(--rose)', border: '1px solid var(--rose)', borderRadius: 'var(--r-pill)', fontWeight: 700, cursor: 'pointer', minHeight: '40px' }}>Descarta</button>
+                </div>
+              </div>
+            )}
             <button
               onClick={logout}
-              style={{ padding: '10px 20px', background: 'var(--rose-soft)', color: 'var(--rose)', border: '1px solid var(--rose)', borderRadius: 'var(--r-pill)', fontWeight: 700, cursor: 'pointer' }}
+              style={{ padding: '10px 20px', background: 'var(--rose-soft)', color: 'var(--rose)', border: '1px solid var(--rose)', borderRadius: 'var(--r-pill)', fontWeight: 700, cursor: 'pointer', minHeight: '44px' }}
             >
               Tanca la sessió en aquest dispositiu
             </button>

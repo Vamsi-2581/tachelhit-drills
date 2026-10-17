@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../config';
+import { toast } from '../toast';
 
 interface Drill {
   id: number;
   text_catalan: string;
   text_tachelhit: string;
   text_arabic?: string;
+  tag?: string;
   // Add other fields from Drill model if needed for display/search
 }
 
@@ -77,12 +79,12 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
 
   const handleCreate = async () => {
     if (!config.title.trim()) {
-      alert('Please enter a test title');
+      toast.error('Posa un títol al test');
       return;
     }
 
     if (selectedDrills.length === 0) {
-      alert('Please select at least one drill');
+      toast.error('Selecciona almenys un drill');
       return;
     }
 
@@ -93,12 +95,12 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
         time_limit_seconds: config.time_limit_seconds || null,
       });
 
-      alert('Test created successfully!');
+      toast.success('Test creat correctament');
       onTestCreated(response.data.id);
       onClose();
     } catch (error) {
       console.error('Error creating test:', error);
-      alert('Failed to create test');
+      toast.error('No s\'ha pogut crear el test');
     }
   };
 
@@ -118,6 +120,7 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
     ((drill.text_catalan?.toLowerCase() || '').includes(drillSearchTerm.toLowerCase()) ||
       (drill.text_tachelhit?.toLowerCase() || '').includes(drillSearchTerm.toLowerCase()) ||
       (drill.text_arabic?.toLowerCase() || '').includes(drillSearchTerm.toLowerCase()) ||
+      (drill.tag?.toLowerCase() || '').includes(drillSearchTerm.toLowerCase()) ||
       drill.id.toString().includes(drillSearchTerm)))
     ;
 
@@ -135,12 +138,12 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
       alignItems: 'center',
       justifyContent: 'center',
       zIndex: 10000,
-      padding: '20px',
+      padding: 'max(12px, env(safe-area-inset-top, 0px)) 12px max(12px, env(safe-area-inset-bottom, 0px))',
       fontFamily: 'var(--font-sans)',
     }}>
       <div style={{
         backgroundColor: 'var(--surface)',
-        padding: '28px',
+        padding: 'clamp(16px, 4vw, 28px)',
         borderRadius: 'var(--r-2xl)',
         width: '600px',
         maxWidth: '100%',
@@ -151,11 +154,11 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '22px' }}>
           <h2 style={{ margin: 0, fontSize: '22px', fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.02em' }}>
-            Create Test
+            Nou test
           </h2>
           <button
             onClick={onClose}
-            aria-label='Close'
+            aria-label='Tanca'
             style={{
               border: 'none',
               background: 'var(--surface-2)',
@@ -175,7 +178,7 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
         {/* Drill Management Section for New Test */}
         <div style={{ marginBottom: '20px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-xl)', padding: '18px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>Select Drills</h3>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text)' }}>Tria els drills</h3>
             <span style={{
               background: 'var(--brand-gradient-soft)',
               color: 'var(--brand-1)',
@@ -191,7 +194,7 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
           {/* Currently selected drills (for display, no reorder for creation) */}
           <div style={{ marginBottom: '14px', maxHeight: '150px', overflowY: 'auto', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', padding: '8px' }}>
             {selectedDrills.length === 0 ? (
-              <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '20px', margin: 0, fontSize: '13px' }}>No drills selected for this test.</p>
+              <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '20px', margin: 0, fontSize: '13px' }}>Encara no has triat cap drill.</p>
             ) : (
               selectedDrills.map((drill, index) => (
                 <div key={drill.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', padding: '8px 10px', borderRadius: 'var(--r-sm)', marginBottom: index < selectedDrills.length - 1 ? '4px' : 0, background: 'var(--surface-2)' }}>
@@ -203,7 +206,7 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
                     onClick={() => handleRemoveDrill(drill.id)}
                     style={{ background: 'var(--rose-soft)', color: 'var(--rose)', border: 'none', borderRadius: 'var(--r-sm)', padding: '5px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
                   >
-                    Remove
+                    Treu
                   </button>
                 </div>
               ))
@@ -212,17 +215,17 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
 
           {/* Add new drills search */}
           <div style={{ paddingTop: '14px', borderTop: '1px solid var(--border)' }}>
-            <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 600, color: 'var(--text-soft)' }}>Available Drills</h4>
+            <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 600, color: 'var(--text-soft)' }}>Drills disponibles</h4>
             <input
               type='text'
-              placeholder='Search by ID or text...'
+              placeholder='Cerca per text, etiqueta o ID…'
               value={drillSearchTerm}
               onChange={(e) => setDrillSearchTerm(e.target.value)}
               style={inputStyle}
             />
             <div style={{ maxHeight: '150px', overflowY: 'auto', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', marginTop: '10px', padding: '6px' }}>
-              {drillSearchTerm.length > 0 && filteredAvailableDrills.length > 0 ? (
-                filteredAvailableDrills.map(drill => (
+              {filteredAvailableDrills.length > 0 ? (
+                (drillSearchTerm.length > 0 ? filteredAvailableDrills : filteredAvailableDrills.slice(0, 30)).map(drill => (
                   <div key={drill.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', padding: '8px 10px', borderRadius: 'var(--r-sm)', marginBottom: '4px', background: 'var(--surface-2)' }}>
                     <span style={{ fontSize: '14px', color: 'var(--text)' }}>
                       <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>#{drill.id}</span> {drill.text_catalan}
@@ -231,14 +234,12 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
                       onClick={() => handleAddDrill(drill)}
                       style={{ background: 'var(--brand-gradient)', color: 'white', border: 'none', borderRadius: 'var(--r-sm)', padding: '5px 14px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, boxShadow: 'var(--shadow-brand)' }}
                     >
-                      Add
+                      Afegeix
                     </button>
                   </div>
                 ))
-              ) : drillSearchTerm.length > 0 ? (
-                <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '12px', margin: 0, fontSize: '13px' }}>No matching drills found.</p>
               ) : (
-                <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '12px', margin: 0, fontSize: '13px' }}>Type to search available drills.</p>
+                <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '12px', margin: 0, fontSize: '13px' }}>Cap drill coincideix.</p>
               )}
             </div>
           </div>
@@ -246,25 +247,25 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
 
         <div style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>
-            Test Title *
+            Títol del test *
           </label>
           <input
             type='text'
             value={config.title}
             onChange={(e) => setConfig({ ...config, title: e.target.value })}
-            placeholder='e.g., Basic Greetings Test'
+            placeholder='p. ex. Salutacions bàsiques'
             style={inputStyle}
           />
         </div>
 
         <div style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>
-            Description
+            Descripció
           </label>
           <textarea
             value={config.description}
             onChange={(e) => setConfig({ ...config, description: e.target.value })}
-            placeholder='Optional description'
+            placeholder='Descripció (opcional)'
             rows={3}
             style={{ ...inputStyle, resize: 'vertical' }}
           />
@@ -272,56 +273,56 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
 
         <div style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>
-            Question Type
+            Tipus de pregunta
           </label>
           <select
             value={config.question_type}
             onChange={(e) => setConfig({ ...config, question_type: e.target.value })}
             style={inputStyle}
           >
-            <option value='text_input'>Text Input - Student writes Tachelhit</option>
-            <option value='audio'>Audio Recognition - Listen and write</option>
-            <option value='video'>Video - Watch and write</option>
-            <option value='combined'>Combined - Mix of all types (uses available media)</option>
+            <option value='text_input'>Text · l'alumne escriu la resposta</option>
+            <option value='audio'>Àudio · escolta i escriu</option>
+            <option value='video'>Vídeo · mira i escriu</option>
+            <option value='combined'>Combinat · fa servir el mèdia disponible</option>
           </select>
         </div>
 
         {/* Playback Direction Field */}
         <div style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>
-            Playback Direction
+            Direcció
           </label>
           <select
             value={config.playback_direction}
             onChange={(e) => setConfig({ ...config, playback_direction: e.target.value })}
             style={inputStyle}
           >
-            <option value='cat-tash'>Catalan (Question) → Tachelhit (Answer)</option>
-            <option value='tash-cat'>Tachelhit (Question) → Catalan (Answer)</option>
-            <option value='ar-tash'>Arabic (Question) → Tachelhit (Answer)</option>
-            <option value='tash-ar'>Tachelhit (Question) → Arabic (Answer)</option>
+            <option value='cat-tash'>Català (pregunta) → Tachelhit (resposta)</option>
+            <option value='tash-cat'>Tachelhit (pregunta) → Català (resposta)</option>
+            <option value='ar-tash'>Àrab (pregunta) → Tachelhit (resposta)</option>
+            <option value='tash-ar'>Tachelhit (pregunta) → Àrab (resposta)</option>
           </select>
         </div>
 
         <div style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>
-            Hint Level
+            Pistes
           </label>
           <select
             value={config.hint_level}
             onChange={(e) => setConfig({ ...config, hint_level: e.target.value })}
             style={inputStyle}
           >
-            <option value='none'>No Hints</option>
-            <option value='partial'>Partial Letters (%)</option>
-            <option value='full_after_tries'>Full Reveal After X Tries</option>
+            <option value='none'>Sense pistes</option>
+            <option value='partial'>Algunes lletres (%)</option>
+            <option value='full_after_tries'>Resposta sencera després de N intents</option>
           </select>
         </div>
 
         {config.hint_level === 'partial' && (
           <div style={{ marginBottom: '16px', marginLeft: '4px', padding: '14px 16px', background: 'var(--brand-gradient-soft)', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
             <label style={{ ...labelStyle, marginBottom: '10px', color: 'var(--text)' }}>
-              Percentage of letters to reveal: <span style={{ color: 'var(--brand-1)', fontWeight: 700 }}>{config.hint_percentage}%</span>
+              Percentatge de lletres mostrades: <span style={{ color: 'var(--brand-1)', fontWeight: 700 }}>{config.hint_percentage}%</span>
             </label>
             <input
               type='range'
@@ -337,7 +338,7 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
         {config.hint_level === 'full_after_tries' && (
           <div style={{ marginBottom: '16px', marginLeft: '4px', padding: '14px 16px', background: 'var(--brand-gradient-soft)', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
             <label style={{ ...labelStyle, marginBottom: '10px', color: 'var(--text)' }}>
-              Number of tries before revealing:
+              Intents abans de mostrar la resposta:
             </label>
             <input
               type='number'
@@ -352,7 +353,7 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
 
         <div style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>
-            Time Limit (seconds per question, 0 = no limit)
+            Temps límit (segons per pregunta, 0 = sense límit)
           </label>
           <input
             type='number'
@@ -365,7 +366,7 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
 
         <div style={{ marginBottom: '24px', padding: '14px 16px', background: 'var(--emerald-soft)', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
           <label style={{ ...labelStyle, marginBottom: '10px', color: 'var(--text)' }}>
-            Passing Score: <span style={{ color: 'var(--emerald)', fontWeight: 700 }}>{config.passing_score}%</span>
+            Nota per aprovar: <span style={{ color: 'var(--emerald)', fontWeight: 700 }}>{config.passing_score}%</span>
           </label>
           <input
             type='range'
@@ -391,7 +392,7 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
               fontWeight: 600,
             }}
           >
-            Cancel
+            Cancel·la
           </button>
           <button
             onClick={handleCreate}
@@ -407,7 +408,7 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
               boxShadow: 'var(--shadow-brand)',
             }}
           >
-            Create Test
+            Crea el test
           </button>
         </div>
       </div>

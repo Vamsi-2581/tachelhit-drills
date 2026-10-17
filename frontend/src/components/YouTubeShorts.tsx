@@ -3,6 +3,7 @@ import axios from 'axios';
 import { API_BASE, getMediaUrl } from '../config';
 import { toast } from '../toast';
 import { FaCheck, FaVideo, FaFilm, FaPlay, FaTrash, FaDownload, FaUpload, FaShareAlt, FaTv } from 'react-icons/fa';
+import { downloadOrShare } from '../utils/download';
 
 interface Short {
   id: number;
@@ -399,6 +400,7 @@ export default function YouTubeShorts() {
                 <a
                   href={getMediaUrl(selectedVideo.video_path)}
                   download={`tachelhit_short_${selectedVideo.drill_id}.mp4`}
+                  onClick={(e) => { e.preventDefault(); downloadOrShare(getMediaUrl(selectedVideo.video_path), `tachelhit_short_${selectedVideo.drill_id}.mp4`).catch((err) => toast.error(err?.message || 'Descàrrega fallida')); }}
                   aria-label="Descarrega el Short"
                   style={{
                     display: 'inline-flex',
