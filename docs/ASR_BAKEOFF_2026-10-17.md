@@ -58,6 +58,29 @@ Space is the account's sleeping `tachelhit-asr-service` repurposed (code in `hug
 and `josepabloucr/huggingface-asr-space` (an old Whisper-base duplicate) was paused to free the
 cpu-basic slot. Results JSON: `docs/asr_bakeoff/`.
 
+## Update 2: the whole production corpus (506 clips, 2026-10-17 23:18)
+
+Production ignores `?ids=`, so the "24 hand-picked recordings" build pulled every drill with media
+and text: 506 clips. Only Gemini finished; the NeMo pass (and the dev server) were killed by the
+machine's memory reaper after 4 clips. Same tolerant metric as Update 1. JSON:
+`docs/asr_bakeoff/results_fullcorpus.json`.
+
+| Gemini 2.5 Flash on … | clips | mean CER | exact |
+|---|---|---|---|
+| speaker recordings (ids < 700, informal Latin refs) | 487 | **0.44** | 16 |
+| the 24 hand-picked speaker sentences | 24 | **0.49** | 0 |
+| earlier YouTube captures (ids 2924-2951) | 12 | **0.74** | 0 |
+| vocabulary video (3078-3084, Tifinagh refs) | 7 | **0.2** | 3 |
+| all | 506 | **0.45** | 19 |
+
+Reading the number: the speaker-recording references are free spellings by the speakers
+("Shora", "Cristina ar t3om", "O mani jan"), and several are not Tachelhit at all
+(#2944 "with with with…", #2943 "3000 3000…", #37 is a Catalan question) — so 0.45 is an upper
+bound on the recognition error, not a measurement of it. Where the reference is careful the
+model is close: "mani s ida" → "Mani-s idda" 0.10, "ila otfl kghrm" → "illa u tflɣrm" 0.15,
+"ghori adsfrgh d ihla ghori" → "iḥla ɣuri atsafrɣ d iḥla ɣuri" 0.20. The honest next step is a
+**verified** gold set (speaker-approved spelling, variety on the profile), not more engine runs.
+
 ## What would move the needle
 - A hosted MMS Space (paid plan, or an org member with rights) to measure the Tachelhit adapter.
 - Speaker-verified pairs: each corrected drill (text + clip, variety on the speaker's profile)
