@@ -174,6 +174,7 @@ export default function DrillsResponsive() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  const [loadError, setLoadError] = useState<'error' | 'cached' | null>(null);
   const fetchDrills = async () => {
     try {
       let allDrills: Drill[] = [];
@@ -186,12 +187,18 @@ export default function DrillsResponsive() {
         syncManager.sync().catch(() => {});
         const response = await axios.get(`${API_BASE}/drills/`);
         allDrills = response.data || [];
+        setLoadError(null);
         await syncManager.saveDrillsToCache(allDrills);
         // Trigger media sync (audio & images only; videos are large and cached on-demand)
         syncManager.syncAllMedia({ includeVideos: false });
       } catch (netErr) {
         console.warn('Server fetch failed, falling back to cached drills:', netErr);
         allDrills = await syncManager.getDrills();
+        // Tell the grid the list may be stale/empty because of the network, not
+        // because there are no drills (a cold Render start used to show
+        // "Encara no hi ha cap drill" on a 600-drill database).
+        setLoadError(allDrills.length ? 'cached' : 'error');
+        if (allDrills.length) toast.error('Sense resposta del servidor: es mostra la còpia local.');
       }
 
       const queue = await syncManager.getQueue();
@@ -376,7 +383,7 @@ export default function DrillsResponsive() {
           </div>
         </div>
         <div style={{ flex: 1, width: '100%', overflowX: 'hidden', overflowY: 'auto', padding: isMobile ? '12px 4px' : '0', position: 'relative', boxSizing: 'border-box' }}>
-          <DrillsGrid rowData={filteredDrills} refreshData={fetchDrills} onEditDrill={(drill) => setEditingDrill(drill)} />
+          <DrillsGrid rowData={filteredDrills} refreshData={fetchDrills} onEditDrill={(drill) => setEditingDrill(drill)} loadError={loadError} />
         </div>
       </div>
 

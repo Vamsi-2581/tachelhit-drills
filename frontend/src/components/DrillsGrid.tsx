@@ -40,9 +40,11 @@ interface DrillsGridProps {
     rowData: Drill[];
     refreshData: () => Promise<void>;
     onEditDrill?: (drill: Drill) => void;
+    /** 'error' = server unreachable and no local copy; 'cached' = showing the local copy */
+    loadError?: 'error' | 'cached' | null;
 }
 
-export default function DrillsGrid({ rowData, refreshData, onEditDrill }: DrillsGridProps) {
+export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadError }: DrillsGridProps) {
     const [isMobile, setIsMobile] = useState(isMobileLayout);
     const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
     // Inline media preview (video/audio) opened from the grid or the cards.
@@ -393,9 +395,10 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '4px' }}>
                 {rowData.length === 0 && (
                     <div style={{ textAlign: 'center', padding: '48px 20px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-xl)', boxShadow: 'var(--shadow-sm)', color: 'var(--text-soft)' }}>
-                        <div style={{ fontSize: '44px', marginBottom: '12px' }}>📭</div>
-                        <div style={{ fontSize: '17px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px', fontFamily: 'var(--font-display)' }}>Encara no hi ha cap drill</div>
-                        <div style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Crea el teu primer drill per veure'l aquí.</div>
+                        <div style={{ fontSize: '44px', marginBottom: '12px' }}>{loadError === 'error' ? '📡' : '📭'}</div>
+                        <div style={{ fontSize: '17px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px', fontFamily: 'var(--font-display)' }}>{loadError === 'error' ? "No s'han pogut carregar els drills" : 'Encara no hi ha cap drill'}</div>
+                        <div style={{ fontSize: '14px', color: 'var(--text-muted)' }}>{loadError === 'error' ? "El servidor no respon (pot estar despertant-se). Torna-ho a provar d'aquí a uns segons." : "Crea el teu primer drill per veure'l aquí."}</div>
+                        {loadError === 'error' && <button onClick={() => refreshData()} style={{ marginTop: '14px', padding: '10px 18px', borderRadius: 'var(--r-pill)', border: 'none', background: 'var(--brand-gradient)', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Torna-ho a provar</button>}
                     </div>
                 )}
                 {rowData.map((drill) => (
@@ -744,8 +747,10 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             {rowData.length === 0 ? (
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ textAlign: 'center', padding: '56px 40px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-xl)', boxShadow: 'var(--shadow-sm)', maxWidth: '420px' }}>
-                        <div style={{ fontSize: '52px', marginBottom: '16px' }}>📭</div>
-                        <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>Encara no hi ha cap drill</h3>
+                        <div style={{ fontSize: '52px', marginBottom: '16px' }}>{loadError === 'error' ? '📡' : '📭'}</div>
+                        <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>{loadError === 'error' ? "No s'han pogut carregar els drills" : 'Encara no hi ha cap drill'}</h3>
+                        {loadError === 'error' && <p style={{ margin: '0 0 12px 0', fontSize: '14px', color: 'var(--text-muted)' }}>El servidor no respon (pot estar despertant-se).</p>}
+                        {loadError === 'error' && <button onClick={() => refreshData()} style={{ padding: '10px 18px', borderRadius: 'var(--r-pill)', border: 'none', background: 'var(--brand-gradient)', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Torna-ho a provar</button>}
                         <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-muted)' }}>Crea el teu primer drill per veure'l aquí.</p>
                     </div>
                 </div>
