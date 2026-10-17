@@ -55,7 +55,7 @@ try:
 except ImportError:  # the frozen build always has it
     sys.exit("Missing dependency. Run:  pip install requests yt-dlp")
 
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 APP_NAME = "TachelhitCapture"
 DEFAULT_API = "https://tachelhit-drills-api.onrender.com"
 WEB_APP = "https://tachelhit-drills.vercel.app/video-creator"
@@ -223,7 +223,10 @@ def ensure_ytdlp(cfg: dict) -> str | None:
             stale = True
             if last:
                 try:
-                    stale = datetime.now(timezone.utc) - datetime.fromisoformat(last) > timedelta(days=1)
+                    then = datetime.fromisoformat(last)
+                    if then.tzinfo is None:  # written by agent 2.0 (naive UTC)
+                        then = then.replace(tzinfo=timezone.utc)
+                    stale = datetime.now(timezone.utc) - then > timedelta(days=1)
                 except ValueError:
                     pass
             if stale:
