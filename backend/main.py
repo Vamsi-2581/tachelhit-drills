@@ -280,6 +280,9 @@ def generate_catalan_tts(text: str, drill_id: int) -> str:
         print(f"[TTS] Error generating TTS: {e}")
         raise
 
+_hf_clients: Dict[str, Any] = {}
+
+
 def hf_predict(space_id: str, *args, api_name: str = "/predict", token: str = None,
                retries: int = 3, timeout: float = 180.0, **kwargs):
     """
@@ -296,11 +299,17 @@ def hf_predict(space_id: str, *args, api_name: str = "/predict", token: str = No
     last_err = None
     for attempt in range(1, retries + 1):
         try:
-            client = Client(space_id, token=token,
-                            httpx_kwargs={"timeout": httpx.Timeout(timeout, connect=30.0)})
+            # Reuse the Gradio client per Space: building one costs a config
+            # round-trip (~5 s) and a 170-cue story paid it on every call.
+            client = _hf_clients.get(space_id)
+            if client is None:
+                client = Client(space_id, token=token,
+                                httpx_kwargs={"timeout": httpx.Timeout(timeout, connect=30.0)})
+                _hf_clients[space_id] = client
             return client.predict(*args, api_name=api_name, **kwargs)
         except Exception as e:
             last_err = e
+            _hf_clients.pop(space_id, None)  # a stale client after a cold restart: rebuild next time
             print(f"[HF] {space_id} attempt {attempt}/{retries} failed: {e}")
             if attempt < retries:
                 _time.sleep(min(20, 5 * attempt))  # give the Space time to finish booting
@@ -428,10 +437,11 @@ def _parse_gloss_json(answer: str) -> Dict[str, Dict[str, str]]:
 
 
 def translate_glosses(glosses: List[str], src_lang: str = "English",
-                      targets: Tuple[str, ...] = ("ca", "ar")) -> Dict[str, Dict[str, str]]:
+                      targets: Tuple[str, ...] = ("ca", "ar"), chunk: int = 40) -> Dict[str, Dict[str, str]]:
     """Catalan (+ Arabic) for a list of items — glosses ("horse") or whole caption
-    sentences. One Gemini call for all of them — NLLB is unreliable on isolated
-    words ("bufa" for owl). Falls back to the translation Space per item."""
+    sentences. Gemini in chunks of `chunk` items (a 170-sentence story blew the
+    output budget in one call and silently fell back to NLLB per cue); the
+    translation Space per item is the fallback."""
     uniq = [g for g in dict.fromkeys((g or "").strip() for g in glosses) if g]
     result: Dict[str, Dict[str, str]] = {}
     if not uniq:
@@ -439,22 +449,25 @@ def translate_glosses(glosses: List[str], src_lang: str = "English",
     names = {"ca": "Catalan", "ar": "Modern Standard Arabic"}
     want = [t for t in targets if t in names and names[t] != src_lang]
     if gemini_available() and want:
-        try:
-            tlist = " and ".join(f"{names[t]} (\"{t}\")" for t in want)
-            prompt = ("Translate each " + src_lang + " item into " + tlist + ". Items are words, phrases or "
-                      "subtitle sentences from a language-learning video; keep number/article form and register, "
-                      "lowercase single words unless proper nouns, no explanations. Answer ONLY with a JSON object "
-                      "mapping each item (exactly as given) to {" + ", ".join(f"\"{t}\": ..." for t in want) + "}.\n\nItems:\n"
-                      + "\n".join(f"- {g}" for g in uniq))
-            answer = gemini_generate("You are a precise bilingual lexicographer.",
-                                     [{"role": "user", "text": prompt}], max_output_tokens=2000, temperature=0.1)
-            parsed = _parse_gloss_json(answer)
-            for g in uniq:
-                hit = parsed.get(g.lower())
-                if hit and all(hit.get(t) for t in want):
-                    result[g] = hit
-        except Exception as e:
-            print(f"[AUTO] Gemini batch translation failed ({e}); using the translation Space")
+        tlist = " and ".join(f"{names[t]} (\"{t}\")" for t in want)
+        for i in range(0, len(uniq), chunk):
+            part = uniq[i:i + chunk]
+            try:
+                prompt = ("Translate each " + src_lang + " item into " + tlist + ". Items are words, phrases or "
+                          "subtitle sentences from a language-learning video; keep number/article form and register, "
+                          "lowercase single words unless proper nouns, no explanations. Answer ONLY with a JSON object "
+                          "mapping each item (exactly as given) to {" + ", ".join(f"\"{t}\": ..." for t in want) + "}.\n\nItems:\n"
+                          + "\n".join(f"- {g}" for g in part))
+                answer = gemini_generate("You are a precise bilingual lexicographer.",
+                                         [{"role": "user", "text": prompt}], max_output_tokens=8000, temperature=0.1, timeout=180)
+                parsed = _parse_gloss_json(answer)
+                for g in part:
+                    hit = parsed.get(g.lower())
+                    if hit and all(hit.get(t) for t in want):
+                        result[g] = hit
+                print(f"[AUTO] Gemini translated {sum(1 for g in part if g in result)}/{len(part)} items ({src_lang} -> {','.join(want)})")
+            except Exception as e:
+                print(f"[AUTO] Gemini batch translation failed ({e}); using the translation Space for this chunk")
     for g in uniq:
         if g in result:
             continue
