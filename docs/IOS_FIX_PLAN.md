@@ -5,11 +5,17 @@
 > `pytest` 37→48 passed, and a Chrome smoke test against the local backend: Captura/Corpus
 > scroll, one drill per "Nou drill" save with toast, "Nou test" on the dashboard,
 > 422 on empty drill body, 401 on bad token, tombstone on delete).
+> **P6 progress (2026-10-17, from Windows):** `frontend/ios/` generated with CocoaPods (8 plugins in
+> the Podfile), Info.plist usage strings + `ITSAppUsesNonExemptEncryption=NO`, icon/splash sources in
+> `frontend/resources/` (placeholder ⵣ on #2E4B8C) rendered into both platforms, and
+> `.github/workflows/mobile.yml` builds the Android debug APK on ubuntu and compiles the iOS app for the
+> Simulator on a free `macos-15` runner on every push. Android debug APK built locally and run on a
+> Pixel 7 / Android 16 emulator (see the PR). Still needs a Mac: signing, `Podfile.lock`, device tests
+> (YouTube embeds from `capacitor://localhost`, mic, share sheet, keyboard) — `frontend/IOS_SETUP.md`.
 > Not done: **P5.1 deletion** (the junk list is produced by
 > `backend/tools/find_junk_drills.py --api …`; 3 candidates, ids 3063-3065, all tagged
-> `tachelhit-demo`, owner decides), **P6** (needs a Mac — see `frontend/IOS_SETUP.md`),
-> icon/splash source images, and the flagged blocking yt-dlp download in
-> `/video-analysis/import-url`. Known gap: `utils/offlineCache.ts` still holds unused
+> `tachelhit-demo`, owner decides), Android release keystore, and the flagged blocking yt-dlp
+> download in `/video-analysis/import-url`. Known gap: `utils/offlineCache.ts` still holds unused
 > IndexedDB/Cache classes.
 
 Source: section 5 of `docs/IOS_READINESS_REVIEW_2026-10-17.md` (every item below cites that review).
