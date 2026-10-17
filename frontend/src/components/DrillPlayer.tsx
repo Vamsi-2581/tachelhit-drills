@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import SourceCredit from './SourceCredit';
 import { API_BASE, getMediaUrl } from '../config';
 import { fileNameFor, preferredRecorderMime, toPlayableAudioUrl } from '../utils/media';
 import { getMediaWithOfflineFallback } from '../utils/offlineCache';
@@ -899,6 +900,7 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
           </div>
 
           {/* Video Button (if video exists) */}
+              <div style={{ marginTop: '8px' }}><SourceCredit drill={currentDrill || {}} /></div>
           {currentDrill?.video_url && (
             <div style={{ padding: '16px 24px 24px', display: 'flex', justifyContent: 'center' }}>
               <button

@@ -80,6 +80,9 @@ class DrillBase(BaseModel):
     region: Optional[str] = None
     speaker: Optional[str] = None
     source_url: Optional[str] = None
+    source_title: Optional[str] = None
+    source_channel: Optional[str] = None
+    source_playlist: Optional[str] = None
     license: Optional[str] = None
     verified: Optional[bool] = None
 

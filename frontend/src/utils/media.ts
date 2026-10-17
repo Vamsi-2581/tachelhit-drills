@@ -90,3 +90,23 @@ export function toPlayableAudioUrl(url: string): string {
   }
   return url;
 }
+
+
+/** Link to the original source at the drill's second (YouTube `t=` param), for the credit line. */
+export function sourceLink(d: { source_url?: string | null; video_start_time?: number | null }): string | null {
+  const u = (d.source_url || '').trim();
+  if (!/^https?:\/\//i.test(u)) return null;
+  const t = d.video_start_time;
+  if (t != null && t > 0 && /youtu\.?be/i.test(u)) {
+    return u.replace(/[&?]t=\d+s?/, '') + (u.includes('?') ? '&' : '?') + 't=' + Math.floor(t) + 's';
+  }
+  return u;
+}
+
+/** "Tamazight For All · Vocabulary of Tamazight" — what to credit, or null when the drill has no external source. */
+export function sourceCredit(d: { source_url?: string | null; source_channel?: string | null; source_title?: string | null }): string | null {
+  if (!sourceLink(d)) return null;
+  const parts = [d.source_channel, d.source_title].map((x) => (x || '').trim()).filter(Boolean);
+  if (parts.length) return parts.join(' · ');
+  try { return new URL(d.source_url as string).hostname.replace(/^www\./, ''); } catch { return 'font externa'; }
+}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import SourceCredit from './SourceCredit';
 import axios from 'axios';
 import { API_BASE, getMediaUrl, getUserName } from '../config';
 import { api } from '../api';
@@ -23,6 +24,10 @@ interface Drill {
   id: number;
   text_tachelhit_latin?: string;
   text_catalan: string;
+  source_url?: string;
+  source_title?: string;
+  source_channel?: string;
+  video_start_time?: number;
   text_tachelhit: string;
   text_arabic?: string;
   audio_url: string;
@@ -785,6 +790,8 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
           width: '100%',
           boxShadow: 'var(--shadow-lg)'
         }}>
+          {/* Credit for captured content: author, title, link to the original second */}
+          <div style={{ marginBottom: '10px', textAlign: 'right' }}><SourceCredit drill={currentDrill} compact /></div>
           {/* Image if available */}
           {currentDrill.image_url && (
             <div style={{ marginBottom: '30px', textAlign: 'center' }}>

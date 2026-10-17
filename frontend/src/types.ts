@@ -25,6 +25,9 @@ export interface Drill {
   region?: string;
   speaker?: string;
   source_url?: string;
+  source_title?: string;
+  source_channel?: string;
+  source_playlist?: string;
   license?: string;
   verified?: boolean;
 }

@@ -10,6 +10,7 @@ import { Network } from '@capacitor/network';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { API_BASE, getMediaUrl } from '../config';
 import { setSelectedDrillIds } from '../selection';
+import SourceCredit from './SourceCredit';
 import {
     FaVolumeUp,
     FaVideo,
@@ -517,6 +518,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                         </div>
 
 
+                        <SourceCredit drill={drill} />
                         <hr style={{ border: 'none', height: '1px', background: 'var(--border)', margin: '2px 0' }} />
 
                         {/* Quick Update Row */}
@@ -604,6 +606,15 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                     {params.data.video_url && (
                         <button onClick={() => setPreview({ url: getMediaUrl(params.data.video_url), kind: 'video', title: params.data.text_catalan || params.data.text_tachelhit || `Drill #${params.data.id}` })} style={{ background: 'var(--brand-gradient-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '8px', cursor: 'pointer', color: 'var(--brand-2)' }} title="Reprodueix el vídeo" aria-label="Reprodueix el vídeo"><FaVideo size={16} /></button>
                     )}
+                </div>
+            )
+        },
+        {
+            headerName: 'Font',
+            width: 170,
+            cellRenderer: (params: { data: Drill }) => (
+                <div style={{ display: 'flex', alignItems: 'center', height: '100%', overflow: 'hidden' }}>
+                    <SourceCredit drill={params.data} compact />
                 </div>
             )
         },

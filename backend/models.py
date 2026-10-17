@@ -40,6 +40,9 @@ class Drill(Base):
     region = Column(String, nullable=True)    # e.g. "Souss", "Tafraout", "diaspora-BCN"
     speaker = Column(String, nullable=True)   # speaker/contributor label (with consent)
     source_url = Column(String, nullable=True)  # provenance: where the content came from
+    source_title = Column(String, nullable=True)     # e.g. the YouTube video title
+    source_channel = Column(String, nullable=True)   # author/channel to credit
+    source_playlist = Column(String, nullable=True)  # course/playlist the video belongs to
     license = Column(String, nullable=True)     # e.g. "CC-BY-SA", "personal", "unknown"
     # --- Contribution review (auditor Phase 3): NULL/False = unreviewed ---
     verified = Column(Boolean, nullable=True)

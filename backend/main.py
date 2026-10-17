@@ -425,39 +425,43 @@ def _parse_gloss_json(answer: str) -> Dict[str, Dict[str, str]]:
     return out
 
 
-def translate_glosses(glosses: List[str], src_lang: str = "English") -> Dict[str, Dict[str, str]]:
-    """Catalan + Arabic for a list of short glosses ("horse", "owl"). One Gemini
-    call for all of them — NLLB is unreliable on isolated words ("bufa" for owl).
-    Falls back to the translation Space per gloss when Gemini is unavailable."""
+def translate_glosses(glosses: List[str], src_lang: str = "English",
+                      targets: Tuple[str, ...] = ("ca", "ar")) -> Dict[str, Dict[str, str]]:
+    """Catalan (+ Arabic) for a list of items — glosses ("horse") or whole caption
+    sentences. One Gemini call for all of them — NLLB is unreliable on isolated
+    words ("bufa" for owl). Falls back to the translation Space per item."""
     uniq = [g for g in dict.fromkeys((g or "").strip() for g in glosses) if g]
     result: Dict[str, Dict[str, str]] = {}
     if not uniq:
         return result
-    if gemini_available():
+    names = {"ca": "Catalan", "ar": "Modern Standard Arabic"}
+    want = [t for t in targets if t in names and names[t] != src_lang]
+    if gemini_available() and want:
         try:
-            prompt = ("Translate each " + src_lang + " vocabulary item into Catalan (\"ca\") and Modern Standard "
-                      "Arabic (\"ar\"). Items are words or short phrases from a language-learning video. Keep the "
-                      "same number/article form, lowercase unless a proper noun, no explanations. Answer ONLY with a "
-                      "JSON object mapping each item (exactly as given) to {\"ca\": ..., \"ar\": ...}.\n\nItems:\n"
+            tlist = " and ".join(f"{names[t]} (\"{t}\")" for t in want)
+            prompt = ("Translate each " + src_lang + " item into " + tlist + ". Items are words, phrases or "
+                      "subtitle sentences from a language-learning video; keep number/article form and register, "
+                      "lowercase single words unless proper nouns, no explanations. Answer ONLY with a JSON object "
+                      "mapping each item (exactly as given) to {" + ", ".join(f"\"{t}\": ..." for t in want) + "}.\n\nItems:\n"
                       + "\n".join(f"- {g}" for g in uniq))
             answer = gemini_generate("You are a precise bilingual lexicographer.",
                                      [{"role": "user", "text": prompt}], max_output_tokens=2000, temperature=0.1)
             parsed = _parse_gloss_json(answer)
             for g in uniq:
                 hit = parsed.get(g.lower())
-                if hit and hit.get("ca") and hit.get("ar"):
+                if hit and all(hit.get(t) for t in want):
                     result[g] = hit
         except Exception as e:
-            print(f"[AUTO] Gemini gloss translation failed ({e}); using the translation Space")
+            print(f"[AUTO] Gemini batch translation failed ({e}); using the translation Space")
     for g in uniq:
         if g in result:
             continue
         entry: Dict[str, str] = {}
-        for tgt, name in (("ca", "Catalan"), ("ar", "Modern Standard Arabic")):
+        for tgt in want:
             try:
-                entry[tgt] = translate_with_hf(g, src_lang, name)
+                entry[tgt] = translate_with_hf(g, src_lang, names[tgt])
             except Exception as e:
-                print(f"[AUTO] Gloss translation ({tgt}) failed for {g!r}: {e}")
+                print(f"[AUTO] Translation ({tgt}) failed for {g[:40]!r}: {e}")
         result[g] = entry
     return result
 
@@ -2538,7 +2542,12 @@ async def import_video_from_url(
 async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path: str, tmp_dir: str,
                                     language: Optional[str], tag: Optional[str],
                                     apply_correction: bool, has_segments: bool,
-                                    lyrics: Optional[str] = None, generate_reels: bool = False):
+                                    lyrics: Optional[str] = None, generate_reels: bool = False,
+                                    meta: Optional[Dict[str, Any]] = None):
+    # meta: {"title", "channel", "playlist", "license"} of the source, for the credit line
+    meta = {k: (v or "").strip() for k, v in (meta or {}).items() if isinstance(v, str)}
+    if not tag and meta.get("title"):
+        tag = meta["title"][:60]  # catalogue by video when the user gave no tag
     """
     Fully server-side capture pipeline: (ASR if needed) -> correction ->
     translation into all drill languages -> drill creation with media clips.
@@ -2636,13 +2645,26 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                 seg["text_tachelhit"] = (seg.get("text") or "").strip()
                 seg["text_catalan"] = tr.get("ca") or (seg["gloss"] if gloss_src == "Catalan" else None)
                 seg["text_arabic"] = tr.get("ar") or (seg["gloss"] if gloss_src == "Modern Standard Arabic" else None)
-        for seg in segments:
-            text = (seg.get("text") or "").strip()
-            if not text or seg.get("junk") or seg.get("gloss"):
-                continue
+        foreign = effective_source not in ("shi", "ber")
+        plain = [seg for seg in segments if (seg.get("text") or "").strip() and not seg.get("junk") and not seg.get("gloss")]
+        if foreign and plain:
+            # Foreign captions (e.g. a story subtitled in Arabic): Catalan/Arabic in
+            # one Gemini batch; machine Tachelhit is only ever a DRAFT suggestion.
+            table = await asyncio.to_thread(translate_glosses, [seg["text"].strip() for seg in plain], src_name,
+                                            tuple(t for t in ("ca", "ar") if LANGUAGE_CODE_MAP.get(t) != src_name))
+            for seg in plain:
+                tr = table.get(seg["text"].strip(), {})
+                if "ca" in tr:
+                    seg["text_catalan"] = tr["ca"]
+                if "ar" in tr:
+                    seg["text_arabic"] = tr["ar"]
+        for seg in plain:
+            text = seg["text"].strip()
             for tgt, field in TRANSLATE_TARGET_FIELDS.items():
-                if LANGUAGE_CODE_MAP.get(tgt) == src_name:
+                if LANGUAGE_CODE_MAP.get(tgt) == src_name or (foreign and seg.get(field)):
                     continue
+                if foreign and field == "text_tachelhit":
+                    field = "text_tachelhit_suggested"   # draft for a speaker to confirm
                 try:
                     seg[field] = await asyncio.to_thread(
                         translate_with_hf, text, src_name, LANGUAGE_CODE_MAP[tgt]
@@ -2663,7 +2685,7 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
             drill_arabic = seg.get("text_arabic") or (original_text if effective_source == "ar" else None)
 
             # Skip empty segments (no text in any language) — nothing to learn.
-            if not (drill_tachelhit or drill_arabic or seg.get("text_catalan")):
+            if not (drill_tachelhit or drill_arabic or seg.get("text_catalan") or seg.get("text_tachelhit_suggested")):
                 continue
             _junk = seg.get("junk") or looks_like_junk_asr(drill_tachelhit, attested=effective_source in ("shi", "ber"))
             if _junk:
@@ -2684,9 +2706,14 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                 text_catalan=seg.get("text_catalan"),
                 text_tachelhit=drill_tachelhit,
                 text_arabic=drill_arabic,
+                text_tachelhit_suggested=seg.get("text_tachelhit_suggested"),
                 tag=tag or "auto_capture",
                 author="Auto Capture",
                 source_url=url,
+                source_title=meta.get("title") or None,
+                source_channel=meta.get("channel") or None,
+                source_playlist=meta.get("playlist") or None,
+                license=meta.get("license") or ("youtube-standard" if url and "youtu" in url else None),
                 # provenance: which seconds of the source this clip comes from
                 video_start_time=seg.get("start"),
                 video_end_time=seg.get("end"),
@@ -2822,7 +2849,9 @@ async def auto_drills_from_url(
             auto_drills_pipeline_task,
             job.id, url, video_path, tmp_dir,
             lang_to_use or language, tag, bool(apply_correction), bool(segments),
-            lyrics, bool(generate_reels)
+            lyrics, bool(generate_reels),
+            {"title": (info or {}).get("title"), "channel": (info or {}).get("channel") or (info or {}).get("uploader"),
+             "playlist": (info or {}).get("playlist_title"), "license": (info or {}).get("license")},
         )
 
         return {
@@ -2851,6 +2880,12 @@ async def auto_drills_from_upload(
     generate_reels: Optional[bool] = Form(False),
     subtitles: Optional[UploadFile] = File(None),
     source_url: Optional[str] = Form(None),
+    captions_lang: Optional[str] = Form(None),   # language code of `subtitles` (agent)
+    captions_kind: Optional[str] = Form(None),   # "uploaded" (human) | "automatic"
+    source_title: Optional[str] = Form(None),    # credit line: video title
+    source_channel: Optional[str] = Form(None),  # credit line: channel / author
+    source_playlist: Optional[str] = Form(None), # catalogue: playlist / course
+    source_license: Optional[str] = Form(None),  # as declared on the platform
     db: Session = Depends(get_db),
 ):
     """One-shot capture from an ALREADY-DOWNLOADED file — download the video on
@@ -2879,6 +2914,15 @@ async def auto_drills_from_upload(
         # Captions sent by the local agent (platform subtitles, human-made when
         # available) replace ASR: exact timings, and bilingual cues keep the gloss.
         segments = []
+        # Automatic captions are YouTube's own ASR with a guessed language (an
+        # English lesson came back as "Arabic"); only trust them when they match
+        # the language the user asked for. Human captions set the source language.
+        if subtitles is not None and (captions_kind or "uploaded") == "automatic" and \
+                (language or "").lower() != (captions_lang or "").lower():
+            print(f"[AUTO-UPLOAD] ignoring automatic captions ({captions_lang}); language hint={language!r}")
+            subtitles = None
+        if subtitles is not None and not language and captions_lang:
+            language = captions_lang.split("-")[0].lower()
         if subtitles is not None:
             try:
                 from video_utils import parse_vtt
@@ -2901,6 +2945,7 @@ async def auto_drills_from_upload(
             job.id, (source_url or "").strip() or None, video_path, tmp_dir,
             language, tag, bool(apply_correction), bool(segments),
             lyrics, bool(generate_reels),
+            {"title": source_title, "channel": source_channel, "playlist": source_playlist, "license": source_license},
         )
         return {
             "job_id": job.id,

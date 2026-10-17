@@ -39,6 +39,7 @@ import io
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -54,7 +55,7 @@ try:
 except ImportError:  # the frozen build always has it
     sys.exit("Missing dependency. Run:  pip install requests yt-dlp")
 
-__version__ = "2.2.0"
+__version__ = "2.4.0"
 APP_NAME = "TachelhitCapture"
 DEFAULT_API = "https://tachelhit-drills-api.onrender.com"
 WEB_APP = "https://tachelhit-drills.vercel.app/video-creator"
@@ -276,9 +277,9 @@ def ensure_ytdlp(cfg: dict) -> str | None:
         return None
 
 
-def download(url: str, out_dir: str, audio_only: bool, cfg: dict) -> tuple[str, str | None]:
+def download(url: str, out_dir: str, audio_only: bool, cfg: dict) -> tuple[str, str | None, str | None, str | None]:
     """Download the media (and the best caption track, if any) into out_dir.
-    Returns (media_path, subtitles_path_or_None)."""
+    Returns (media_path, subtitles_path, captions_lang, captions_kind)."""
     binary = ensure_ytdlp(cfg)
     deno = ensure_deno()
     ffmpeg = None if audio_only else ffmpeg_path()
@@ -315,7 +316,7 @@ def download(url: str, out_dir: str, audio_only: bool, cfg: dict) -> tuple[str, 
     media = max(files, key=os.path.getsize)
 
     # Captions: uploaded ones first (human-made), automatic ones only if none.
-    subs = None
+    subs = sub_lang = sub_kind = None
     for flag in ("--write-subs", "--write-auto-subs"):
         try:
             run(["--skip-download", flag, "--sub-langs", ",".join(SUB_LANGS), "--sub-format", "vtt"] + common + [url])
@@ -324,12 +325,53 @@ def download(url: str, out_dir: str, audio_only: bool, cfg: dict) -> tuple[str, 
         found = {os.path.basename(f).split(".")[-2]: f for f in glob.glob(os.path.join(out_dir, "video.*.vtt"))}
         for lang in SUB_LANGS:
             if lang in found:
-                subs = found[lang]
+                subs, sub_lang = found[lang], lang
                 break
         if subs:
-            log(f"  captions: {os.path.basename(subs)} ({'uploaded' if flag == '--write-subs' else 'automatic'})")
+            sub_kind = "uploaded" if flag == "--write-subs" else "automatic"
+            log(f"  captions: {os.path.basename(subs)} ({sub_kind})")
             break
-    return media, subs
+    return media, subs, sub_lang, sub_kind
+
+
+def source_meta(url: str, cfg: dict) -> dict:
+    """Title, channel, playlist and licence of the video, for the credit line on
+    every drill. Playlist titles are cached per list id (one listing call)."""
+    binary = ensure_ytdlp(cfg)
+    deno = ensure_deno()
+    extra = ["--js-runtimes", f"deno:{deno}"] if deno else []
+    meta: dict = {}
+    try:
+        if binary:
+            out = subprocess.run([binary, "--no-playlist", "--skip-download", "--no-warnings",
+                                  "--print", "%(title)s\t%(channel)s\t%(license)s", url] + extra,
+                                 capture_output=True, timeout=120, text=True, encoding="utf-8", errors="replace",
+                                 **_no_window()).stdout.strip().splitlines()
+            if out:
+                t, c, lic = (out[-1].split("\t") + ["", "", ""])[:3]
+                meta = {"title": t, "channel": c, "license": "" if lic in ("NA", "None") else lic}
+        else:
+            import yt_dlp
+            with yt_dlp.YoutubeDL({"quiet": True, "noplaylist": True, "skip_download": True}) as y:
+                info = y.extract_info(url, download=False) or {}
+            meta = {"title": info.get("title") or "", "channel": info.get("channel") or info.get("uploader") or "",
+                    "license": info.get("license") or ""}
+        m = re.search(r"[?&]list=([A-Za-z0-9_-]+)", url)
+        if m:
+            lid = m.group(1)
+            cache = cfg.setdefault("playlists", {})
+            if lid not in cache and binary:
+                out = subprocess.run([binary, "--flat-playlist", "--skip-download", "--no-warnings", "--playlist-items", "1",
+                                      "--print", "%(playlist_title)s", f"https://www.youtube.com/playlist?list={lid}"] + extra,
+                                     capture_output=True, timeout=120, text=True, encoding="utf-8", errors="replace",
+                                     **_no_window()).stdout.strip().splitlines()
+                cache[lid] = (out[-1] if out else "").strip()
+                save_config(cfg)
+            if cache.get(lid) and cache[lid] not in ("NA", "None"):
+                meta["playlist"] = cache[lid]
+    except Exception as e:
+        log(f"  (metadata unavailable: {e})")
+    return meta
 
 
 def purge_old_downloads() -> None:
@@ -368,11 +410,17 @@ class Agent:
         os.makedirs(d, exist_ok=True)
         if True:
             try:
-                path, subs = download(req["url"], d, req.get("audio_only", True), self.cfg)
+                path, subs, sub_lang, sub_kind = download(req["url"], d, req.get("audio_only", True), self.cfg)
                 log(f"  downloaded {os.path.basename(path)} ({os.path.getsize(path)//1024} KB) -> {d}; uploading...")
                 set_status("busy", f"Pujant #{rid}…")
                 data = {"apply_correction": str(bool(req.get("apply_correction", True))).lower(),
                         "source_url": req["url"]}  # provenance on every drill
+                meta = source_meta(req["url"], self.cfg)
+                for k in ("title", "channel", "playlist", "license"):
+                    if meta.get(k):
+                        data[f"source_{k}"] = meta[k]
+                if meta.get("title"):
+                    log(f"  source: {meta.get('channel')} — {meta['title']}" + (f" [{meta['playlist']}]" if meta.get("playlist") else ""))
                 if req.get("tag"):
                     data["tag"] = req["tag"]
                 if req.get("language"):
@@ -380,6 +428,8 @@ class Agent:
                 files = {"video": (os.path.basename(path), open(path, "rb"), "application/octet-stream")}
                 if subs:
                     files["subtitles"] = (os.path.basename(subs), open(subs, "rb"), "text/vtt")
+                    data["captions_lang"] = sub_lang or ""
+                    data["captions_kind"] = sub_kind or ""
                 try:
                     r = requests.post(
                         f"{api}/video-analysis/auto-drills-upload",
