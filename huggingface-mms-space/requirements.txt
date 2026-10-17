@@ -1,0 +1,6 @@
+torch>=2.2,<2.6
+transformers>=4.44,<4.50
+librosa>=0.10
+soundfile
+gradio>=4.44,<5
+accelerate

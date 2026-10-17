@@ -984,6 +984,51 @@ def transcribe_narration(video_path: str, tmp_dir: str, cues: List[Dict[str, Any
     return out
 
 
+def _transcribe_short_clip_with_gemini(audio_url: str) -> Optional[Dict[str, str]]:
+    """Word/short-phrase ASR with Gemini (bake-off winner for isolated words,
+    docs/ASR_BAKEOFF_2026-10-17.md). Returns {"latin", "tifinagh"} or None when
+    Gemini is unavailable, the clip is longer than ASR_GEMINI_MAX_SECS, or the
+    call fails (the caller then uses the Space)."""
+    if not gemini_available():
+        return None
+    import base64
+    import tempfile as _tf
+    from gemini_client import _generate_content
+    try:
+        max_secs = float(os.getenv("ASR_GEMINI_MAX_SECS", "20"))
+        with _tf.TemporaryDirectory() as d:
+            src = os.path.join(d, "clip")
+            with requests.get(audio_url, timeout=120, stream=True) as r:
+                r.raise_for_status()
+                with open(src, "wb") as fh:
+                    for chunk in r.iter_content(1 << 16):
+                        fh.write(chunk)
+            dur = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src],
+                                 capture_output=True, text=True, timeout=60).stdout.strip()
+            if not dur or float(dur) > max_secs:
+                return None
+            wav = os.path.join(d, "clip.wav")
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", src, "-vn", "-ac", "1", "-ar", "16000", wav],
+                           check=True, capture_output=True, timeout=120)
+            with open(wav, "rb") as fh:
+                data = base64.b64encode(fh.read()).decode()
+        payload = {"systemInstruction": {"parts": [{"text": "You transcribe Moroccan Amazigh (Tamazight/Tachelhit) speech."}]},
+                   "contents": [{"role": "user", "parts": [{"inline_data": {"mime_type": "audio/wav", "data": data}},
+                                                            {"text": "Transcribe exactly the Tamazight word(s) spoken, in academic Latin (ɣ ḍ ḥ ṭ ẓ ɛ). Ignore any other language. Answer with the transcription only, or an empty line if no Tamazight is spoken."}]}],
+                   "generationConfig": {"maxOutputTokens": 100, "temperature": 0.0, "thinkingConfig": {"thinkingBudget": 0}}}
+        out = _generate_content(payload, 120)
+        latin = "".join(p.get("text", "") for p in out["candidates"][0]["content"]["parts"]).strip().strip('"')
+        if not latin or len(latin) > 120:
+            return None
+        from transliteration import to_forms
+        f = to_forms(latin)
+        print(f"[ASR] short clip via Gemini: {latin!r} -> {f['tifinagh']!r}")
+        return {"latin": f["clean_latin"], "tifinagh": f["tifinagh"]}
+    except Exception as e:
+        print(f"[ASR] Gemini short-clip path failed ({e}); using the Space")
+        return None
+
+
 def looks_like_junk_asr(text: Optional[str], attested: bool = True) -> Optional[str]:
     """Return a reason string if `text` should not be stored, else None.
     `attested=False` (foreign-source draft mode) skips the English check."""
@@ -3066,6 +3111,7 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
     meta = {k: (v or "").strip() for k, v in (meta or {}).items() if isinstance(v, str)}
     if not tag and meta.get("title"):
         tag = meta["title"][:60]  # catalogue by video when the user gave no tag
+    variety = meta.get("variety") if meta.get("variety") in _VARIETY_CODES else None
     """
     Fully server-side capture pipeline: (ASR if needed) -> correction ->
     translation into all drill languages -> drill creation with media clips.
@@ -3078,6 +3124,13 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         job = db.query(VideoProcessingJobModel).filter(VideoProcessingJobModel.id == job_id).first()
         if not job:
             return
+        if not variety and meta.get("channel"):
+            # Same channel, same variety: reuse what earlier captures were labelled with.
+            prev = (db.query(DrillModel.variety).filter(DrillModel.source_channel == meta["channel"],
+                                                          DrillModel.variety.isnot(None)).first())
+            if prev and prev[0] in _VARIETY_CODES:
+                variety = prev[0]
+                print(f"[AUTO] variety {variety!r} inherited from earlier captures of {meta['channel']!r}")
 
         # Phase 1: no captions -> read the lesson text off the frames first
         # (letters / words burned into the picture); only if the frames carry no
@@ -3275,6 +3328,7 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                 source_channel=meta.get("channel") or None,
                 source_playlist=meta.get("playlist") or None,
                 license=meta.get("license") or ("youtube-standard" if url and "youtu" in url else None),
+                variety=variety,
                 # provenance: which seconds of the source this clip comes from
                 video_start_time=seg.get("start"),
                 video_end_time=seg.get("end"),
@@ -3451,6 +3505,7 @@ async def auto_drills_from_upload(
     source_channel: Optional[str] = Form(None),  # credit line: channel / author
     source_playlist: Optional[str] = Form(None), # catalogue: playlist / course
     source_license: Optional[str] = Form(None),  # as declared on the platform
+    variety: Optional[str] = Form(None),         # variety the source teaches (shi/tzm/rif/zgh/kab)
     db: Session = Depends(get_db),
 ):
     """One-shot capture from an ALREADY-DOWNLOADED file — download the video on
@@ -3510,7 +3565,8 @@ async def auto_drills_from_upload(
             job.id, (source_url or "").strip() or None, video_path, tmp_dir,
             language, tag, bool(apply_correction), bool(segments),
             lyrics, bool(generate_reels),
-            {"title": source_title, "channel": source_channel, "playlist": source_playlist, "license": source_license},
+            {"title": source_title, "channel": source_channel, "playlist": source_playlist, "license": source_license,
+             "variety": variety},
         )
         return {
             "job_id": job.id,
@@ -3549,12 +3605,14 @@ def capture_request(
     language: Optional[str] = Body(None, embed=True),
     audio_only: bool = Body(True, embed=True),
     apply_correction: bool = Body(True, embed=True),
+    variety: Optional[str] = Body(None, embed=True),
     db: Session = Depends(get_db),
 ):
     """Queue a URL for the local agent to download. Poll GET /capture/{id}."""
     req = CaptureRequestModel(
         url=url.strip(), tag=tag, language=language,
         audio_only=bool(audio_only), apply_correction=bool(apply_correction),
+        variety=(variety or "").strip() or None,
         status="pending",
     )
     db.add(req)
@@ -3581,6 +3639,7 @@ def capture_pending(request: Request, db: Session = Depends(get_db)):
     return {"request": {
         "id": req.id, "url": req.url, "tag": req.tag, "language": req.language,
         "audio_only": req.audio_only, "apply_correction": req.apply_correction,
+        "variety": req.variety,
     }}
 
 
@@ -5573,6 +5632,13 @@ async def transcribe_audio(
         for d in drills if d.text_tachelhit
     ]
 
+    # Short clips (a word, a short phrase): Gemini measured a 0.19 character error
+    # rate on the 2026-10-17 bake-off against 0.76 for the NeMo Space, so it is the
+    # engine for clips up to ASR_GEMINI_MAX_SECS (20 s; the bake-off clips went to 18 s). Longer audio keeps the Space.
+    short = await asyncio.to_thread(_transcribe_short_clip_with_gemini, audio_url)
+    if short is not None:
+        return TranscribeResponse(rough_transcription=short["latin"], corrected_transcription=short["tifinagh"], similarity_score=0.0)
+
     # Call HF Space
     asr_space_url = os.getenv("HUGGINGFACE_ASR_SPACE_URL", "https://huggingface.co/spaces/Tamazight-NLP/ASR")
     if not asr_space_url:
@@ -5597,6 +5663,11 @@ async def transcribe_audio(
                 corrected, score = await asyncio.to_thread(
                     get_correction_service().correct_transcription, fixed, phrases
                 )
+                # Mapping onto the nearest known phrase turned junk into a real-looking
+                # sentence (a squirrel clip came back as the video's title). Only accept
+                # the mapping when it is actually close; otherwise keep what was heard.
+                if score < float(os.getenv("ASR_CORRECTION_MIN_SCORE", "0.6")):
+                    corrected = fixed
             except Exception as corr_err:
                 print(f"[CORRECTION] Failed, returning rough transcription: {corr_err}")
                 corrected, score = fixed, 0.0

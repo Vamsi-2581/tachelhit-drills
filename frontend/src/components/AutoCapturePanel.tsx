@@ -23,6 +23,9 @@ export default function AutoCapturePanel() {
   const [url, setUrl] = useState('');
   const [tag, setTag] = useState('');
   const [audioOnly, setAudioOnly] = useState(false); // video clips by default; audio for podcasts
+  const [variety, setVariety] = useState('');
+  const [varieties, setVarieties] = useState<{ code: string; label: string }[]>([]);
+  useEffect(() => { api.varieties().then(setVarieties).catch(() => setVarieties([])); }, []);
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [agent, setAgent] = useState<{ online: boolean; version: string | null } | null>(null);
@@ -61,7 +64,7 @@ export default function AutoCapturePanel() {
     setBusy(true);
     setStatus(null);
     try {
-      const { request_id } = await api.captureRequest(u, { tag: tag.trim() || undefined, audio_only: audioOnly });
+      const { request_id } = await api.captureRequest(u, { tag: tag.trim() || undefined, audio_only: audioOnly, variety: variety || undefined });
       toast.success('A la cua — el teu descarregador ho agafarà');
       poll(request_id);
     } catch (e) {
@@ -97,6 +100,13 @@ export default function AutoCapturePanel() {
       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '13px', color: 'var(--text-soft)', cursor: 'pointer' }}>
         <input type="checkbox" checked={audioOnly} onChange={(e) => setAudioOnly(e.target.checked)} />
         Només àudio (podcast / veu) — sense marcar, cada drill porta el seu clip de vídeo
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '13px', color: 'var(--text-soft)' }}>
+        Varietat que ensenya el vídeo
+        <select value={variety} onChange={(e) => setVariety(e.target.value)} style={{ padding: '6px 8px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }}>
+          <option value="">— com les captures anteriors del canal —</option>
+          {varieties.map((v) => <option key={v.code} value={v.code}>{v.label}</option>)}
+        </select>
       </label>
 
       {status && (

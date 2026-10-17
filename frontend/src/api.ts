@@ -147,7 +147,7 @@ export const api = {
     request<{ field: string; suggestion: string }>(`/ai/suggest-translation/${drillId}`, { method: 'POST' }),
 
   // --- autonomous local capture (queue a URL for your local agent) ---
-  captureRequest: (url: string, opts?: { tag?: string; language?: string; audio_only?: boolean; apply_correction?: boolean }) =>
+  captureRequest: (url: string, opts?: { tag?: string; language?: string; audio_only?: boolean; apply_correction?: boolean; variety?: string }) =>
     request<{ request_id: number; status: string }>('/capture/request', {
       method: 'POST',
       body: JSON.stringify({ url, ...(opts || {}) }),

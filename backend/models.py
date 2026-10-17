@@ -204,6 +204,7 @@ class CaptureRequest(Base):
     language = Column(String, nullable=True)
     audio_only = Column(Boolean, default=True, nullable=False)
     apply_correction = Column(Boolean, default=True, nullable=False)
+    variety = Column(String, nullable=True)  # which variety the source teaches (shi/tzm/rif/zgh/kab/other)
     # pending -> claimed -> processing -> done | failed
     status = Column(String, default="pending", nullable=False, index=True)
     job_id = Column(Integer, nullable=True)      # the resulting VideoProcessingJob
