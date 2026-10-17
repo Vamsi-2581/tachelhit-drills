@@ -1092,6 +1092,8 @@ def merge_subtitle_frames(items: List[Dict[str, Any]], every: float = 1.0, min_l
             continue
         seen_keys.append(c["_key"])
         gloss_lang = next((k for k in ("en", "fr", "ar", "es", "ca") if c["lines"].get(k)), None)
+        if not gloss_lang:
+            continue  # a line with no translation under it is a title, a name or credits, not a lyric
         out.append({"start": round(c["start"], 2), "end": round(c["end"], 2),
                     "text": c["lines"].get("shi") or c["lines"].get("tzm") or c["lines"].get("zgh"),
                     "latin": c["lines"].get("shi") or c["lines"].get("tzm"), "tifinagh": c["lines"].get("zgh"),

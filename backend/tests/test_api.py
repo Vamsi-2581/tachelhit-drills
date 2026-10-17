@@ -663,10 +663,13 @@ def test_merge_subtitle_frames():
         {"t": 63, "lines": [{"lang": "shi", "text": "ar ttaddun s uzmz"}, {"lang": "en", "text": "They go on in time"}]},
         {"t": 64, "lines": [{"lang": "shi", "text": "ar ttaddun s uzmz"}, {"lang": "en", "text": "They go on in time"}]},
         {"t": 70, "lines": [{"lang": "shi", "text": "misread once"}]},
+        {"t": 75, "lines": [{"lang": "shi", "text": "Tamraght"}]},
+        {"t": 76, "lines": [{"lang": "shi", "text": "Tamraght"}]},
+        {"t": 77, "lines": [{"lang": "shi", "text": "Tamraght"}]},
         {"t": 80, "lines": [{"lang": "shi", "text": "ar ttaddun s uzmz."}, {"lang": "en", "text": "They go on in time"}]},
         {"t": 81, "lines": [{"lang": "shi", "text": "ar ttaddun s uzmz"}, {"lang": "en", "text": "They go on in time"}]},
     ]
     cues = main.merge_subtitle_frames(items, every=1.0)
-    # the repeated chorus line at 80 s collapses into the first occurrence
+    # the repeated chorus line at 80 s collapses into the first occurrence; the title card (no translation) is dropped
     assert [(c["start"], c["end"], c["text"]) for c in cues] == [(60.0, 62.0, "ifurskln nnsn kturn s wakal"), (63.0, 65.0, "ar ttaddun s uzmz")]
     assert cues[0]["gloss_lang"] == "en" and cues[0]["lines"]["ar"].startswith("حتى") and cues[0]["kind"] == "subtitle"
