@@ -38,11 +38,7 @@ SessionLocal = sessionmaker(bind=create_engine(_url))
 # --- heuristics -------------------------------------------------------------
 
 REPEAT_RUN = re.compile(r"(?:\b(\w{1,3})\b[\s.,]*)(?:\1[\s.,]*){5,}", re.I)  # "R.R.R.R.R.R"
-ENGLISH_HINTS = re.compile(
-    r"\b(the|and|you|that|this|with|have|from|they|what|about|going|actually|"
-    r"little|bit|bus|grab|called|can't|tell|going to|i'm|i am|we are|it's)\b",
-    re.I,
-)
+ENGLISH_HINTS = re.compile(r"\b(" + "the|and|you|that|this|with|have|from|they|what|about|going|actually|little|bit|bus|grab|called|can't|don't|didn't|won't|isn't|tell|i'm|i am|we are|it's|bear|fall|asleep|therefore|lost|because|would|could|should|there|here|where|when|then|than|your|their|just|like|know|think|want|need|make|take|come|some|thing|time|people|back|only|over|also|into|very|well|much|many|more|most|other|through|before|after|never|always|really|something|nothing|everything|world|life|love|heart|mind|night|every|again|please|thank|sorry|hello|goodbye" + r")\b", re.I)
 TIFINAGH = re.compile(r"[ⴰ-⵿]")
 
 
@@ -70,8 +66,11 @@ def classify(d: dict) -> list[str]:
         reasons.append("repeated-run")
     if repeated_token_ratio(t) >= 0.4:
         reasons.append("repeated-tokens")
-    if not TIFINAGH.search(t) and english_score(t) >= 3:
-        reasons.append("looks-english")
+    if not TIFINAGH.search(t):
+        hits = english_score(t)
+        words = max(1, len(re.findall(r"[A-Za-z']+", t)))
+        if hits >= 3 or (hits >= 2 and hits / words >= 0.25):
+            reasons.append("looks-english")
     if len(t) > 600 and not TIFINAGH.search(t):
         reasons.append("very-long-latin")
     return reasons

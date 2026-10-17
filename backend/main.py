@@ -366,9 +366,7 @@ SessionLocal = sessionmaker(bind=engine)
 # sentences or hallucinated repeats ("R.R.R.R.R…"). Such segments must never
 # be saved as attested Tachelhit. Mirrors backend/tools/find_junk_drills.py.
 _JUNK_REPEAT_RUN = re.compile(r"(?:\b(\w{1,3})\b[\s.,]*)(?:\1[\s.,]*){5,}", re.I)
-_JUNK_ENGLISH = re.compile(
-    r"\b(the|and|you|that|this|with|have|from|they|what|about|going|actually|"
-    r"little|bit|bus|grab|called|can't|tell|i'm|i am|we are|it's)\b", re.I)
+_JUNK_ENGLISH = re.compile(r"\b(" + "the|and|you|that|this|with|have|from|they|what|about|going|actually|little|bit|bus|grab|called|can't|don't|didn't|won't|isn't|tell|i'm|i am|we are|it's|bear|fall|asleep|therefore|lost|because|would|could|should|there|here|where|when|then|than|your|their|just|like|know|think|want|need|make|take|come|some|thing|time|people|back|only|over|also|into|very|well|much|many|more|most|other|through|before|after|never|always|really|something|nothing|everything|world|life|love|heart|mind|night|every|again|please|thank|sorry|hello|goodbye" + r")\b", re.I)
 _TIFINAGH_RE = re.compile(r"[\u2D30-\u2D7F]")
 
 
@@ -385,8 +383,12 @@ def looks_like_junk_asr(text: Optional[str], attested: bool = True) -> Optional[
         from collections import Counter
         if Counter(toks).most_common(1)[0][1] / len(toks) >= 0.4:
             return "repeated-tokens"
-    if attested and not _TIFINAGH_RE.search(t) and len(_JUNK_ENGLISH.findall(t)) >= 3:
-        return "looks-english"
+    if attested and not _TIFINAGH_RE.search(t):
+        hits = len(_JUNK_ENGLISH.findall(t))
+        words = max(1, len(re.findall(r"[A-Za-z']+", t)))
+        # 3 hits, or 2 hits in a short segment ("I can't bear to fall asleep")
+        if hits >= 3 or (hits >= 2 and hits / words >= 0.25):
+            return "looks-english"
     return None
 
 from contextlib import asynccontextmanager
@@ -2489,6 +2491,15 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
             segments = _align_lyrics_lines(segments, lyrics)
             apply_correction = False
 
+        # Junk guard on the RAW transcript. It must run before correction: the
+        # correction layer rewrites hallucinated English into Tachelhit-looking
+        # text that no heuristic can catch afterwards (prod job 20, 2026-10-17).
+        for seg in segments:
+            _j = looks_like_junk_asr(seg.get("text"), attested=effective_source in ("shi", "ber"))
+            if _j:
+                seg["junk"] = _j
+                print(f"[AUTO] junk segment ({_j}), not corrected/translated: {str(seg.get('text'))[:60]!r}")
+
         # Phase 2: correction layer (Tachelhit-ish sources only)
         if apply_correction and effective_source in ("shi", "ber"):
             job.status = "CORRECTING"
@@ -2503,7 +2514,7 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
             svc = get_correction_service()
             for seg in segments:
                 text = (seg.get("text") or "").strip()
-                if text:
+                if text and not seg.get("junk"):
                     try:
                         corrected, _ = await asyncio.to_thread(svc.correct_transcription, text, phrases)
                         seg["text"] = corrected
@@ -2515,7 +2526,7 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         db.commit()
         for seg in segments:
             text = (seg.get("text") or "").strip()
-            if not text:
+            if not text or seg.get("junk"):
                 continue
             for tgt, field in TRANSLATE_TARGET_FIELDS.items():
                 if LANGUAGE_CODE_MAP.get(tgt) == src_name:
@@ -2533,6 +2544,7 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         drills_created = []
         media_errors = []
         audio_src = is_audio_file(video_path)
+        _prev_text = None
         for seg in segments:
             original_text = seg.get("text")
             drill_tachelhit = seg.get("text_tachelhit") or (original_text if effective_source in ("shi", "ber") else None)
@@ -2541,11 +2553,20 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
             # Skip empty segments (no text in any language) — nothing to learn.
             if not (drill_tachelhit or drill_arabic or seg.get("text_catalan")):
                 continue
-            _junk = looks_like_junk_asr(drill_tachelhit, attested=effective_source in ("shi", "ber"))
+            _junk = seg.get("junk") or looks_like_junk_asr(drill_tachelhit, attested=effective_source in ("shi", "ber"))
             if _junk:
                 print(f"[AutoDrills] skipping junk segment ({_junk}): {str(drill_tachelhit)[:60]!r}")
                 media_errors.append(f"segment skipped ({_junk})")
                 continue
+            # Whisper on music/silence repeats one sentence for every window
+            # (job 20: 4 identical "I can't bear to fall asleep"). One drill is
+            # enough for identical consecutive text.
+            _key = " ".join(str(original_text or drill_tachelhit or "").lower().split())
+            if _key and _key == _prev_text:
+                print(f"[AutoDrills] skipping repeated segment: {_key[:60]!r}")
+                media_errors.append("segment skipped (repeat of previous)")
+                continue
+            _prev_text = _key
 
             db_drill = DrillModel(
                 text_catalan=seg.get("text_catalan"),
@@ -2553,7 +2574,10 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                 text_arabic=drill_arabic,
                 tag=tag or "auto_capture",
                 author="Auto Capture",
-                source_url=url
+                source_url=url,
+                # provenance: which seconds of the source this clip comes from
+                video_start_time=seg.get("start"),
+                video_end_time=seg.get("end"),
             )
             db.add(db_drill)
             db.commit()

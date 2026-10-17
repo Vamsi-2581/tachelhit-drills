@@ -525,6 +525,12 @@ def test_looks_like_junk_asr():
     # foreign-source draft mode: English is expected, only repeats are junk
     assert main.looks_like_junk_asr("I actually grab a bus to the station with them and they tell me", attested=False) is None
     assert main.looks_like_junk_asr("", attested=True) is None
+    # job 20 (2026-10-17): Whisper on a vocabulary video with music
+    assert main.looks_like_junk_asr("I can't bear to fall asleep") == "looks-english"
+    assert main.looks_like_junk_asr("Emoidar Emoidar Agmar Agmar Therefore, lost, therefore, lost. I can't bear to fall asleep") == "looks-english"
+    # real Tachelhit in Latin script with short tokens must pass
+    assert main.looks_like_junk_asr("ur ssinegh is d iyi d yusa, mani gh illa uzddar") is None
+    assert main.looks_like_junk_asr("Manza ait zdan? Is tsnt?") is None
 
 
 def test_capture_agent_liveness():

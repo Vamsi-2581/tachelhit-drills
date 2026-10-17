@@ -43,9 +43,9 @@ interface DrillsGridProps {
 
 export default function DrillsGrid({ rowData, refreshData, onEditDrill }: DrillsGridProps) {
     const [isMobile, setIsMobile] = useState(isMobileLayout);
-    const [showPasswordModal, setShowPasswordModal] = useState(false);
-    const [passwordInput, setPasswordInput] = useState('');
     const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+    // Inline media preview (video/audio) opened from the grid or the cards.
+    const [preview, setPreview] = useState<{ url: string; kind: 'video' | 'audio'; title?: string } | null>(null);
     const [selectedRows, setSelectedRows] = useState<Drill[]>([]);
     const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
     const [recordDrill, setRecordDrill] = useState<Drill | null>(null);
@@ -240,31 +240,10 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
     };
 
     // 🗑️ Handle Deletion Security Check Sequence
-    const handleDeleteIntent = (id: number) => {
-        const isSessionAuthenticated = sessionStorage.getItem('drill_delete_auth') === 'true';
-
-        if (isSessionAuthenticated) {
-            executeDeletePipeline(id);
-        } else {
-            setPendingDeleteId(id);
-            setShowPasswordModal(true);
-        }
-    };
-
-    const verifyPasswordAndConfirm = () => {
-        if (passwordInput === 'borrar') {
-            sessionStorage.setItem('drill_delete_auth', 'true');
-            setShowPasswordModal(false);
-            setPasswordInput('');
-
-            if (pendingDeleteId !== null) {
-                executeDeletePipeline(pendingDeleteId);
-            }
-        } else {
-            toast.error('❌ Contrasenya incorrecta. Accés denegat.');
-            setPasswordInput('');
-        }
-    };
+    // The trash button used to open a "password" dialog ('borrar', hard-coded
+    // client-side) that was only rendered in the mobile layout, so on desktop
+    // nothing happened. One in-app confirmation now, in both layouts.
+    const handleDeleteIntent = (id: number) => setPendingDeleteId(id);
 
     const handleQuickPhoto = async (drillId: number) => {
         try {
@@ -349,9 +328,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
     };
 
     const executeDeletePipeline = async (id: number) => {
-        const confirmDelete = window.confirm('Segur que vols eliminar aquest drill de manera permanent?');
-        if (!confirmDelete) return;
-
+        setPendingDeleteId(null);
         try {
             // Removes from the local cache, queues/executes the server delete,
             // and waits for a sync attempt so refreshData sees the result.
@@ -366,6 +343,39 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             setPendingDeleteId(null);
         }
     };
+
+    const overlayStyle = { position: 'fixed' as const, inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' };
+
+    const deleteDialog = pendingDeleteId !== null && (
+        <div style={overlayStyle} onClick={() => setPendingDeleteId(null)}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)', padding: '28px', borderRadius: 'var(--r-xl)', width: '100%', maxWidth: '360px', boxShadow: 'var(--shadow-xl)', textAlign: 'center' }}>
+                <div style={{ fontSize: '40px', marginBottom: '12px' }}>🗑️</div>
+                <h3 style={{ margin: '0 0 8px 0', fontSize: '19px', fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>Eliminar el drill #{pendingDeleteId}?</h3>
+                <p style={{ margin: '0 0 20px 0', fontSize: '14px', color: 'var(--text-soft)' }}>S'esborra de manera permanent, amb el seu àudio i vídeo.</p>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button onClick={() => setPendingDeleteId(null)} style={{ flex: 1, padding: '12px', background: 'var(--surface)', color: 'var(--text-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer' }}>Cancel·la</button>
+                    <button autoFocus onClick={() => executeDeletePipeline(pendingDeleteId)} style={{ flex: 1, padding: '12px', background: 'var(--rose)', color: 'white', border: 'none', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer', boxShadow: 'var(--shadow-sm)' }}>Elimina</button>
+                </div>
+            </div>
+        </div>
+    );
+
+    const previewDialog = preview && (
+        <div style={overlayStyle} onClick={() => setPreview(null)}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: '#000', borderRadius: 'var(--r-xl)', width: '100%', maxWidth: preview.kind === 'video' ? '720px' : '420px', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }}>
+                {preview.kind === 'video' ? (
+                    <video src={preview.url} controls autoPlay playsInline style={{ display: 'block', width: '100%', maxHeight: '75vh', background: '#000' }} />
+                ) : (
+                    <audio src={preview.url} controls autoPlay style={{ display: 'block', width: '100%', padding: '16px', background: 'var(--surface)' }} />
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--surface)' }}>
+                    <span style={{ flex: 1, fontSize: '13px', color: 'var(--text-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{preview.title || ''}</span>
+                    <a href={preview.url} target="_blank" rel="noreferrer" style={{ fontSize: '13px', color: 'var(--brand-1)', fontWeight: 700 }}>Obre en una pestanya</a>
+                    <button onClick={() => setPreview(null)} style={{ padding: '8px 14px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer', color: 'var(--text)' }}>Tanca</button>
+                </div>
+            </div>
+        </div>
+    );
 
     // 📱 MOBILE INTERFACE: Card stream equipped with translation and transcription capabilities
     if (isMobile) {
@@ -484,9 +494,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                             )}
                             {drill.video_url && (
                                 <button
-                                    onClick={() => {
-                                        window.open(getMediaUrl(drill.video_url!), '_blank');
-                                    }}
+                                    onClick={() => setPreview({ url: getMediaUrl(drill.video_url!), kind: 'video', title: drill.text_catalan || drill.text_tachelhit || `Drill #${drill.id}` })}
                                     style={{
                                         flex: 1,
                                         padding: '11px',
@@ -566,40 +574,8 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                 ))}
 
                 {/* Password confirmation pop-up */}
-                {showPasswordModal && (
-                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-                        <div style={{ background: 'var(--surface)', padding: '28px', borderRadius: 'var(--r-xl)', width: '100%', maxWidth: '360px', boxShadow: 'var(--shadow-xl)', textAlign: 'center' }}>
-                            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🔒</div>
-                            <h3 style={{ margin: '0 0 8px 0', fontSize: '19px', fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>Verificació de seguretat</h3>
-                            <p style={{ margin: '0 0 20px 0', fontSize: '14px', color: 'var(--text-soft)' }}>Introdueix la contrasenya d'eliminació per continuar.</p>
-
-                            <input
-                                type="password"
-                                placeholder="Introdueix la contrasenya"
-                                value={passwordInput}
-                                onChange={(e) => setPasswordInput(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && verifyPasswordAndConfirm()}
-                                style={{ width: '100%', padding: '12px 14px', fontSize: '16px', border: '1px solid var(--border)', background: 'var(--surface-2)', borderRadius: 'var(--r-md)', marginBottom: '18px', outline: 'none', textAlign: 'center', color: 'var(--text)' }}
-                                autoFocus
-                            />
-
-                            <div style={{ display: 'flex', gap: '10px' }}>
-                                <button
-                                    onClick={() => { setShowPasswordModal(false); setPasswordInput(''); }}
-                                    style={{ flex: 1, padding: '12px', background: 'var(--surface)', color: 'var(--text-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer' }}
-                                >
-                                    Cancel·la
-                                </button>
-                                <button
-                                    onClick={verifyPasswordAndConfirm}
-                                    style={{ flex: 1, padding: '12px', background: 'var(--rose)', color: 'white', border: 'none', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer', boxShadow: 'var(--shadow-sm)' }}
-                                >
-                                    Confirma
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                {deleteDialog}
+                {previewDialog}
             </div>
         );
     }
@@ -626,7 +602,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                         <button onClick={() => new Audio(getMediaUrl(params.data.audio_url)).play()} style={{ background: 'var(--brand-gradient-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '8px', cursor: 'pointer', color: 'var(--brand-1)' }} title="Reprodueix l'àudio" aria-label="Reprodueix l'àudio"><FaVolumeUp size={16} /></button>
                     )}
                     {params.data.video_url && (
-                        <button onClick={() => window.open(getMediaUrl(params.data.video_url), '_blank')} style={{ background: 'var(--brand-gradient-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '8px', cursor: 'pointer', color: 'var(--brand-2)' }} title="Reprodueix el vídeo" aria-label="Reprodueix el vídeo"><FaVideo size={16} /></button>
+                        <button onClick={() => setPreview({ url: getMediaUrl(params.data.video_url), kind: 'video', title: params.data.text_catalan || params.data.text_tachelhit || `Drill #${params.data.id}` })} style={{ background: 'var(--brand-gradient-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '8px', cursor: 'pointer', color: 'var(--brand-2)' }} title="Reprodueix el vídeo" aria-label="Reprodueix el vídeo"><FaVideo size={16} /></button>
                     )}
                 </div>
             )
@@ -801,6 +777,8 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                     onSaved={() => { refreshData(); }}
                 />
             )}
+            {deleteDialog}
+            {previewDialog}
         </div>
     );
 }
