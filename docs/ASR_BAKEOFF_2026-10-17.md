@@ -32,6 +32,32 @@ for **isolated words**, nobody is usable for **narrated sentences** yet.
 4. Every capture carries the variety the source teaches (panel dropdown; inherited per channel),
    so a Central Atlas word is never served as Tachelhit by accident.
 
+## Update, later the same night (orthography-tolerant metric)
+
+The metric now compares the transliterator's spelling key per word (informal Latin, academic
+Latin and Tifinagh meet there), drops the hyphens MMS inserts, and collapses immediate repeats
+(the vocabulary clips say each word twice). Rescored:
+
+| Engine | Set | Mean CER | Exact |
+|---|---|---|---|
+| Gemini 2.5 Flash | 12 Central Atlas clips | **0.17** | 6 / 12 |
+| NeMo + n-gram LM (org Space) | same | 0.71 | 0 |
+| NeMo (production Space) | same | 0.75 | 0 |
+| **MMS-1B-all, shi adapter** (hosted in `josepabloucr/tachelhit-asr-service`, repurposed Docker Space) | 22 clips: 15 human Tachelhit sentences recorded in the app + 7 Central Atlas words | **0.41** | 5 / 22 |
+
+MMS gets the isolated words right (agmar, imudar, tafullust, tawkt) and degrades on whole
+sentences by speakers ("ur tn fhimɣ" → "ur tn fhima" is fine; long sentences drift). It is the
+best *open* model measured so far and the natural fine-tuning base (adapter, ~2 M params).
+
+OmniASR-CTC-300M: the only Hub conversion (`aadel4/omniASR-CTC-300M-v2`) has a single vocabulary
+and no language selection, so it answers in Arabic script ("أجمار" for agmar — phonetically right,
+unusable for a Latin/Tifinagh pipeline). Needs Meta's own package with language conditioning.
+
+Hosting note: HuggingFace now requires a paid plan for *new* Gradio/Docker Spaces; the bake-off
+Space is the account's sleeping `tachelhit-asr-service` repurposed (code in `huggingface-mms-space/`),
+and `josepabloucr/huggingface-asr-space` (an old Whisper-base duplicate) was paused to free the
+cpu-basic slot. Results JSON: `docs/asr_bakeoff/`.
+
 ## What would move the needle
 - A hosted MMS Space (paid plan, or an org member with rights) to measure the Tachelhit adapter.
 - Speaker-verified pairs: each corrected drill (text + clip, variety on the speaker's profile)

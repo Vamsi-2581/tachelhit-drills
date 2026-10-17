@@ -46,7 +46,7 @@ from transliteration import to_forms  # noqa: E402
 
 WORK = os.path.join(BACKEND, "bakeoff")
 GOLD = os.path.join(WORK, "gold.json")
-RESULTS = os.path.join(WORK, "results.json")
+RESULTS = os.environ.get("BAKEOFF_RESULTS") or os.path.join(WORK, "results.json")
 TIF = re.compile(r"[ⴰ-⵿]")
 
 
@@ -60,7 +60,21 @@ def to_tif(text: str) -> str:
 
 
 def norm(t: str) -> str:
-    return " ".join(to_tif(t).split())
+    """Comparison form: hyphens/apostrophes dropped (MMS inserts U+2010 between
+    morphemes), immediate word repeats collapsed (vocabulary clips say the word
+    twice), then the transliterator's spelling key per word (informal Latin
+    spellings and Tifinagh meet there) — so CER measures recognition, not
+    orthography."""
+    t = re.sub(r"[‐‑‒–'’`]", "", t or "")
+    words = []
+    for w in t.split():
+        key = to_forms(w)["key"] if not TIF.search(w) else to_forms(w)["key"] or w
+        if not key:
+            continue
+        if words and words[-1] == key:
+            continue
+        words.append(key)
+    return " ".join(words)
 
 
 def cer(ref: str, hyp: str) -> float:
@@ -162,6 +176,18 @@ def cmd_run(args) -> None:
     json.dump(results, open(RESULTS, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
 
+def cmd_rescore(_args) -> None:
+    """Recompute every stored row's CER with the current norm() (no engine calls)."""
+    results = json.load(open(RESULTS, encoding="utf-8"))
+    for name, r in results.items():
+        for row in r["rows"]:
+            if not str(row["hyp"]).startswith("<error"):
+                row["cer"] = round(cer(row["ref"], row["hyp"]), 3)
+        r["mean_cer"] = round(sum(x["cer"] for x in r["rows"]) / len(r["rows"]), 3)
+    json.dump(results, open(RESULTS, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    cmd_report(_args)
+
+
 def cmd_report(_args) -> None:
     results = json.load(open(RESULTS, encoding="utf-8"))
     print(f"{'engine':<60} {'mean CER':>8}  exact")
@@ -175,9 +201,9 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("build"); b.add_argument("--ids", required=True); b.add_argument("--api", default="http://127.0.0.1:8000"); b.add_argument("--variety")
     r = sub.add_parser("run"); r.add_argument("engine"); r.add_argument("space", nargs="?"); r.add_argument("api_name", nargs="?"); r.add_argument("--arg", action="append"); r.add_argument("--ids", help="only these drill ids"); r.add_argument("--limit", type=int)
-    sub.add_parser("report")
+    sub.add_parser("report"); sub.add_parser("rescore")
     args = ap.parse_args()
-    {"build": cmd_build, "run": cmd_run, "report": cmd_report}[args.cmd](args)
+    {"build": cmd_build, "run": cmd_run, "report": cmd_report, "rescore": cmd_rescore}[args.cmd](args)
 
 
 if __name__ == "__main__":

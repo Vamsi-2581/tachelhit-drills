@@ -1,0 +1,161 @@
+{
+ "mms-1b-all shi (josepabloucr/tachelhit-asr-service)": {
+  "mean_cer": 0.413,
+  "rows": [
+   {
+    "id": 280,
+    "ref": "ⵓ ⵎⴰⵏⵉ ⵊⴰⵏ",
+    "hyp": "aytmani jan aytmani jan",
+    "cer": 0.652,
+    "secs": 0
+   },
+   {
+    "id": 306,
+    "ref": "ⵜⴰⵔⴱⴰⵜ ⵉⵏⵛ ⵜⴰⵔⴱⴰⵏⵎ",
+    "hyp": "tarbat‐n‐ni štšwa",
+    "cer": 0.444,
+    "secs": 0
+   },
+   {
+    "id": 373,
+    "ref": "ⴻⵀ ⵖⵓⵔⵉ ⴰⴷⵙⴼⵔⵖ ⴷ ⵉⵀⵍⴰ ⵖⵓⵔⵉ ⴰⴷ ⵉⵙⵉⵏⵖ ⵉⴷⵖⴰⵔⵏ ⴰⵜⵏⵉⵏ",
+    "hyp": "iḥlaġuri a‐tsafrġ‐d iḥlaġuri ad‐isinġ id",
+    "cer": 0.702,
+    "secs": 0
+   },
+   {
+    "id": 439,
+    "ref": "ⵉⵀⵢ ⴰⴷⴰⵙ ⵜⴰⵡⵜ ⵉⵎⴰⵉⵜⵏⵏⵉⵜ ⴰⵡⴷⴰⵙⵙ ⵉⵎⴰⵉⵜⵏⵏⵉⵜ",
+    "hyp": "tεllmaġ lkaṭalaniyya f‐isaε",
+    "cer": 0.811,
+    "secs": 0
+   },
+   {
+    "id": 454,
+    "ref": "ⵓⵔⵜⵏ ⴼⵀⵉⵎⵖ",
+    "hyp": "ur‐tn fhimaġ",
+    "cer": 0.1,
+    "secs": 0
+   },
+   {
+    "id": 487,
+    "ref": "ⴰⵣⵔⴰⵉⵢ",
+    "hyp": "zriy zriy",
+    "cer": 0.333,
+    "secs": 0
+   },
+   {
+    "id": 521,
+    "ref": "ⵛⵔⵉⵙⵜⵉⵏⴰ ⴰⵔ ⵜⵄⵓⵎ",
+    "hyp": "kristina kristina ar‐thm",
+    "cer": 0.25,
+    "secs": 0
+   },
+   {
+    "id": 523,
+    "ref": "ⵎⴰ ⵀⵍⵓ ⴰⵢⵉ ⵜⵎⵓⵜ ⵛⵔⴰⵜ ⵉⵙⴳⴰⵙⵏ ⴰⵢⵉ",
+    "hyp": "tmut ššraṭ isggwasn‐ayiy maḥlu a‐yyi tmm",
+    "cer": 0.686,
+    "secs": 0
+   },
+   {
+    "id": 525,
+    "ref": "ⵉⵍⴰ ⵓⵜⴼⵍ ⴽⵖⵔⵎ",
+    "hyp": "illa‐utfl gġrm",
+    "cer": 0.231,
+    "secs": 0
+   },
+   {
+    "id": 533,
+    "ref": "ⵜⵏⴰⵢⴰⵙ ⴰⴷ ⵓⵔ ⵜⴼⵖⵜ",
+    "hyp": "rnnayas‐na‐yas ad‐ur‐tffat",
+    "cer": 0.35,
+    "secs": 0
+   },
+   {
+    "id": 535,
+    "ref": "ⵓⵀ ⵓⵔ ⵖⵉⵢⵖ ⴰⵏⴼⵖ ⵜⵏⴰⵢⵉ ⵎⴰ ⴰⴷ ⵓⵔ ⵜⴼⵖⵜ",
+    "hyp": "hu tnna‐yyim ur‐ġiġ a‐nffa tnna‐yyima a‐",
+    "cer": 0.657,
+    "secs": 0
+   },
+   {
+    "id": 561,
+    "ref": "ⵙⵙⴰⵔⴰⵎ ⵜⴰⴱⵔⵓⵃⴰⵣⵉ ⴷ ⵍⵉⵙⵟⴰⴰⵙ ⵄⵓⵣ ⵙⵙⴰⵍⴰⴰⵏ ⵜⴰⴱⵔⵓⵃⴰⵣⵉ ⴷ ⵍⵙⵙⴰⵙⵜ",
+    "hyp": "salam bablu azid lmisṣaj εawdt salam bab",
+    "cer": 0.5,
+    "secs": 0
+   },
+   {
+    "id": 562,
+    "ref": "ⴷⴰⵜⵅ ⴰⴷⵖⴰⵔ",
+    "hyp": "sdattġ adġar",
+    "cer": 0.2,
+    "secs": 0
+   },
+   {
+    "id": 600,
+    "ref": "ⴰⵔⵉⵜⴰⵔⵡⴰⵀⴻⴷ",
+    "hyp": "arirwaar‐itrwaḥ izmiz aritawa ar‐itrwaḥi",
+    "cer": 0.784,
+    "secs": 0
+   },
+   {
+    "id": 621,
+    "ref": "ⵉⵔⴰ ⴰⴷ ⵢⵓⵖⵓⵍ",
+    "hyp": "tkldarnuna iẓi‐kkw ra‐d‐yuġul  a‐t‐yuġul",
+    "cer": 0.719,
+    "secs": 0
+   },
+   {
+    "id": 3078,
+    "ref": "ⴰⵎⴰⵡⴰⵍ ⵏ ⵜⴰⵎⴰⵣⵉⵖⵜ",
+    "hyp": "u",
+    "cer": 1.0,
+    "secs": 0
+   },
+   {
+    "id": 3079,
+    "ref": "ⵉⵎⵓⴷⴰⵔ",
+    "hyp": "imudar imudar",
+    "cer": 0.0,
+    "secs": 0
+   },
+   {
+    "id": 3080,
+    "ref": "ⴰⴳⵎⴰⵔ",
+    "hyp": "agmar agmar",
+    "cer": 0.0,
+    "secs": 0
+   },
+   {
+    "id": 3081,
+    "ref": "ⵜⴰⴼⵓⵍⵍⵓⵙⵜ",
+    "hyp": "tafullust tafullust",
+    "cer": 0.0,
+    "secs": 0
+   },
+   {
+    "id": 3082,
+    "ref": "ⴰⴳⴹⵉⴹ",
+    "hyp": "ag‐ṭiḍ ag ṭiḍ",
+    "cer": 0.667,
+    "secs": 0
+   },
+   {
+    "id": 3083,
+    "ref": "ⵜⴰⵡⴽⵜ",
+    "hyp": "tawkt tawkt",
+    "cer": 0.0,
+    "secs": 0
+   },
+   {
+    "id": 3084,
+    "ref": "ⴰⴱⴳⵓⵔ",
+    "hyp": "ab‐gur ab‐gur",
+    "cer": 0.0,
+    "secs": 0
+   }
+  ]
+ }
+}
