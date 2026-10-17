@@ -42,7 +42,6 @@ import platform
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import urllib.request
@@ -55,12 +54,18 @@ try:
 except ImportError:  # the frozen build always has it
     sys.exit("Missing dependency. Run:  pip install requests yt-dlp")
 
-__version__ = "2.1.1"
+__version__ = "2.2.0"
 APP_NAME = "TachelhitCapture"
 DEFAULT_API = "https://tachelhit-drills-api.onrender.com"
 WEB_APP = "https://tachelhit-drills.vercel.app/video-creator"
 YTDLP_RELEASE = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/"
 DENO_RELEASE = "https://github.com/denoland/deno/releases/latest/download/"
+FFMPEG_WIN = "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip"
+FFMPEG_MAC = "https://evermeet.cx/ffmpeg/getrelease/zip"
+# Caption languages worth sending to the server, best first. Teaching videos
+# often carry the Tamazight word AND its gloss in one cue ("agmar / horse").
+SUB_LANGS = ["shi", "ber", "zgh", "tzm", "kab", "ar", "ca", "fr", "es", "en"]
+KEEP_DOWNLOADS_DAYS = 7
 FROZEN = bool(getattr(sys, "frozen", False))
 IS_WIN = platform.system() == "Windows"
 IS_MAC = platform.system() == "Darwin"
@@ -204,6 +209,37 @@ def ensure_deno() -> str | None:
         return None
 
 
+def ffmpeg_path() -> str | None:
+    """ffmpeg lets yt-dlp merge YouTube's separate video+audio streams. PATH
+    first, then the agent folder, then a static build fetched once."""
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    p = os.path.join(app_dir(), "bin", "ffmpeg.exe" if IS_WIN else "ffmpeg")
+    if os.path.exists(p):
+        return p
+    try:
+        set_status("busy", "Baixant ffmpeg…")
+        log("downloading a static ffmpeg build (one time)…")
+        url = FFMPEG_WIN if IS_WIN else FFMPEG_MAC if IS_MAC else None
+        if not url:
+            return None
+        tmp = p + ".zip"
+        urllib.request.urlretrieve(url, tmp)
+        with zipfile.ZipFile(tmp) as z:
+            name = next(n for n in z.namelist() if n.replace("\\", "/").endswith("/ffmpeg.exe" if IS_WIN else "ffmpeg") or n in ("ffmpeg", "ffmpeg.exe"))
+            with z.open(name) as src, open(p, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+        os.remove(tmp)
+        if not IS_WIN:
+            os.chmod(p, 0o755)
+        log("ffmpeg ready")
+        return p
+    except Exception as e:
+        log(f"(ffmpeg unavailable: {e}; videos will be audio-only or single-stream)")
+        return None
+
+
 def ensure_ytdlp(cfg: dict) -> str | None:
     """Return a runnable yt-dlp binary path, downloading/updating it when needed.
     None means: fall back to the bundled Python library."""
@@ -240,25 +276,71 @@ def ensure_ytdlp(cfg: dict) -> str | None:
         return None
 
 
-def download(url: str, out_dir: str, audio_only: bool, cfg: dict) -> str:
-    fmt = "bestaudio[ext=m4a]/bestaudio/best" if audio_only else "best[height<=720][ext=mp4]/best[height<=720]/best"
-    out_tmpl = os.path.join(out_dir, "video.%(ext)s")
+def download(url: str, out_dir: str, audio_only: bool, cfg: dict) -> tuple[str, str | None]:
+    """Download the media (and the best caption track, if any) into out_dir.
+    Returns (media_path, subtitles_path_or_None)."""
     binary = ensure_ytdlp(cfg)
     deno = ensure_deno()
-    if binary:
-        cmd = [binary, "-f", fmt, "-o", out_tmpl, "--no-playlist", "--no-progress", "--no-update"]
-        if deno:
-            cmd += ["--js-runtimes", f"deno:{deno}"]
-        subprocess.run(cmd + [url], check=True, capture_output=True, timeout=1800, **_no_window())
-    else:
-        import yt_dlp  # bundled fallback
-        opts = {"format": fmt, "outtmpl": out_tmpl, "noplaylist": True, "quiet": True}
-        with yt_dlp.YoutubeDL(opts) as y:
-            y.download([url])
-    files = glob.glob(os.path.join(out_dir, "video.*"))
+    ffmpeg = None if audio_only else ffmpeg_path()
+    if audio_only:
+        fmt = "bestaudio[ext=m4a]/bestaudio/best"
+    elif ffmpeg:
+        fmt = "bv*[height<=720][ext=mp4]+ba[ext=m4a]/bv*[height<=720]+ba/b[height<=720]/b"
+    else:  # no merger: a combined stream, else fall back to audio so drills still get sound
+        fmt = "b[height<=720]/b/bestaudio"
+    out_tmpl = os.path.join(out_dir, "video.%(ext)s")
+    common = ["--no-playlist", "--no-progress", "--no-update", "-o", out_tmpl]
+    if deno:
+        common += ["--js-runtimes", f"deno:{deno}"]
+    if ffmpeg:
+        common += ["--ffmpeg-location", ffmpeg, "--merge-output-format", "mp4"]
+
+    def run(args):
+        if binary:
+            subprocess.run([binary] + args, check=True, capture_output=True, timeout=1800, **_no_window())
+        else:
+            import yt_dlp  # bundled fallback
+            opts = {"format": fmt, "outtmpl": out_tmpl, "noplaylist": True, "quiet": True}
+            if "--write-subs" in args or "--write-auto-subs" in args:
+                opts.update({"skip_download": True, "writesubtitles": "--write-subs" in args,
+                             "writeautomaticsub": "--write-auto-subs" in args,
+                             "subtitleslangs": SUB_LANGS, "subtitlesformat": "vtt"})
+            with yt_dlp.YoutubeDL(opts) as y:
+                y.download([url])
+
+    run(["-f", fmt] + common + [url])
+    files = [f for f in glob.glob(os.path.join(out_dir, "video.*")) if not f.endswith(".vtt")]
     if not files:
         raise RuntimeError("download produced no file")
-    return max(files, key=os.path.getsize)
+    media = max(files, key=os.path.getsize)
+
+    # Captions: uploaded ones first (human-made), automatic ones only if none.
+    subs = None
+    for flag in ("--write-subs", "--write-auto-subs"):
+        try:
+            run(["--skip-download", flag, "--sub-langs", ",".join(SUB_LANGS), "--sub-format", "vtt"] + common + [url])
+        except Exception as e:
+            log(f"  (captions {flag}: {e})")
+        found = {os.path.basename(f).split(".")[-2]: f for f in glob.glob(os.path.join(out_dir, "video.*.vtt"))}
+        for lang in SUB_LANGS:
+            if lang in found:
+                subs = found[lang]
+                break
+        if subs:
+            log(f"  captions: {os.path.basename(subs)} ({'uploaded' if flag == '--write-subs' else 'automatic'})")
+            break
+    return media, subs
+
+
+def purge_old_downloads() -> None:
+    root = os.path.join(app_dir(), "downloads")
+    cutoff = time.time() - KEEP_DOWNLOADS_DAYS * 86400
+    try:
+        for d in glob.glob(os.path.join(root, "*")):
+            if os.path.isdir(d) and os.path.getmtime(d) < cutoff:
+                shutil.rmtree(d, ignore_errors=True)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------- queue worker
@@ -281,22 +363,31 @@ class Agent:
         rid = req["id"]
         log(f"claimed request #{rid}: {req['url']}")
         set_status("busy", f"Descarregant #{rid}…")
-        with tempfile.TemporaryDirectory() as d:
+        # Kept for KEEP_DOWNLOADS_DAYS so the owner can inspect what was sent.
+        d = os.path.join(app_dir(), "downloads", f"{time.strftime('%Y%m%d-%H%M%S')}_req{rid}")
+        os.makedirs(d, exist_ok=True)
+        if True:
             try:
-                path = download(req["url"], d, req.get("audio_only", True), self.cfg)
-                log(f"  downloaded {os.path.basename(path)} ({os.path.getsize(path)//1024} KB); uploading...")
+                path, subs = download(req["url"], d, req.get("audio_only", True), self.cfg)
+                log(f"  downloaded {os.path.basename(path)} ({os.path.getsize(path)//1024} KB) -> {d}; uploading...")
                 set_status("busy", f"Pujant #{rid}…")
-                data = {"apply_correction": str(bool(req.get("apply_correction", True))).lower()}
+                data = {"apply_correction": str(bool(req.get("apply_correction", True))).lower(),
+                        "source_url": req["url"]}  # provenance on every drill
                 if req.get("tag"):
                     data["tag"] = req["tag"]
                 if req.get("language"):
                     data["language"] = req["language"]
-                with open(path, "rb") as f:
+                files = {"video": (os.path.basename(path), open(path, "rb"), "application/octet-stream")}
+                if subs:
+                    files["subtitles"] = (os.path.basename(subs), open(subs, "rb"), "text/vtt")
+                try:
                     r = requests.post(
                         f"{api}/video-analysis/auto-drills-upload",
-                        files={"video": (os.path.basename(path), f, "application/octet-stream")},
-                        data=data, headers=self.hdrs, timeout=900,
+                        files=files, data=data, headers=self.hdrs, timeout=900,
                     )
+                finally:
+                    for _, fh, _ in files.values():
+                        fh.close()
                 r.raise_for_status()
                 job_id = r.json().get("job_id")
                 requests.post(f"{api}/capture/{rid}/done", json={"job_id": job_id}, headers=self.hdrs, timeout=60)
@@ -320,6 +411,7 @@ class Agent:
             pass
 
     def run(self, once: bool = False) -> None:
+        purge_old_downloads()
         log(f"agent v{__version__} started - backends {', '.join(self.apis)} - polling every {self.poll}s")
         set_status("idle", "Connectat · esperant URLs")
         errors = {a: 0 for a in self.apis}
@@ -497,6 +589,7 @@ def run_tray(agent: Agent) -> None:
         pystray.MenuItem("Obre l'app (Captura)", lambda: webbrowser.open(WEB_APP)),
         pystray.MenuItem("Obre el registre", lambda: _open_path(LOG_PATH)),
         pystray.MenuItem("Obre la carpeta de l'agent", lambda: _open_path(install_dir())),
+        pystray.MenuItem("Obre les descàrregues", lambda: _open_path(os.path.join(install_dir(), "downloads"))),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(f"Versió {__version__}", None, enabled=False),
         pystray.MenuItem("Surt", quit_),

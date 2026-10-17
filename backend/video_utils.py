@@ -216,6 +216,7 @@ def parse_vtt(vtt_content: str) -> List[Dict[str, Any]]:
             
             if text_lines:
                 segments.append({
+                    "lines": text_lines,  # kept: bilingual cues put the gloss on its own line
                     "start": start,
                     "end": end,
                     "text": " ".join(text_lines)

@@ -14,7 +14,7 @@ from fastapi.encoders import jsonable_encoder
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import hashlib
 import re
 import secrets
@@ -368,6 +368,98 @@ SessionLocal = sessionmaker(bind=engine)
 _JUNK_REPEAT_RUN = re.compile(r"(?:\b(\w{1,3})\b[\s.,]*)(?:\1[\s.,]*){5,}", re.I)
 _JUNK_ENGLISH = re.compile(r"\b(" + "the|and|you|that|this|with|have|from|they|what|about|going|actually|little|bit|bus|grab|called|can't|don't|didn't|won't|isn't|tell|i'm|i am|we are|it's|bear|fall|asleep|therefore|lost|because|would|could|should|there|here|where|when|then|than|your|their|just|like|know|think|want|need|make|take|come|some|thing|time|people|back|only|over|also|into|very|well|much|many|more|most|other|through|before|after|never|always|really|something|nothing|everything|world|life|love|heart|mind|night|every|again|please|thank|sorry|hello|goodbye" + r")\b", re.I)
 _TIFINAGH_RE = re.compile(r"[\u2D30-\u2D7F]")
+
+
+_TMZ_LETTERS = re.compile(r"[ɣḍḥẓṭṛṣɛƹǧčɛ\u2D30-\u2D7F]")
+_EN_LETTERS = re.compile(r"[ovpe]", re.I)  # rare in Latin Tachelhit, common in English
+_EN_SMALL = re.compile(
+    r"\b(a|an|the|of|and|to|in|is|are|my|your|his|her|our|their|this|that|with|for|from|"
+    r"animals?|birds?|horse|hen|owl|cat|dog|cow|goat|sheep|fish|water|bread|house|school|"
+    r"vocabulary|vocabuary|lesson|numbers?|colou?rs?|family|mother|father|brother|sister|"
+    r"hello|good|morning|night|thank|you|yes|no|one|two|three|four|five)\b", re.I)
+
+
+def cue_text_for_storage(seg: Dict[str, Any]) -> str:
+    """Keep a caption cue's line breaks in text_original (bilingual cues)."""
+    lines = seg.get("lines") or []
+    return "\n".join(lines) if len(lines) > 1 else (seg.get("text") or "")
+
+
+def split_bilingual_cue(text: Optional[str]) -> Tuple[str, Optional[str], Optional[str]]:
+    """Teaching videos caption one cue as `agmar` + `horse` (word + gloss).
+    Returns (tachelhit_text, gloss, gloss_lang) — gloss None for ordinary cues.
+    Decides by script-specific letters first, then English-likeness; on a tie
+    the first line is the target language (the convention in these videos)."""
+    t = (text or "").strip()
+    lines = [l.strip() for l in t.split("\n") if l.strip()]
+    if len(lines) != 2:
+        return t, None, None
+    a, b = lines
+
+    def tmz(x: str) -> int:
+        return 3 * len(_TMZ_LETTERS.findall(x))
+
+    def en(x: str) -> int:
+        return len(_EN_LETTERS.findall(x)) + 3 * len(_EN_SMALL.findall(x))
+
+    score_a = tmz(a) - en(a)   # >0 looks Tamazight, <0 looks English
+    score_b = tmz(b) - en(b)
+    if score_a == score_b:
+        return a, b, "en"
+    return (a, b, "en") if score_a > score_b else (b, a, "en")
+
+
+def _parse_gloss_json(answer: str) -> Dict[str, Dict[str, str]]:
+    """Gemini answers a JSON object {gloss: {"ca": ..., "ar": ...}}; tolerate fences."""
+    m = re.search(r"\{.*\}", answer or "", re.S)
+    if not m:
+        return {}
+    try:
+        data = json.loads(m.group(0))
+    except ValueError:
+        return {}
+    out: Dict[str, Dict[str, str]] = {}
+    for k, v in (data.items() if isinstance(data, dict) else []):
+        if isinstance(v, dict):
+            out[str(k).strip().lower()] = {t: str(v.get(t) or "").strip() for t in ("ca", "ar")}
+    return out
+
+
+def translate_glosses(glosses: List[str], src_lang: str = "English") -> Dict[str, Dict[str, str]]:
+    """Catalan + Arabic for a list of short glosses ("horse", "owl"). One Gemini
+    call for all of them — NLLB is unreliable on isolated words ("bufa" for owl).
+    Falls back to the translation Space per gloss when Gemini is unavailable."""
+    uniq = [g for g in dict.fromkeys((g or "").strip() for g in glosses) if g]
+    result: Dict[str, Dict[str, str]] = {}
+    if not uniq:
+        return result
+    if gemini_available():
+        try:
+            prompt = ("Translate each " + src_lang + " vocabulary item into Catalan (\"ca\") and Modern Standard "
+                      "Arabic (\"ar\"). Items are words or short phrases from a language-learning video. Keep the "
+                      "same number/article form, lowercase unless a proper noun, no explanations. Answer ONLY with a "
+                      "JSON object mapping each item (exactly as given) to {\"ca\": ..., \"ar\": ...}.\n\nItems:\n"
+                      + "\n".join(f"- {g}" for g in uniq))
+            answer = gemini_generate("You are a precise bilingual lexicographer.",
+                                     [{"role": "user", "text": prompt}], max_output_tokens=2000, temperature=0.1)
+            parsed = _parse_gloss_json(answer)
+            for g in uniq:
+                hit = parsed.get(g.lower())
+                if hit and hit.get("ca") and hit.get("ar"):
+                    result[g] = hit
+        except Exception as e:
+            print(f"[AUTO] Gemini gloss translation failed ({e}); using the translation Space")
+    for g in uniq:
+        if g in result:
+            continue
+        entry: Dict[str, str] = {}
+        for tgt, name in (("ca", "Catalan"), ("ar", "Modern Standard Arabic")):
+            try:
+                entry[tgt] = translate_with_hf(g, src_lang, name)
+            except Exception as e:
+                print(f"[AUTO] Gloss translation ({tgt}) failed for {g!r}: {e}")
+        result[g] = entry
+    return result
 
 
 def looks_like_junk_asr(text: Optional[str], attested: bool = True) -> Optional[str]:
@@ -2470,11 +2562,16 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
             if not job or job.status != "COMPLETED":
                 return  # ASR failed; its task already recorded the error
 
-        segments = [{
-            "start": s.segment_start_time,
-            "end": s.segment_end_time,
-            "text": s.text_original
-        } for s in job.segments]
+        segments = []
+        for s_ in job.segments:
+            text_, gloss_, gloss_lang_ = split_bilingual_cue(s_.text_original) if has_segments else ((s_.text_original or ""), None, None)
+            segments.append({
+                "start": s_.segment_start_time,
+                "end": s_.segment_end_time,
+                "text": text_,
+                "gloss": gloss_,            # e.g. "horse" — translated instead of the Tamazight
+                "gloss_lang": gloss_lang_,  # "en"
+            })
 
         if not segments:
             job.status = "FAILED"
@@ -2495,13 +2592,16 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         # correction layer rewrites hallucinated English into Tachelhit-looking
         # text that no heuristic can catch afterwards (prod job 20, 2026-10-17).
         for seg in segments:
+            if seg.get("gloss"):
+                continue  # human caption with a gloss: trusted
             _j = looks_like_junk_asr(seg.get("text"), attested=effective_source in ("shi", "ber"))
             if _j:
                 seg["junk"] = _j
                 print(f"[AUTO] junk segment ({_j}), not corrected/translated: {str(seg.get('text'))[:60]!r}")
 
-        # Phase 2: correction layer (Tachelhit-ish sources only)
-        if apply_correction and effective_source in ("shi", "ber"):
+        # Phase 2: correction layer (Tachelhit-ish sources only; ASR output only —
+        # human captions are better than the corrector)
+        if apply_correction and not has_segments and effective_source in ("shi", "ber"):
             job.status = "CORRECTING"
             db.commit()
             ds = db.query(DrillModel).filter(DrillModel.is_correction_dataset == True).all()
@@ -2524,9 +2624,21 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         # Phase 3: translate into every drill language the source isn't
         job.status = "TRANSLATING"
         db.commit()
+        # Captioned glosses ("horse") translate far better than the Tamazight word
+        # through NLLB, and all of them go in ONE Gemini call; the Tamazight line
+        # is kept verbatim.
+        glossed = [seg for seg in segments if (seg.get("gloss") or "").strip() and not seg.get("junk")]
+        if glossed:
+            gloss_src = LANGUAGE_CODE_MAP.get(glossed[0].get("gloss_lang") or "en", "English")
+            table = await asyncio.to_thread(translate_glosses, [seg["gloss"].strip() for seg in glossed], gloss_src)
+            for seg in glossed:
+                tr = table.get(seg["gloss"].strip(), {})
+                seg["text_tachelhit"] = (seg.get("text") or "").strip()
+                seg["text_catalan"] = tr.get("ca") or (seg["gloss"] if gloss_src == "Catalan" else None)
+                seg["text_arabic"] = tr.get("ar") or (seg["gloss"] if gloss_src == "Modern Standard Arabic" else None)
         for seg in segments:
             text = (seg.get("text") or "").strip()
-            if not text or seg.get("junk"):
+            if not text or seg.get("junk") or seg.get("gloss"):
                 continue
             for tgt, field in TRANSLATE_TARGET_FIELDS.items():
                 if LANGUAGE_CODE_MAP.get(tgt) == src_name:
@@ -2702,7 +2814,7 @@ async def auto_drills_from_url(
                     job_id=job.id,
                     segment_start_time=seg["start"],
                     segment_end_time=seg["end"],
-                    text_original=seg["text"]
+                    text_original=cue_text_for_storage(seg)
                 ))
             db.commit()
 
@@ -2737,6 +2849,8 @@ async def auto_drills_from_upload(
     apply_correction: Optional[bool] = Form(True),
     lyrics: Optional[str] = Form(None),
     generate_reels: Optional[bool] = Form(False),
+    subtitles: Optional[UploadFile] = File(None),
+    source_url: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
     """One-shot capture from an ALREADY-DOWNLOADED file — download the video on
@@ -2753,7 +2867,7 @@ async def auto_drills_from_upload(
             f.write(await video.read())
 
         job = VideoProcessingJobModel(
-            source_url=f"local-upload:{video.filename or 'video'}",
+            source_url=(source_url or "").strip() or f"local-upload:{video.filename or 'video'}",
             source_filepath=video_path,
             status="PENDING",
             date_submitted=datetime.utcnow(),
@@ -2762,11 +2876,30 @@ async def auto_drills_from_upload(
         db.commit()
         db.refresh(job)
 
-        # No URL -> no platform subtitles; the pipeline runs ASR on the uploaded file.
+        # Captions sent by the local agent (platform subtitles, human-made when
+        # available) replace ASR: exact timings, and bilingual cues keep the gloss.
+        segments = []
+        if subtitles is not None:
+            try:
+                from video_utils import parse_vtt
+                raw = (await subtitles.read()).decode("utf-8", "replace")
+                segments = parse_vtt(raw)
+                for seg in segments:
+                    db.add(VideoSegmentModel(
+                        job_id=job.id,
+                        segment_start_time=seg["start"],
+                        segment_end_time=seg["end"],
+                        text_original=cue_text_for_storage(seg),
+                    ))
+                db.commit()
+                print(f"[AUTO-UPLOAD] {len(segments)} caption cues from {subtitles.filename}; ASR skipped")
+            except Exception as e:
+                print(f"[AUTO-UPLOAD] captions unusable ({e}); falling back to ASR")
+                segments = []
         background_tasks.add_task(
             auto_drills_pipeline_task,
-            job.id, None, video_path, tmp_dir,
-            language, tag, bool(apply_correction), False,
+            job.id, (source_url or "").strip() or None, video_path, tmp_dir,
+            language, tag, bool(apply_correction), bool(segments),
             lyrics, bool(generate_reels),
         )
         return {

@@ -22,7 +22,16 @@ on macOS), registers itself to **start at login**, and lives in the **system tra
 app, the log, and quits.
 
 On first use it fetches `yt-dlp` (and the `deno` JS runtime YouTube now needs) from
-their official releases into that folder; `yt-dlp` self-updates once a day.
+their official releases into that folder; `yt-dlp` self-updates once a day. For video
+captures it also needs `ffmpeg` (found on PATH, or a static build fetched once).
+
+What it sends per URL: the media (720p video+audio, or audio only when asked) **and the
+best caption track** (uploaded captions first, automatic ones otherwise; languages
+shi/ber/zgh/tzm/kab/ar/ca/fr/es/en). With captions the server skips speech recognition:
+exact timings, one drill per cue, and bilingual cues like `agmar` / `horse` become
+Tamazight + translated gloss (Catalan/Arabic via Gemini), with the video section and
+its illustration frame. Downloads are kept 7 days in `downloads/` (tray menu →
+"Obre les descàrregues") so you can see exactly what was captured.
 
 The *Captura* screen shows a green dot "Agent de captura connectat" when it is polling.
 

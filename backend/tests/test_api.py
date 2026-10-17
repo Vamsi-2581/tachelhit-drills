@@ -544,3 +544,31 @@ def test_capture_agent_liveness():
     r = client.get("/capture/agent")
     assert r.json()["online"] is True and r.json()["version"] == "2.0.0"
     assert r.json()["last_seen"].endswith("Z")
+
+
+def test_split_bilingual_cue():
+    """Caption cues from teaching videos: Tamazight word + gloss on two lines."""
+    assert main.split_bilingual_cue("agmar\nhorse") == ("agmar", "horse", "en")
+    assert main.split_bilingual_cue("horse\nagmar") == ("agmar", "horse", "en")
+    assert main.split_bilingual_cue("agḍiḍ\nbird") == ("agḍiḍ", "bird", "en")
+    assert main.split_bilingual_cue("imudar\nAnimals") == ("imudar", "Animals", "en")
+    assert main.split_bilingual_cue("amawal n tamaziɣt\nVocabuary of Tamazight") == ("amawal n tamaziɣt", "Vocabuary of Tamazight", "en")
+    assert main.split_bilingual_cue("ⴰⴳⵎⴰⵔ\nhorse") == ("ⴰⴳⵎⴰⵔ", "horse", "en")
+    # ordinary one-line cue: untouched, no gloss
+    assert main.split_bilingual_cue("Is ghorsh lan ait mash?") == ("Is ghorsh lan ait mash?", None, None)
+    assert main.split_bilingual_cue(None) == ("", None, None)
+
+
+def test_parse_vtt_keeps_lines_and_storage_join():
+    from video_utils import parse_vtt
+    segs = parse_vtt("WEBVTT\n\n00:00:18.801 --> 00:00:23.379\nagmar\nhorse\n\n00:00:24.800 --> 00:00:28.072\ntafullust\n")
+    assert segs[0]["lines"] == ["agmar", "horse"] and segs[0]["text"] == "agmar horse"
+    assert main.cue_text_for_storage(segs[0]) == "agmar\nhorse"
+    assert main.cue_text_for_storage(segs[1]) == "tafullust"
+
+
+def test_parse_gloss_json():
+    ans = 'Sure:\n```json\n{"horse": {"ca": "cavall", "ar": "حصان"}, "Owl": {"ca": "mussol", "ar": "بومة"}}\n```'
+    t = main._parse_gloss_json(ans)
+    assert t["horse"] == {"ca": "cavall", "ar": "حصان"} and t["owl"]["ca"] == "mussol"
+    assert main._parse_gloss_json("no json here") == {}
