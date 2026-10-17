@@ -1029,6 +1029,121 @@ def _transcribe_short_clip_with_gemini(audio_url: str) -> Optional[Dict[str, str
         return None
 
 
+# ---------------------------------------------------------------------------
+# Burned-in subtitles (songs/clips with the text painted into the picture, often
+# several languages at once). Latin-script lines are read reliably by the vision
+# model; Tifinagh lines are kept only when they match the Latin line's spelling.
+def _subtitle_frames_from_gemini(frames: List[Tuple[float, str]]) -> List[Dict[str, Any]]:
+    import base64
+    from gemini_client import _generate_content
+    parts: List[Dict[str, Any]] = [{"text": (
+        "These are consecutive frames of a video that has SUBTITLES burned into the picture, usually in several "
+        "languages at once (for example English, French, Arabic and Tachelhit/Tamazight in Latin letters, or Tifinagh). "
+        "For EACH frame, transcribe exactly the subtitle lines visible, keeping each line's language. Answer ONLY with a "
+        "JSON array of {\"t\": second, \"lines\": [{\"lang\": \"en\"|\"fr\"|\"ar\"|\"es\"|\"ca\"|\"shi\"|\"zgh\"|\"other\", "
+        "\"text\": \"...\"}]} — one object per frame, an empty list when there is no subtitle. Use \"shi\" for Tachelhit "
+        "or Tamazight written in Latin letters and \"zgh\" for Tifinagh script. Ignore channel logos, watermarks, "
+        "titles and credits.")}]
+    for t, path in frames:
+        parts.append({"text": f"[frame t={t:.1f}s]"})
+        with open(path, "rb") as fh:
+            parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(fh.read()).decode()}})
+    payload = {"systemInstruction": {"parts": [{"text": "You transcribe burned-in subtitles exactly, line by line."}]},
+               "contents": [{"role": "user", "parts": parts}],
+               "generationConfig": {"maxOutputTokens": 6000, "temperature": 0.0, "thinkingConfig": {"thinkingBudget": 0}}}
+    data = _generate_content(payload, 240)
+    text = "".join(pp.get("text", "") for pp in data["candidates"][0]["content"]["parts"])
+    m = re.search(r"\[.*\]", text, re.S)
+    items = json.loads(m.group(0)) if m else []
+    return [i for i in items if isinstance(i, dict)]
+
+
+def merge_subtitle_frames(items: List[Dict[str, Any]], every: float = 1.0, min_len: float = 1.5) -> List[Dict[str, Any]]:
+    """Consecutive frames with the same Tachelhit line -> one cue. Returns segments
+    {start, end, text (shi Latin), tifinagh, gloss (en|fr|ar text), gloss_lang, lines}. Pure."""
+    def norm(t: str) -> str:
+        return " ".join((t or "").lower().replace("’", "'").split())
+    cues: List[Dict[str, Any]] = []
+    for i in sorted(items, key=lambda x: float(x.get("t") or 0)):
+        t = float(i.get("t") or 0)
+        lines = {}
+        for ln in i.get("lines") or []:
+            if isinstance(ln, dict) and (ln.get("text") or "").strip():
+                lines.setdefault(str(ln.get("lang") or "other").lower()[:5], (ln["text"] or "").strip())
+        shi = lines.get("shi") or lines.get("tzm") or ""
+        if not shi and not lines.get("zgh"):
+            continue
+        key = norm(shi) or norm(lines.get("zgh", ""))
+        if cues and cues[-1]["_key"] == key and t - cues[-1]["end"] <= every + 0.01:
+            cues[-1]["end"] = t + every
+            for k, v in lines.items():
+                cues[-1]["lines"].setdefault(k, v)
+            continue
+        cues.append({"_key": key, "start": t, "end": t + every, "lines": dict(lines)})
+    out = []
+    import difflib
+    seen_keys: List[str] = []
+    for c in cues:
+        if c["end"] - c["start"] < min_len:
+            continue  # a single misread frame
+        # A chorus repeats: one drill per distinct line (first occurrence keeps its clip);
+        # OCR spelling wobbles (lεar / l£ar / iɛar) count as the same line.
+        if any(difflib.SequenceMatcher(None, c["_key"], k).ratio() >= 0.85 for k in seen_keys):
+            continue
+        seen_keys.append(c["_key"])
+        gloss_lang = next((k for k in ("en", "fr", "ar", "es", "ca") if c["lines"].get(k)), None)
+        out.append({"start": round(c["start"], 2), "end": round(c["end"], 2),
+                    "text": c["lines"].get("shi") or c["lines"].get("tzm") or c["lines"].get("zgh"),
+                    "latin": c["lines"].get("shi") or c["lines"].get("tzm"), "tifinagh": c["lines"].get("zgh"),
+                    "gloss": c["lines"].get(gloss_lang) if gloss_lang else None, "gloss_lang": gloss_lang,
+                    "lines": c["lines"], "kind": "subtitle"})
+    return out
+
+
+def detect_text_mode(frames: List[Tuple[float, str]]) -> str:
+    """Sample a few frames and ask what kind of on-screen text the video has:
+    'subtitles' (burned-in lines, usually at the bottom), 'lesson' (vocabulary / letters
+    shown as teaching material) or 'none'."""
+    import base64
+    from gemini_client import _generate_content
+    sample = frames[:: max(1, len(frames) // 6)][:6]
+    parts: List[Dict[str, Any]] = [{"text": (
+        "Look at these sample frames from one video and answer with ONE word: 'subtitles' if the video has subtitle "
+        "lines burned into the picture (text that changes with the speech/singing, often several languages), 'lesson' if "
+        "it shows vocabulary, letters or words as teaching material, or 'none'.")}]
+    for t, path in sample:
+        with open(path, "rb") as fh:
+            parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(fh.read()).decode()}})
+    payload = {"systemInstruction": {"parts": [{"text": "You classify on-screen text."}]},
+               "contents": [{"role": "user", "parts": parts}],
+               "generationConfig": {"maxOutputTokens": 10, "temperature": 0.0, "thinkingConfig": {"thinkingBudget": 0}}}
+    try:
+        data = _generate_content(payload, 120)
+        ans = "".join(pp.get("text", "") for pp in data["candidates"][0]["content"]["parts"]).strip().lower()
+        for k in ("subtitles", "lesson", "none"):
+            if k in ans:
+                return k
+    except Exception as e:
+        print(f"[TEXTMODE] detection failed: {e}")
+    return "none"
+
+
+def read_burned_subtitles(video_path: str, tmp_dir: str, every: float = 1.0, batch: int = 10) -> List[Dict[str, Any]]:
+    """Burned-in subtitles -> cues with Tachelhit (Latin) + translations + seconds."""
+    if not gemini_available():
+        return []
+    frames = extract_frames(video_path, os.path.join(tmp_dir, "subframes"), every=every, width=800)
+    items: List[Dict[str, Any]] = []
+    for i in range(0, len(frames), batch):
+        try:
+            items.extend(_subtitle_frames_from_gemini(frames[i:i + batch]))
+        except Exception as e:
+            print(f"[SUBS] frame batch {i // batch} failed: {e}")
+    cues = merge_subtitle_frames(items, every=every)
+    print(f"[SUBS] {len(frames)} frames -> {len(items)} readings -> {len(cues)} subtitle cues")
+    return cues
+
+
 def looks_like_junk_asr(text: Optional[str], attested: bool = True) -> Optional[str]:
     """Return a reason string if `text` should not be stored, else None.
     `attested=False` (foreign-source draft mode) skips the English check."""
@@ -3140,8 +3255,14 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
             job.status = "READING_FRAMES"
             db.commit()
             try:
-                lesson_segments = await asyncio.to_thread(read_onscreen_vocabulary, video_path, tmp_dir,
-                                                          2.0, 12, meta.get("channel"))
+                probe_frames = await asyncio.to_thread(extract_frames, video_path, os.path.join(tmp_dir, "probe"), 10.0, 640)
+                mode = await asyncio.to_thread(detect_text_mode, probe_frames) if probe_frames else "none"
+                print(f"[AUTO] on-screen text mode: {mode}")
+                if mode == "subtitles":
+                    lesson_segments = await asyncio.to_thread(read_burned_subtitles, video_path, tmp_dir)
+                if not lesson_segments:
+                    lesson_segments = await asyncio.to_thread(read_onscreen_vocabulary, video_path, tmp_dir,
+                                                              2.0, 12, meta.get("channel"))
             except Exception as e:
                 print(f"[LESSON] frame reading failed: {e}")
             if lesson_segments:
@@ -3315,6 +3436,8 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                 continue
             _prev_text = _key
 
+            if seg.get("kind") == "subtitle" and (seg.get("lines") or {}).get("ar") and not drill_arabic:
+                drill_arabic = seg["lines"]["ar"]  # the video's own Arabic line beats a translation
             db_drill = DrillModel(
                 text_catalan=seg.get("text_catalan"),
                 text_tachelhit=drill_tachelhit,

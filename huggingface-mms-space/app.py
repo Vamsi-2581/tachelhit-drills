@@ -57,7 +57,7 @@ demo = gr.Interface(
     title="MMS ASR — Amazigh varieties (shi / kab / taq)",
     description="Meta MMS-1B-all with the per-language adapter. Tachelhit = shi. Used by Tachelhit Drills for the ASR bake-off.",
     api_name="transcribe",
-    allow_flagging="never",
+    flagging_mode="never",
 )
 
 if __name__ == "__main__":

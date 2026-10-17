@@ -131,6 +131,11 @@ def cmd_build(args) -> None:
 
 def cmd_run(args) -> None:
     gold = json.load(open(GOLD, encoding="utf-8"))
+    if args.ids:
+        keep = {int(x) for x in args.ids.split(",") if x.strip()}
+        gold = [g for g in gold if g["id"] in keep]
+    if args.limit:
+        gold = gold[: args.limit]
     results = json.load(open(RESULTS, encoding="utf-8")) if os.path.exists(RESULTS) else {}
     if args.engine == "gemini":
         name, fn = "gemini-2.5-flash", engine_gemini
@@ -169,7 +174,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("build"); b.add_argument("--ids", required=True); b.add_argument("--api", default="http://127.0.0.1:8000"); b.add_argument("--variety")
-    r = sub.add_parser("run"); r.add_argument("engine"); r.add_argument("space", nargs="?"); r.add_argument("api_name", nargs="?"); r.add_argument("--arg", action="append")
+    r = sub.add_parser("run"); r.add_argument("engine"); r.add_argument("space", nargs="?"); r.add_argument("api_name", nargs="?"); r.add_argument("--arg", action="append"); r.add_argument("--ids", help="only these drill ids"); r.add_argument("--limit", type=int)
     sub.add_parser("report")
     args = ap.parse_args()
     {"build": cmd_build, "run": cmd_run, "report": cmd_report}[args.cmd](args)
