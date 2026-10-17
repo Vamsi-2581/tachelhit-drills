@@ -23,7 +23,7 @@ already run on web and Android; nothing here changes them.
 
 ## Needs a Mac (or a signed CI lane)
 ### 0. Prerequisites
-macOS with Xcode 16+, CocoaPods (`brew install cocoapods`), Node 20+, an Apple Developer team (TestFlight is paid).
+macOS with Xcode 16+, CocoaPods (`brew install cocoapods`), Node 22+, an Apple Developer team (TestFlight is paid).
 
 ### 1. First run
 ```sh
