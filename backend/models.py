@@ -44,6 +44,9 @@ class Drill(Base):
     # --- Contribution review (auditor Phase 3): NULL/False = unreviewed ---
     verified = Column(Boolean, nullable=True)
     verified_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    # Delta sync (P4.3): naive UTC like date_created; NULL on legacy rows that
+    # pre-date the column (the startup column-sync adds it without a default).
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=True, index=True)
 
 class Test(Base):
     __tablename__ = "tests"
@@ -64,6 +67,7 @@ class Test(Base):
     # Selected drills (stored as comma-separated IDs)
     drill_ids = Column(Text, nullable=False)
     video_url = Column(String, nullable=True) # New field for demo video URL
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=True, index=True)
 
     # Relationships
     attempts = relationship("TestAttempt", back_populates="test")
@@ -75,8 +79,10 @@ class TestAttempt(Base):
     test_id = Column(Integer, ForeignKey("tests.id"), nullable=False)
     date_taken = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    # User info (optional, can add authentication later)
+    # User info: user_name is the free-text display label (kept); user_id is
+    # the real identity when the attempt was taken with an X-User-Token (P4.8).
     user_name = Column(String, nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
     # Results
     score = Column(Float, nullable=False)  # percentage score
@@ -113,6 +119,12 @@ class VideoProcessingJob(Base):
     status = Column(String, default="PENDING", nullable=False) # PENDING, IN_PROGRESS, COMPLETED, FAILED
     error_message = Column(Text, nullable=True)
     processing_log = Column(Text, nullable=True) # Store detailed log if needed
+    # P4.6: what the job renders ("asr" = transcription, "auto" = full capture
+    # pipeline, "short" = vertical reel, "demo" = test demo video); NULL = legacy.
+    kind = Column(String, nullable=True)
+    # bumped on every status change so the startup reaper can tell a job that
+    # died with the process from one that is still legitimately running
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=True)
 
     # One-to-many relationship with VideoSegment
     segments = relationship("VideoSegment", back_populates="job")
@@ -146,7 +158,7 @@ class DrillReview(Base):
     __tablename__ = "drill_reviews"
 
     id = Column(Integer, primary_key=True, index=True)
-    drill_id = Column(Integer, ForeignKey("drills.id"), nullable=False, index=True)
+    drill_id = Column(Integer, ForeignKey("drills.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # NULL = anonymous/legacy
     ease = Column(Float, default=2.5, nullable=False)
     interval_days = Column(Float, default=0.0, nullable=False)
@@ -156,6 +168,7 @@ class DrillReview(Base):
     last_reviewed = Column(DateTime, nullable=True)
     total_reviews = Column(Integer, default=0, nullable=False)
     lapses = Column(Integer, default=0, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=True)
 
 class User(Base):
     """Contributor/learner identity (auditor Phase 1: multi-tenancy)."""
@@ -170,6 +183,8 @@ class User(Base):
     # instead of being defaulted to a standard. e.g. "rif" / "diaspora-BCN".
     variety = Column(String, nullable=True)
     region = Column(String, nullable=True)
+    # IANA zone used to compute "today" for streaks (P4.10). NULL = Europe/Madrid.
+    tz = Column(String, nullable=True, default="Europe/Madrid")
     date_created = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 class CaptureRequest(Base):
@@ -202,7 +217,7 @@ class Recording(Base):
     __tablename__ = "recordings"
 
     id = Column(Integer, primary_key=True, index=True)
-    drill_id = Column(Integer, ForeignKey("drills.id"), nullable=False, index=True)
+    drill_id = Column(Integer, ForeignKey("drills.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     audio_url = Column(String, nullable=False)
     variety = Column(String, nullable=True)
@@ -216,7 +231,17 @@ class ReviewLog(Base):
     __tablename__ = "review_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    drill_id = Column(Integer, ForeignKey("drills.id"), nullable=False, index=True)
+    drill_id = Column(Integer, ForeignKey("drills.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     grade = Column(Integer, nullable=False)
     reviewed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class DrillTombstone(Base):
+    """A deleted drill's id + when it went, so an offline client syncing with
+    ?since= learns about deletions as well as changes (P4.3)."""
+    __tablename__ = "drill_tombstones"
+
+    id = Column(Integer, primary_key=True, index=True)
+    drill_id = Column(Integer, nullable=False, index=True)
+    deleted_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)

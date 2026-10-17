@@ -1,6 +1,17 @@
-from pydantic import BaseModel, field_validator
-from datetime import datetime
+from pydantic import BaseModel, field_validator, field_serializer
+from datetime import datetime, timezone
 from typing import Optional, List
+
+
+def iso_z(dt: Optional[datetime]) -> Optional[str]:
+    """Render a datetime as ISO-8601 UTC with a trailing Z (P4.10). The DB
+    stores naive UTC (datetime.utcnow), which would otherwise serialize with no
+    offset and be read as local time by Swift/JS Date parsers."""
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt.isoformat(timespec="milliseconds") + "Z"
 
 def normalize_media_url(url: str) -> str:
     """
@@ -89,6 +100,11 @@ class DrillUpdate(DrillBase):
 class Drill(DrillBase):
     id: int
     date_created: datetime
+    updated_at: Optional[datetime] = None
+
+    @field_serializer('date_created', 'updated_at', when_used='json')
+    def _ser_dt(self, v: Optional[datetime]) -> Optional[str]:
+        return iso_z(v)
 
     class Config:
         from_attributes = True
@@ -122,6 +138,11 @@ class TestUpdate(TestBase):
 class Test(TestBase):
     id: int
     date_created: datetime
+    updated_at: Optional[datetime] = None
+
+    @field_serializer('date_created', 'updated_at', when_used='json')
+    def _ser_dt(self, v: Optional[datetime]) -> Optional[str]:
+        return iso_z(v)
 
     class Config:
         from_attributes = True
@@ -142,6 +163,11 @@ class TestAttemptCreate(TestAttemptBase):
 class TestAttempt(TestAttemptBase):
     id: int
     date_taken: datetime
+    user_id: Optional[int] = None  # set server-side from X-User-Token (P4.8)
+
+    @field_serializer('date_taken', when_used='json')
+    def _ser_dt(self, v: Optional[datetime]) -> Optional[str]:
+        return iso_z(v)
 
     class Config:
         from_attributes = True
@@ -168,6 +194,10 @@ class YouTubeShort(YouTubeShortBase):
     id: int
     date_created: datetime
 
+    @field_serializer('date_created', when_used='json')
+    def _ser_dt(self, v: Optional[datetime]) -> Optional[str]:
+        return iso_z(v)
+
     class Config:
         from_attributes = True
 
@@ -185,6 +215,10 @@ class VideoProcessingJobCreate(VideoProcessingJobBase):
 class VideoProcessingJob(VideoProcessingJobBase):
     id: int
     date_submitted: datetime
+
+    @field_serializer('date_submitted', when_used='json')
+    def _ser_dt(self, v: Optional[datetime]) -> Optional[str]:
+        return iso_z(v)
 
     class Config:
         from_attributes = True
@@ -245,6 +279,10 @@ class GlossaryItemCreate(GlossaryItemBase):
 class GlossaryItem(GlossaryItemBase):
     id: int
     date_created: datetime
+
+    @field_serializer('date_created', when_used='json')
+    def _ser_dt(self, v: Optional[datetime]) -> Optional[str]:
+        return iso_z(v)
 
     class Config:
         from_attributes = True

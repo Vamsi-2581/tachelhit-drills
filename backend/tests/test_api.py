@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if os.path.exists(TEST_DB):
     os.remove(TEST_DB)
 
+from datetime import datetime, timezone  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 import main  # noqa: E402
 
@@ -313,3 +314,214 @@ def test_corpus_gaps():
     assert "_sa_instance_state" not in r["drills"][0]
     # bad kind rejected
     assert client.get("/corpus/gaps", params={"kind": "nonsense"}).status_code == 400
+
+
+# ---------- P4: backend basics a native client needs ----------
+
+def test_get_drill_by_id_404_and_ids_param():
+    a = client.post("/drills/", json={"text_catalan": "p4 a"}).json()
+    b = client.post("/drills/", json={"text_catalan": "p4 b"}).json()
+    c = client.post("/drills/", json={"text_catalan": "p4 c"}).json()
+    # single
+    r = client.get(f"/drills/{a['id']}")
+    assert r.status_code == 200 and r.json()["id"] == a["id"]
+    # missing -> 404 with the envelope code
+    r = client.get("/drills/99999999")
+    assert r.status_code == 404 and r.json()["code"] == "not_found"
+    # ids= returns only those, in the GIVEN order, ignoring unknown ids
+    r = client.get("/drills/", params={"ids": f"{c['id']},{a['id']},99999999,{b['id']}"})
+    assert r.status_code == 200
+    assert [d["id"] for d in r.json()] == [c["id"], a["id"], b["id"]]
+    assert r.headers["X-Total-Count"] == "3"
+    # garbage ids -> 400
+    assert client.get("/drills/", params={"ids": "1,x"}).status_code == 400
+
+
+def test_pagination_and_total_count():
+    for i in range(3):
+        client.post("/drills/", json={"text_catalan": f"page {i}"})
+    everything = client.get("/drills/")
+    total = len(everything.json())
+    # no limit/offset -> all rows (current frontend contract) + the header
+    assert everything.headers["X-Total-Count"] == str(total)
+    assert total > 2
+    # limit paginates, header still carries the unpaginated count
+    r = client.get("/drills/", params={"limit": 2})
+    assert len(r.json()) == 2 and r.headers["X-Total-Count"] == str(total)
+    # offset alone -> default limit (100) from that offset
+    r = client.get("/drills/", params={"offset": total - 1})
+    assert len(r.json()) == 1
+    # limit capped at 500
+    r = client.get("/drills/", params={"limit": 10000})
+    assert len(r.json()) == min(total, 500)
+    # same contract on the other list routes
+    for path in ("/tests/", "/test-attempts/", "/shorts/"):
+        r = client.get(path, params={"limit": 1})
+        assert r.status_code == 200, (path, r.text)
+        assert "X-Total-Count" in r.headers, path
+        assert len(r.json()) <= 1
+
+
+def test_stale_token_401_and_no_header_anonymous():
+    # no header -> anonymous works on an optional-identity route
+    assert client.get("/reviews/stats").status_code == 200
+    # present-but-unknown token -> 401 everywhere identity is resolved
+    r = client.get("/reviews/stats", headers={"X-User-Token": "stale-token"})
+    assert r.status_code == 401
+    assert r.json()["detail"] == "invalid token" and r.json()["code"] == "unauthorized"
+    assert client.get("/drills/", headers={"X-User-Token": "stale-token"}).status_code == 200  # no identity needed
+    assert client.post("/drills/", json={"text_catalan": "x"},
+                       headers={"X-User-Token": "stale-token"}).status_code == 401
+
+
+def test_delete_drill_with_review_writes_tombstone_and_since_sync():
+    token = register("deleter")
+    hdr = {"X-User-Token": token}
+    marker = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    d = client.post("/drills/", json={"text_catalan": "to delete"}, headers=hdr).json()
+    # review state + log rows on the drill
+    assert client.post(f"/reviews/{d['id']}/grade", json={"grade": 2}, headers=hdr).status_code == 200
+    # updated_at is set and serialized with Z; since= sees the new drill
+    got = client.get(f"/drills/{d['id']}").json()
+    assert got["updated_at"] and got["updated_at"].endswith("Z")
+    changed = client.get("/drills/", params={"since": marker}).json()
+    assert any(x["id"] == d["id"] for x in changed)
+    # delete succeeds despite the dependent rows
+    r = client.delete(f"/drills/{d['id']}")
+    assert r.status_code == 200, r.text
+    assert client.get(f"/drills/{d['id']}").status_code == 404
+    db = main.SessionLocal()
+    try:
+        assert db.query(main.DrillReviewModel).filter_by(drill_id=d["id"]).count() == 0
+        assert db.query(main.ReviewLogModel).filter_by(drill_id=d["id"]).count() == 0
+    finally:
+        db.close()
+    stones = client.get("/drills/tombstones", params={"since": marker}).json()
+    assert any(t["drill_id"] == d["id"] and t["deleted_at"].endswith("Z") for t in stones)
+    assert client.get("/drills/tombstones", params={"since": "not-a-date"}).status_code == 400
+
+
+def test_grade_batch_applies_once_and_resend_is_skipped():
+    token = register("offline.grader")
+    hdr = {"X-User-Token": token}
+    d1 = client.post("/drills/", json={"text_tachelhit": "ⴱ1"}).json()
+    d2 = client.post("/drills/", json={"text_tachelhit": "ⴱ2"}).json()
+    batch = [
+        {"drill_id": d1["id"], "grade": 2, "graded_at": "2026-10-16T08:00:00Z"},
+        {"drill_id": d1["id"], "grade": 3, "graded_at": "2026-10-16T09:30:00Z"},
+        {"drill_id": d2["id"], "grade": 0, "graded_at": "2026-10-16T09:31:00+02:00"},
+        {"drill_id": 99999999, "grade": 1, "graded_at": "2026-10-16T09:32:00Z"},  # unknown drill
+    ]
+    r = client.post("/reviews/grade-batch", json=batch, headers=hdr)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"applied": 3, "skipped": 1}
+    # the SM-2 state matches grading good then easy on d1 (rep 2, 8-day interval)
+    db = main.SessionLocal()
+    try:
+        me = db.query(main.UserModel).filter_by(username="offline.grader").first()
+        rv = db.query(main.DrillReviewModel).filter_by(drill_id=d1["id"], user_id=me.id).first()
+        assert rv.repetitions == 2 and rv.interval_days == 8.0
+        logs = db.query(main.ReviewLogModel).filter_by(user_id=me.id).count()
+        assert logs == 3
+    finally:
+        db.close()
+    # re-sending the whole queue changes nothing
+    r = client.post("/reviews/grade-batch", json=batch, headers=hdr)
+    assert r.json() == {"applied": 0, "skipped": 4}
+    # validation: grade out of range -> 422 envelope
+    r = client.post("/reviews/grade-batch", json=[{"drill_id": d1["id"], "grade": 7, "graded_at": "2026-10-16T10:00:00Z"}],
+                    headers=hdr)
+    assert r.status_code == 422 and r.json()["code"] == "validation_error"
+
+
+def test_error_envelope_and_z_datetimes():
+    # 422: detail is a string, code is set, field errors kept under "errors"
+    r = client.post("/tests/", json={"title": "no type"})
+    assert r.status_code == 422
+    body = r.json()
+    assert body["code"] == "validation_error"
+    assert isinstance(body["detail"], str) and "question_type" in body["detail"]
+    assert isinstance(body["errors"], list)
+    # datetimes render as UTC with a trailing Z on list + detail responses
+    d = client.get("/drills/").json()[0]
+    assert d["date_created"].endswith("Z")
+    t = client.post("/tests/", json={"title": "z", "question_type": "text_input", "hint_level": "none",
+                                     "drill_ids": str(d["id"])}).json()
+    assert t["date_created"].endswith("Z") and t["updated_at"].endswith("Z")
+    # HTTPException keeps its shape and gains a code
+    r = client.get("/tests/99999999")
+    assert r.json() == {"detail": "Test not found", "code": "not_found"}
+
+
+def test_test_attempts_keyed_by_user_and_mine_filter():
+    token = register("attempter")
+    hdr = {"X-User-Token": token}
+    d = client.get("/drills/").json()[0]
+    t = client.post("/tests/", json={"title": "mine", "question_type": "text_input", "hint_level": "none",
+                                     "drill_ids": str(d["id"])}).json()
+    payload = {"test_id": t["id"], "user_name": None, "score": 100.0, "time_taken_seconds": 5,
+               "total_questions": 1, "correct_answers": 1}
+    anon = client.post("/test-attempts/", json=payload).json()
+    mine = client.post("/test-attempts/", json=payload, headers=hdr).json()
+    assert anon["user_id"] is None and mine["user_id"] is not None
+    assert mine["date_taken"].endswith("Z")
+    r = client.get("/test-attempts/", params={"mine": 1}, headers=hdr)
+    assert [a["id"] for a in r.json()] == [mine["id"]]
+    assert client.get("/test-attempts/", params={"mine": 1}).status_code == 401
+
+
+def test_streak_today_follows_user_tz():
+    token = register("tz.user")
+    hdr = {"X-User-Token": token}
+    me = client.get("/users/me", headers=hdr).json()
+    assert me["tz"] == "Europe/Madrid"
+    assert client.put("/users/me", json={"tz": "Mars/Olympus"}, headers=hdr).status_code == 400
+    assert client.put("/users/me", json={"tz": "Pacific/Kiritimati"}, headers=hdr).json()["tz"] == "Pacific/Kiritimati"
+    d = client.get("/drills/").json()[0]
+    client.post(f"/reviews/{d['id']}/grade", json={"grade": 2}, headers=hdr)
+    s = client.get("/reviews/streak", headers=hdr).json()
+    from zoneinfo import ZoneInfo as _Z
+    expected_today = datetime.now(timezone.utc).astimezone(_Z("Pacific/Kiritimati")).date().isoformat()
+    assert s["tz"] == "Pacific/Kiritimati" and s["today"] == expected_today
+    assert s["streak_days"] == 1 and s["reviews_today"] == 1
+    st = client.get("/reviews/stats", headers=hdr).json()
+    assert st["reviewed_today"] == 1 and st["today"] == expected_today
+
+
+def test_generate_short_returns_pollable_job_id(monkeypatch):
+    # The render Space is stubbed to fail — the point is that the job row
+    # exists, its id is returned, and the worker records the outcome on it.
+    def _space_offline(payload):
+        raise RuntimeError("space offline (test stub)")
+    monkeypatch.setattr(main, "call_huggingface_space", _space_offline)
+    d = client.get("/drills/").json()[0]
+    r = client.post(f"/generate-short/{d['id']}")
+    assert r.status_code == 200, r.text
+    job_id = r.json()["job_id"]
+    j = client.get(f"/video-analysis/job/{job_id}").json()
+    assert j["kind"] == "short"
+    assert j["status"] in ("FAILED", "COMPLETED", "IN_PROGRESS", "PENDING")
+    assert j["status"] == "FAILED" and "space offline" in (j["error_message"] or "")
+
+
+# ---- P1.9: a drill needs content ------------------------------------------
+def test_create_drill_requires_text_or_media():
+    r = client.post("/drills/", json={})
+    assert r.status_code == 422, r.text
+    r = client.post("/drills/", json={"text_catalan": "   ", "tag": "x"})
+    assert r.status_code == 422, r.text
+    r = client.post("/drills/", json={"text_tachelhit": "azul"})
+    assert r.status_code == 200, r.text
+    assert r.json()["text_tachelhit"] == "azul"
+
+
+# ---- P5.2: junk ASR guard ---------------------------------------------------
+def test_looks_like_junk_asr():
+    assert main.looks_like_junk_asr("Is ghorsh lan ait mash? Is ghorom lan aitmam") is None
+    assert main.looks_like_junk_asr("ⴰⵣⵓⵍ ⴼⵍⵍⴰⵡⵏ") is None
+    assert main.looks_like_junk_asr("L.A.R.R.R.R.R.R.R.R.R.R.R.R.R.R.R.R") == "repeated-run"
+    assert main.looks_like_junk_asr("I'm going to get a little bit of a little bit of a little bit") in ("repeated-tokens", "looks-english")
+    assert main.looks_like_junk_asr("I actually grab a bus to the station with them and they tell me") == "looks-english"
+    # foreign-source draft mode: English is expected, only repeats are junk
+    assert main.looks_like_junk_asr("I actually grab a bus to the station with them and they tell me", attested=False) is None
+    assert main.looks_like_junk_asr("", attested=True) is None

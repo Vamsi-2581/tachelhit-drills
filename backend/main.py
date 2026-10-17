@@ -6,10 +6,14 @@ import traceback
 import tempfile
 import shutil
 import yt_dlp
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from urllib.parse import quote
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Body, Form, BackgroundTasks, Request
-from pydantic import BaseModel
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Body, Form, BackgroundTasks, Request, Response
+from fastapi.encoders import jsonable_encoder
+from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
 import hashlib
 import re
@@ -17,7 +21,7 @@ import secrets
 from gemini_client import gemini_generate, gemini_available, gemini_agent
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func as sa_func
 from sqlalchemy.orm import sessionmaker, Session
 import requests
 from dotenv import load_dotenv
@@ -37,8 +41,8 @@ cloudinary.config(
     api_secret=os.getenv("CLOUDINARY_API_SECRET")
 )
 
-from models import Base, Drill as DrillModel, Test as TestModel, TestAttempt as TestAttemptModel, YouTubeShort as YouTubeShortModel, VideoProcessingJob as VideoProcessingJobModel, VideoSegment as VideoSegmentModel, GlossaryItem as GlossaryItemModel, DrillReview as DrillReviewModel, User as UserModel, ReviewLog as ReviewLogModel, Recording as RecordingModel, CaptureRequest as CaptureRequestModel  # ← Alias for ORM models
-from schemas import DrillCreate, DrillUpdate, Drill, TestCreate, TestUpdate, Test, TestAttemptCreate, TestAttempt, YouTubeShortCreate, YouTubeShort, VideoProcessingJobCreate, VideoProcessingJob, VideoSegmentCreate, VideoSegment, TranscribeRequest, TranscribeResponse, TranslateRequest, TranslateResponse, DrillPairInfo, GlossaryItem, GlossaryItemCreate, SrtImportRequest, SrtImportResponse, SrtSegment, BulkVideoUrlUpdateRequest, BulkVideoUrlUpdateResponse  # ← Pydantic schemas
+from models import Base, Drill as DrillModel, Test as TestModel, TestAttempt as TestAttemptModel, YouTubeShort as YouTubeShortModel, VideoProcessingJob as VideoProcessingJobModel, VideoSegment as VideoSegmentModel, GlossaryItem as GlossaryItemModel, DrillReview as DrillReviewModel, User as UserModel, ReviewLog as ReviewLogModel, Recording as RecordingModel, CaptureRequest as CaptureRequestModel, DrillTombstone as DrillTombstoneModel  # ← Alias for ORM models
+from schemas import DrillCreate, DrillUpdate, Drill, TestCreate, TestUpdate, Test, TestAttemptCreate, TestAttempt, YouTubeShortCreate, YouTubeShort, VideoProcessingJobCreate, VideoProcessingJob, VideoSegmentCreate, VideoSegment, TranscribeRequest, TranscribeResponse, TranslateRequest, TranslateResponse, DrillPairInfo, GlossaryItem, GlossaryItemCreate, SrtImportRequest, SrtImportResponse, SrtSegment, BulkVideoUrlUpdateRequest, BulkVideoUrlUpdateResponse, iso_z  # ← Pydantic schemas
 from correction_service import get_correction_service
 from srt_parser import parse_srt_content, create_youtube_url_with_timestamp
 
@@ -357,6 +361,34 @@ else:
 
 SessionLocal = sessionmaker(bind=engine)
 
+# ---------------------------------------------------------------------------
+# Auto-capture guard (P5.2): ASR on English or music sometimes yields English
+# sentences or hallucinated repeats ("R.R.R.R.R…"). Such segments must never
+# be saved as attested Tachelhit. Mirrors backend/tools/find_junk_drills.py.
+_JUNK_REPEAT_RUN = re.compile(r"(?:\b(\w{1,3})\b[\s.,]*)(?:\1[\s.,]*){5,}", re.I)
+_JUNK_ENGLISH = re.compile(
+    r"\b(the|and|you|that|this|with|have|from|they|what|about|going|actually|"
+    r"little|bit|bus|grab|called|can't|tell|i'm|i am|we are|it's)\b", re.I)
+_TIFINAGH_RE = re.compile(r"[\u2D30-\u2D7F]")
+
+
+def looks_like_junk_asr(text: Optional[str], attested: bool = True) -> Optional[str]:
+    """Return a reason string if `text` should not be stored, else None.
+    `attested=False` (foreign-source draft mode) skips the English check."""
+    t = (text or "").strip()
+    if not t:
+        return None
+    if _JUNK_REPEAT_RUN.search(t):
+        return "repeated-run"
+    toks = re.findall(r"[^\W\d_]+", t.lower())
+    if len(toks) >= 6:
+        from collections import Counter
+        if Counter(toks).most_common(1)[0][1] / len(toks) >= 0.4:
+            return "repeated-tokens"
+    if attested and not _TIFINAGH_RE.search(t) and len(_JUNK_ENGLISH.findall(t)) >= 3:
+        return "looks-english"
+    return None
+
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
@@ -400,6 +432,26 @@ async def lifespan(app: FastAPI):
                     print(f"[SCHEMA] Added missing column {table.name}.{col.name} ({coltype})")
     except Exception as e:
         print(f"[SCHEMA] Column sync skipped: {e}")
+
+    # Stale-job reaper (P4.6): background jobs live in this process, so a
+    # redeploy / spin-down kills them mid-flight and leaves the row forever in
+    # TRANSCRIBING. Anything non-terminal and untouched for 2 h is dead.
+    try:
+        with SessionLocal() as db:
+            cutoff = datetime.utcnow() - timedelta(hours=2)
+            stale = db.query(VideoProcessingJobModel).filter(
+                ~VideoProcessingJobModel.status.in_(JOB_TERMINAL_STATUSES),
+                sa_func.coalesce(VideoProcessingJobModel.updated_at,
+                                 VideoProcessingJobModel.date_submitted) < cutoff,
+            ).all()
+            for j in stale:
+                j.status = "FAILED"
+                j.error_message = "stale after restart"
+            if stale:
+                db.commit()
+                print(f"[INIT] Reaped {len(stale)} stale video job(s)")
+    except Exception as e:
+        print(f"[INIT] Stale-job reaper skipped: {e}")
 
     # Add sample data if database is empty
     with SessionLocal() as db:
@@ -466,27 +518,68 @@ from fastapi.exceptions import RequestValidationError
 
 app = FastAPI(title="Tachelhit Drills API", lifespan=lifespan)
 
+# ---- Error envelope (P4.10): every error body is {"detail": str, "code": str}.
+# The 500 handler runs OUTSIDE CORSMiddleware (ServerErrorMiddleware is the
+# outermost layer), so it has to add CORS headers itself — echoing the request
+# Origin only when it is an allowed one, never "*".
+_HTTP_CODES = {400: "bad_request", 401: "unauthorized", 403: "forbidden", 404: "not_found",
+               409: "conflict", 413: "payload_too_large", 415: "unsupported_media_type",
+               422: "validation_error", 429: "rate_limited", 500: "internal_error",
+               502: "bad_gateway", 503: "service_unavailable", 504: "gateway_timeout"}
+
+def _cors_headers_for(request) -> dict:
+    """CORS headers for a response built outside CORSMiddleware (see above)."""
+    origin = (request.headers.get("origin") or "").strip()
+    if not origin:
+        return {}
+    ok = origin in allowed_origins
+    rx = cors_kwargs.get("allow_origin_regex")
+    if not ok and rx:
+        ok = re.fullmatch(rx, origin) is not None
+    if not ok:
+        return {}
+    return {"Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin"}
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     print(f"[GLOBAL ERROR] {type(exc).__name__}: {str(exc)}")
     traceback.print_exc()
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Internal Server Error: {str(exc)}", "type": type(exc).__name__},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "*",
-            "Access-Control-Allow-Headers": "*"
-        }
+        content={"detail": f"Internal Server Error: {str(exc)}", "code": "internal_error",
+                 "type": type(exc).__name__},
+        headers=_cors_headers_for(request),
+    )
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request, exc):
+    """Keep FastAPI's {"detail": ...} shape for HTTPException, add "code"."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "code": _HTTP_CODES.get(exc.status_code, "http_error")},
+        headers=exc.headers,
     )
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
     print(f"[VALIDATION ERROR] {exc.errors()}")
+    try:
+        errors = jsonable_encoder(exc.errors())
+    except Exception:
+        errors = [{"loc": list(e.get("loc", ())), "msg": e.get("msg"), "type": e.get("type")}
+                  for e in exc.errors()]
+    parts = []
+    for e in errors:
+        loc = [str(p) for p in (e.get("loc") or ())]
+        field = ".".join(loc[1:] if loc and loc[0] in ("body", "query", "path", "header") else loc) or "body"
+        parts.append(f"{field}: {e.get('msg')}")
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors(), "body": exc.body},
-        headers={"Access-Control-Allow-Origin": "*"}
+        content={"detail": "; ".join(parts) or "validation error", "code": "validation_error",
+                 "errors": errors},
+        headers=_cors_headers_for(request),
     )
 
 # Development mode flag - enable automatically for SQLite (local dev)
@@ -691,11 +784,86 @@ def _hash_token(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> Optional[UserModel]:
-    """Resolve the requesting user from the X-User-Token header (None = anonymous)."""
+    """Resolve the requesting user from the X-User-Token header.
+
+    No header -> None (anonymous, as before). A header that matches no user
+    -> 401 (P4.4): a stale/rotated token must not silently degrade a learner
+    to the shared anonymous schedule. The frontend only sends the header when
+    it holds a token, so anonymous flows are unaffected."""
     token = (request.headers.get("x-user-token") or "").strip()
     if not token:
         return None
-    return db.query(UserModel).filter(UserModel.token == _hash_token(token)).first()
+    user = db.query(UserModel).filter(UserModel.token == _hash_token(token)).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="invalid token")
+    return user
+
+# ---- Pagination + delta-sync helpers (P4.1-4.3)
+DEFAULT_PAGE_LIMIT = 100
+MAX_PAGE_LIMIT = 500
+JOB_TERMINAL_STATUSES = ("COMPLETED", "FAILED")
+DEFAULT_TZ = "Europe/Madrid"
+
+def _page_bounds(limit: Optional[int], offset: Optional[int]):
+    """None = no pagination (legacy "return everything"); else (offset, limit)."""
+    if limit is None and offset is None:
+        return None
+    lim = DEFAULT_PAGE_LIMIT if limit is None else limit
+    return max(0, offset or 0), max(1, min(lim, MAX_PAGE_LIMIT))
+
+def _paginate(query, response: Response, limit: Optional[int], offset: Optional[int]):
+    """Apply limit/offset to a query and set X-Total-Count (count BEFORE paging).
+
+    Backwards compatibility: when neither limit nor offset is given, every row
+    is returned (the current web frontend loads all ~600 drills in one call).
+    When either is given, limit defaults to 100 and is capped at 500."""
+    response.headers["X-Total-Count"] = str(query.order_by(None).count())
+    bounds = _page_bounds(limit, offset)
+    if bounds is None:
+        return query.all()
+    off, lim = bounds
+    return query.offset(off).limit(lim).all()
+
+def _parse_since(since: str) -> datetime:
+    """ISO-8601 -> naive UTC datetime (what the DB stores). 400 on garbage."""
+    try:
+        dt = datetime.fromisoformat(since.strip())
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="since must be an ISO-8601 timestamp")
+    return _to_naive_utc(dt)
+
+def _to_naive_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+def _parse_ids(ids: str) -> list[int]:
+    out: list[int] = []
+    for part in ids.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            n = int(part)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"ids must be comma-separated integers (got {part!r})")
+        if n not in out:
+            out.append(n)
+    return out
+
+def _user_zone(user: Optional[UserModel]):
+    """The learner's IANA zone (P4.10); unknown/missing -> Europe/Madrid, and
+    if even that cannot load (no tz database) -> UTC."""
+    name = (getattr(user, "tz", None) if user else None) or DEFAULT_TZ
+    for candidate in (name, DEFAULT_TZ):
+        try:
+            return ZoneInfo(candidate)
+        except Exception:
+            continue
+    return timezone.utc
+
+def _local_day(naive_utc: datetime, zone):
+    return naive_utc.replace(tzinfo=timezone.utc).astimezone(zone).date()
 
 class TtsRequest(BaseModel):
     text: str
@@ -741,8 +909,31 @@ async def import_link_endpoint(request: ImportLinkRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ===================== CRUD =====================
+@app.get("/drills/tombstones")
+def get_drill_tombstones(since: Optional[str] = None, db: Session = Depends(get_db)):
+    """Ids of deleted drills (P4.3), newest first; `since` (ISO-8601) narrows to
+    deletions at/after that instant so a client can finish a delta sync."""
+    q = db.query(DrillTombstoneModel)
+    if since:
+        q = q.filter(DrillTombstoneModel.deleted_at >= _parse_since(since))
+    rows = q.order_by(DrillTombstoneModel.deleted_at.desc()).limit(MAX_PAGE_LIMIT * 4).all()
+    return [{"drill_id": t.drill_id, "deleted_at": iso_z(t.deleted_at)} for t in rows]
+
 @app.get("/drills/", response_model=list[Drill])
-def get_drills(tag: Optional[str] = None, author: Optional[str] = None, db: Session = Depends(get_db)):
+def get_drills(response: Response, tag: Optional[str] = None, author: Optional[str] = None,
+               ids: Optional[str] = None, since: Optional[str] = None,
+               limit: Optional[int] = None, offset: Optional[int] = None,
+               db: Session = Depends(get_db)):
+    """List drills, newest first.
+
+    - `ids=1,2,3` returns only those drills, in the given order (P4.1).
+    - `since=<ISO-8601>` returns drills changed (or created) at/after that
+      instant; pair with GET /drills/tombstones?since= for deletions (P4.3).
+    - `limit`/`offset` paginate (P4.2): limit defaults to 100 and is capped at
+      500 **only when at least one of them is sent**. With neither, ALL rows
+      are returned, as the current frontend expects. `X-Total-Count` always
+      carries the unpaginated count.
+    """
     try:
         query = db.query(DrillModel)
 
@@ -753,8 +944,25 @@ def get_drills(tag: Optional[str] = None, author: Optional[str] = None, db: Sess
         if author:
             query = query.filter(DrillModel.author.ilike(f"%{author}%"))
 
-        drills = query.order_by(DrillModel.date_created.desc()).all()
-        print(f"[API] GET /drills/ (tag={tag}, author={author}) returning {len(drills)} drills")
+        if since:
+            query = query.filter(
+                sa_func.coalesce(DrillModel.updated_at, DrillModel.date_created) >= _parse_since(since)
+            )
+
+        if ids is not None:
+            wanted = _parse_ids(ids)
+            rows = query.filter(DrillModel.id.in_(wanted)).all() if wanted else []
+            by_id = {d.id: d for d in rows}
+            drills = [by_id[i] for i in wanted if i in by_id]
+            response.headers["X-Total-Count"] = str(len(drills))
+            bounds = _page_bounds(limit, offset)
+            if bounds is not None:
+                off, lim = bounds
+                drills = drills[off:off + lim]
+        else:
+            drills = _paginate(query.order_by(DrillModel.date_created.desc()), response, limit, offset)
+        print(f"[API] GET /drills/ (tag={tag}, author={author}, ids={ids}, since={since}, "
+              f"limit={limit}, offset={offset}) returning {len(drills)} drills")
         # Intentar serializar cada drill para detectar errores de validación Pydantic
         serialized_drills = []
         for drill in drills:
@@ -782,11 +990,21 @@ def get_drills(tag: Optional[str] = None, author: Optional[str] = None, db: Sess
                 drill_schema = Drill(**drill_dict)
                 serialized_drills.append(drill_schema)
         return serialized_drills
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[API] ERROR in GET /drills/: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@app.get("/drills/{drill_id}", response_model=Drill)
+def get_drill(drill_id: int, db: Session = Depends(get_db)):
+    """One drill by id (P4.1); 404 when it does not exist."""
+    drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
+    if not drill:
+        raise HTTPException(status_code=404, detail="Drill not found")
+    return drill
 
 def _set_drill_key(db_drill) -> None:
     """Recompute the script-independent phonemic key from the Latin (preferred)
@@ -800,14 +1018,16 @@ def _set_drill_key(db_drill) -> None:
 @app.post("/drills/", response_model=Drill)
 def create_drill(drill: DrillCreate = None, db: Session = Depends(get_db),
                  user: Optional[UserModel] = Depends(get_current_user)):
+    # A drill needs at least one text or one media URL; a fully empty body
+    # used to create blank rows (P1.9). Checked before the try/except below,
+    # which turns any exception into a 500.
+    drill_data = drill.model_dump(exclude_unset=True) if drill is not None else {}
+    _content_keys = ("text_catalan", "text_tachelhit", "text_arabic", "text_tachelhit_latin",
+                     "audio_url", "video_url", "image_url")
+    if not any(str(drill_data.get(k) or "").strip() for k in _content_keys):
+        raise HTTPException(status_code=422, detail="Cal almenys un text (català, tachelhit o àrab) o un fitxer.")
     try:
-        # If no data is provided, create an empty drill
-        if drill is None:
-            db_drill = DrillModel()
-        else:
-            # Create drill with provided data
-            drill_data = drill.model_dump(exclude_unset=True)
-            db_drill = DrillModel(**drill_data)
+        db_drill = DrillModel(**drill_data)
 
         # Contributor attribution + variety provenance
         if user:
@@ -920,15 +1140,23 @@ def update_drill(drill_id: int, update_data: DrillUpdate, db: Session = Depends(
             # Don't raise exception to avoid breaking the update
 
     _set_drill_key(drill)
+    drill.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(drill)
     return drill
 
 @app.delete("/drills/{drill_id}")
 def delete_drill(drill_id: int, db: Session = Depends(get_db)):
+    """Delete a drill and everything keyed on it (P4.7): review state, review
+    log and extra recordings go first (explicitly — SQLite ignores FK cascades
+    unless PRAGMA foreign_keys is on, and the Postgres FKs were created before
+    ondelete=CASCADE existed), then a tombstone is written for delta sync."""
     drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
     if not drill:
         raise HTTPException(status_code=404, detail="Drill not found")
+    for model in (DrillReviewModel, ReviewLogModel, RecordingModel):
+        db.query(model).filter(model.drill_id == drill_id).delete(synchronize_session=False)
+    db.add(DrillTombstoneModel(drill_id=drill_id, deleted_at=datetime.utcnow()))
     db.delete(drill)
     db.commit()
     return {"detail": "Deleted"}
@@ -1410,8 +1638,9 @@ async def upload_media(drill_id: int, media_type: str, file: UploadFile = File(.
             if media_type == "audio":
                 resource_type = "video"
 
-            # Upload to Cloudinary
-            result = cloudinary.uploader.upload(
+            # Upload to Cloudinary — blocking HTTP, so off the event loop (P4.5)
+            result = await run_in_threadpool(
+                cloudinary.uploader.upload,
                 content,
                 folder=f"tachelhit/{media_type}",
                 public_id=f"{media_type}_{drill_id}_{int(datetime.utcnow().timestamp())}",
@@ -1456,8 +1685,17 @@ async def upload_media(drill_id: int, media_type: str, file: UploadFile = File(.
 
 # ===================== TEST CRUD =====================
 @app.get("/tests/", response_model=list[Test])
-def get_tests(db: Session = Depends(get_db)):
-    return db.query(TestModel).order_by(TestModel.date_created.desc()).all()
+def get_tests(response: Response, since: Optional[str] = None,
+              limit: Optional[int] = None, offset: Optional[int] = None,
+              db: Session = Depends(get_db)):
+    """List tests, newest first. Same `since`/`limit`/`offset`/X-Total-Count
+    contract as GET /drills/ (no pagination unless limit or offset is sent)."""
+    query = db.query(TestModel)
+    if since:
+        query = query.filter(
+            sa_func.coalesce(TestModel.updated_at, TestModel.date_created) >= _parse_since(since)
+        )
+    return _paginate(query.order_by(TestModel.date_created.desc()), response, limit, offset)
 
 @app.get("/tests/{test_id}", response_model=Test)
 def get_test(test_id: int, db: Session = Depends(get_db)):
@@ -1484,6 +1722,7 @@ def update_test(test_id: int, update_data: TestUpdate, db: Session = Depends(get
     for key, value in update_dict.items():
         setattr(test, key, value)
 
+    test.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(test)
     return test
@@ -1499,15 +1738,25 @@ def delete_test(test_id: int, db: Session = Depends(get_db)):
 
 # ===================== TEST ATTEMPT CRUD =====================
 @app.get("/test-attempts/", response_model=list[TestAttempt])
-def get_test_attempts(test_id: int = None, db: Session = Depends(get_db)):
+def get_test_attempts(response: Response, test_id: Optional[int] = None, mine: bool = False,
+                      limit: Optional[int] = None, offset: Optional[int] = None,
+                      db: Session = Depends(get_db),
+                      user: Optional[UserModel] = Depends(get_current_user)):
+    """List attempts, newest first. `mine=1` keeps only the requesting user's
+    (needs X-User-Token, P4.8). Pagination as GET /drills/."""
     query = db.query(TestAttemptModel)
     if test_id:
         query = query.filter(TestAttemptModel.test_id == test_id)
-    return query.order_by(TestAttemptModel.date_taken.desc()).all()
+    if mine:
+        if not user:
+            raise HTTPException(status_code=401, detail="mine=1 requires X-User-Token")
+        query = query.filter(TestAttemptModel.user_id == user.id)
+    return _paginate(query.order_by(TestAttemptModel.date_taken.desc()), response, limit, offset)
 
 @app.post("/test-attempts/", response_model=TestAttempt)
-def create_test_attempt(attempt: TestAttemptCreate, db: Session = Depends(get_db)):
-    db_attempt = TestAttemptModel(**attempt.model_dump())
+def create_test_attempt(attempt: TestAttemptCreate, db: Session = Depends(get_db),
+                        user: Optional[UserModel] = Depends(get_current_user)):
+    db_attempt = TestAttemptModel(**attempt.model_dump(), user_id=user.id if user else None)
     db.add(db_attempt)
     db.commit()
     db.refresh(db_attempt)
@@ -1587,12 +1836,35 @@ def call_huggingface_space(payload_data: list):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Video Generation failed: {str(e)}")
 
-def background_video_vault(job_type: str, item_id: int, payload_data: list):
+def _set_job_status(db, job, status: str, **fields) -> None:
+    """Best-effort status write for a tracked VideoProcessingJob (P4.6)."""
+    if job is None:
+        return
+    try:
+        job.status = status
+        for k, v in fields.items():
+            setattr(job, k, v)
+        job.updated_at = datetime.utcnow()
+        db.commit()
+    except Exception as e:
+        print(f"[WORKER] Could not update job {getattr(job, 'id', '?')}: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+def background_video_vault(job_type: str, item_id: int, payload_data: list, job_id: Optional[int] = None):
     """
     Background worker. Now uploads the LOCALLY downloaded file from Gradio Client.
+    When `job_id` is given, the VideoProcessingJob row tracks progress so
+    GET /video-analysis/job/{id} can be polled (P4.6).
     """
     db = SessionLocal()
+    job = None
     try:
+        if job_id:
+            job = db.query(VideoProcessingJobModel).filter(VideoProcessingJobModel.id == job_id).first()
+            _set_job_status(db, job, "IN_PROGRESS")
         # Step A: Call Hugging Face (Blocking call via Client)
         # This now returns a local file path like '/tmp/gradio/...'
         local_video_path = call_huggingface_space(payload_data)
@@ -1629,6 +1901,8 @@ def background_video_vault(job_type: str, item_id: int, payload_data: list):
 
         db.commit()
         print(f"[WORKER] ✅ Successfully vaulted {job_type} for ID {item_id}")
+        _set_job_status(db, job, "COMPLETED",
+                        processing_log=json.dumps({"video_url": cloudinary_url, "item_id": item_id}))
 
         # Cleanup the local temp file from Gradio Client
         if os.path.exists(local_video_path):
@@ -1638,8 +1912,22 @@ def background_video_vault(job_type: str, item_id: int, payload_data: list):
         print(f"[WORKER] ❌ Task Failed: {str(e)}")
         # Print full traceback to logs for debugging
         traceback.print_exc()
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        _set_job_status(db, job, "FAILED", error_message=str(e)[:2000])
     finally:
         db.close()
+
+def _new_render_job(db, kind: str, item_id: int) -> VideoProcessingJobModel:
+    """Create the job row that a reel/demo render reports into (P4.6)."""
+    job = VideoProcessingJobModel(kind=kind, status="PENDING",
+                                  processing_log=json.dumps({"item_id": item_id}))
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return job
 
 # ===================== YOUTUBE SHORTS =====================
 @app.post("/generate-short/{drill_id}")
@@ -1660,10 +1948,13 @@ async def generate_short(drill_id: int, background_tasks: BackgroundTasks, db: S
     filename = f"short_{drill_id}_{int(datetime.now().timestamp())}.mp4"
     payload_data = ["short", json.dumps(drill_data), None, filename, 0]
 
-    # 🚀 Start background task and return immediately
-    background_tasks.add_task(background_video_vault, "short", drill_id, payload_data)
+    # 🚀 Start background task and return immediately (job id is pollable at
+    # GET /video-analysis/job/{job_id})
+    job = _new_render_job(db, "short", drill_id)
+    background_tasks.add_task(background_video_vault, "short", drill_id, payload_data, job.id)
 
-    return {"status": "processing", "message": "Video generation started. It will appear in Cloudinary shortly."}
+    return {"status": "processing", "job_id": job.id,
+            "message": "Video generation started. It will appear in Cloudinary shortly."}
 # ===================== DRILL PLAYER DEMO VIDEO =====================
 @app.post("/generate-drillplayer-demo/{test_id}")
 async def generate_drillplayer_demo(test_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
@@ -1684,13 +1975,18 @@ async def generate_drillplayer_demo(test_id: int, background_tasks: BackgroundTa
     payload_data = ["demo", None, json.dumps(drills_data), filename, test_id]
 
     # 🚀 Offload the heavy demo rendering to background
-    background_tasks.add_task(background_video_vault, "demo", test_id, payload_data)
+    job = _new_render_job(db, "demo", test_id)
+    background_tasks.add_task(background_video_vault, "demo", test_id, payload_data, job.id)
 
-    return {"status": "processing", "message": "Demo video is being generated. This may take a few minutes."}
+    return {"status": "processing", "job_id": job.id,
+            "message": "Demo video is being generated. This may take a few minutes."}
 
 @app.get("/shorts/", response_model=list[YouTubeShort])
-def get_shorts(db: Session = Depends(get_db)):
-    return db.query(YouTubeShortModel).order_by(YouTubeShortModel.date_created.desc()).all()
+def get_shorts(response: Response, limit: Optional[int] = None, offset: Optional[int] = None,
+               db: Session = Depends(get_db)):
+    """List generated shorts, newest first. Pagination as GET /drills/."""
+    return _paginate(db.query(YouTubeShortModel).order_by(YouTubeShortModel.date_created.desc()),
+                     response, limit, offset)
 
 @app.delete("/shorts/{short_id}")
 def delete_short(short_id: int, db: Session = Depends(get_db)):
@@ -1779,10 +2075,14 @@ def resolve_hf_space_host(url: str) -> str:
 
 # ===================== NEW VIDEO ANALYSIS ENDPOINTS =====================
 
-async def process_video_analysis_task(job_id: int, video_path: str, tmp_dir: str, language: Optional[str] = None):
+def process_video_analysis_task(job_id: int, video_path: str, tmp_dir: str, language: Optional[str] = None):
     """
     Background task to extract audio, upload to Cloudinary, call ASR Space, and update job.
     `language` is an optional Whisper language hint forwarded to the ASR Space.
+
+    Deliberately a plain `def` (P4.5): it blocks on requests.post(timeout=600)
+    to the ASR Space, and as a sync BackgroundTask FastAPI runs it in the
+    threadpool instead of freezing the single-worker event loop for 10 min.
     """
     db = SessionLocal()
     try:
@@ -1959,25 +2259,30 @@ def get_video_analysis_job_status(job_id: int, db: Session = Depends(get_db)):
                 "text": seg.text_original
             })
 
-    # Auto-pipeline jobs record their created drill ids in processing_log
+    # Auto-pipeline jobs record their created drill ids in processing_log;
+    # reel/demo render jobs (P4.6) record the finished video_url there.
     drills_created = None
     media_errors = None
+    video_url = None
     if job.processing_log:
         try:
             log = json.loads(job.processing_log)
             if isinstance(log, dict):
                 drills_created = log.get("drills_created")
                 media_errors = log.get("media_errors")
+                video_url = log.get("video_url")
         except (ValueError, TypeError):
             pass
 
     return {
         "id": job.id,
+        "kind": getattr(job, "kind", None),
         "status": job.status,
         "error_message": job.error_message,
         "segments": segments,
         "drills_created": drills_created,
-        "media_errors": media_errors
+        "media_errors": media_errors,
+        "video_url": video_url,
     }
 
 @app.post("/video-analysis/analyze")
@@ -2157,7 +2462,7 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         if not has_segments:
             job.status = "TRANSCRIBING"
             db.commit()
-            await process_video_analysis_task(job_id, video_path, tmp_dir, language)
+            await asyncio.to_thread(process_video_analysis_task, job_id, video_path, tmp_dir, language)
             db.expire_all()
             job = db.query(VideoProcessingJobModel).filter(VideoProcessingJobModel.id == job_id).first()
             if not job or job.status != "COMPLETED":
@@ -2235,6 +2540,11 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
 
             # Skip empty segments (no text in any language) — nothing to learn.
             if not (drill_tachelhit or drill_arabic or seg.get("text_catalan")):
+                continue
+            _junk = looks_like_junk_asr(drill_tachelhit, attested=effective_source in ("shi", "ber"))
+            if _junk:
+                print(f"[AutoDrills] skipping junk segment ({_junk}): {str(drill_tachelhit)[:60]!r}")
+                media_errors.append(f"segment skipped ({_junk})")
                 continue
 
             db_drill = DrillModel(
@@ -2790,6 +3100,10 @@ async def create_drills_from_video(
                 # table; otherwise route the original text by source language
                 drill_tachelhit = seg.get("text_tachelhit") or (original_text if source_lang in [None, 'shi', 'ber'] else None)
                 drill_arabic = seg.get("text_arabic") or (original_text if source_lang == 'ar' else None)
+                _junk = looks_like_junk_asr(drill_tachelhit, attested=source_lang in [None, 'shi', 'ber'])
+                if _junk:
+                    print(f"[CreateDrills] skipping junk segment ({_junk}): {str(drill_tachelhit)[:60]!r}")
+                    continue
 
                 db_drill = DrillModel(
                     text_catalan=seg.get("text_catalan"),
@@ -2833,6 +3147,10 @@ async def create_drills_from_video(
                 # Prefer explicit per-language translations when present
                 drill_tachelhit = seg.get("text_tachelhit") or (original_text if source_lang in [None, 'shi', 'ber'] else None)
                 drill_arabic = seg.get("text_arabic") or (original_text if source_lang == 'ar' else None)
+                _junk = looks_like_junk_asr(drill_tachelhit, attested=source_lang in [None, 'shi', 'ber'])
+                if _junk:
+                    print(f"[CreateDrills] skipping junk segment ({_junk}): {str(drill_tachelhit)[:60]!r}")
+                    continue
 
                 db_drill = DrillModel(
                     text_catalan=seg.get("text_catalan"),
@@ -2952,7 +3270,8 @@ def get_me(user: Optional[UserModel] = Depends(get_current_user), db: Session = 
         "display_name": user.display_name,
         "variety": user.variety,
         "region": user.region,
-        "date_created": user.date_created.isoformat(),
+        "tz": user.tz or DEFAULT_TZ,
+        "date_created": iso_z(user.date_created),
         "drills_contributed": drills_contributed,
         "cards_learning": cards_learning
     }
@@ -2963,11 +3282,12 @@ def update_me(
     display_name: Optional[str] = Body(None, embed=True),
     variety: Optional[str] = Body(None, embed=True),
     region: Optional[str] = Body(None, embed=True),
+    tz: Optional[str] = Body(None, embed=True),
     user: Optional[UserModel] = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Update the contributor's own profile (display name, variety, region).
-    Only fields that are sent are changed."""
+    """Update the contributor's own profile (display name, variety, region,
+    tz = IANA zone for streak days). Only fields that are sent are changed."""
     if not user:
         raise HTTPException(status_code=401, detail="Missing or invalid X-User-Token")
     if display_name is not None:
@@ -2976,10 +3296,18 @@ def update_me(
         user.variety = variety or None
     if region is not None:
         user.region = region.strip() or None
+    if tz is not None:
+        tz = tz.strip()
+        if tz:
+            try:
+                ZoneInfo(tz)
+            except Exception:
+                raise HTTPException(status_code=400, detail=f"Unknown time zone: {tz}")
+        user.tz = tz or None
     db.commit()
     db.refresh(user)
     return {"username": user.username, "display_name": user.display_name,
-            "variety": user.variety, "region": user.region}
+            "variety": user.variety, "region": user.region, "tz": user.tz or DEFAULT_TZ}
 
 
 @app.post("/drills/{drill_id}/recordings")
@@ -2998,7 +3326,8 @@ async def add_recording(
     if not drill:
         raise HTTPException(status_code=404, detail="Drill not found")
     content = await file.read()
-    up = cloudinary.uploader.upload(
+    up = await run_in_threadpool(
+        cloudinary.uploader.upload,
         content, resource_type="auto", folder="tachelhit/recordings",
         public_id=f"rec_{drill_id}_{int(datetime.utcnow().timestamp())}",
     )
@@ -3794,18 +4123,9 @@ def get_due_reviews(limit: int = 20, db: Session = Depends(get_db),
         drills.extend(new_drills)
     return drills
 
-@app.post("/reviews/{drill_id}/grade")
-def grade_review(drill_id: int, grade: int = Body(..., embed=True), db: Session = Depends(get_db),
-                 user: Optional[UserModel] = Depends(get_current_user)):
-    """Record a review grade for this user and reschedule the drill (SM-2)."""
-    if grade not in (0, 1, 2, 3):
-        raise HTTPException(status_code=400, detail="grade must be 0 (again), 1 (hard), 2 (good) or 3 (easy)")
-    drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
-    if not drill:
-        raise HTTPException(status_code=404, detail="Drill not found")
-
-    uid = user.id if user else None
-    now = datetime.utcnow()
+def _apply_sm2_grade(db, drill_id: int, uid: Optional[int], grade: int, now: datetime):
+    """Reschedule one card for one user (SM-2) and log the grade at `now`.
+    Shared by the single and batch grade endpoints (P4.9). Caller commits."""
     review = db.query(DrillReviewModel).filter(
         DrillReviewModel.drill_id == drill_id, DrillReviewModel.user_id == uid
     ).first()
@@ -3847,16 +4167,66 @@ def grade_review(drill_id: int, grade: int = Body(..., embed=True), db: Session 
     review.last_grade = grade
     review.last_reviewed = now
     review.total_reviews += 1
+    review.updated_at = now
     db.add(ReviewLogModel(drill_id=drill_id, user_id=uid, grade=grade, reviewed_at=now))
+    return review
+
+@app.post("/reviews/{drill_id}/grade")
+def grade_review(drill_id: int, grade: int = Body(..., embed=True), db: Session = Depends(get_db),
+                 user: Optional[UserModel] = Depends(get_current_user)):
+    """Record a review grade for this user and reschedule the drill (SM-2)."""
+    if grade not in (0, 1, 2, 3):
+        raise HTTPException(status_code=400, detail="grade must be 0 (again), 1 (hard), 2 (good) or 3 (easy)")
+    drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
+    if not drill:
+        raise HTTPException(status_code=404, detail="Drill not found")
+
+    uid = user.id if user else None
+    review = _apply_sm2_grade(db, drill_id, uid, grade, datetime.utcnow())
     db.commit()
     db.refresh(review)
     return {
         "drill_id": drill_id,
-        "next_due": review.due_date.isoformat(),
+        "next_due": iso_z(review.due_date),
         "interval_days": round(review.interval_days, 3),
         "ease": round(review.ease, 2),
         "repetitions": review.repetitions
     }
+
+class GradeBatchItem(BaseModel):
+    drill_id: int
+    grade: int = Field(..., ge=0, le=3)
+    graded_at: datetime  # ISO-8601; "Z" / offsets accepted, naive = UTC
+
+@app.post("/reviews/grade-batch")
+def grade_batch(items: List[GradeBatchItem], db: Session = Depends(get_db),
+                user: Optional[UserModel] = Depends(get_current_user)):
+    """Apply grades queued offline (P4.9), oldest first, through the same SM-2
+    logic as /reviews/{id}/grade. Idempotent on (user, drill, graded_at): a
+    grade whose ReviewLog row already exists is skipped, so a client may
+    re-send its whole queue after a lost response without double-scheduling.
+    Grades for drills that no longer exist are skipped too."""
+    uid = user.id if user else None
+    applied = 0
+    skipped = 0
+    for it in sorted(items, key=lambda i: _to_naive_utc(i.graded_at)):
+        ts = _to_naive_utc(it.graded_at)
+        dup = db.query(ReviewLogModel.id).filter(
+            ReviewLogModel.user_id == uid,
+            ReviewLogModel.drill_id == it.drill_id,
+            ReviewLogModel.reviewed_at == ts,
+        ).first()
+        if dup is not None:
+            skipped += 1
+            continue
+        if db.query(DrillModel.id).filter(DrillModel.id == it.drill_id).first() is None:
+            skipped += 1
+            continue
+        _apply_sm2_grade(db, it.drill_id, uid, it.grade, ts)
+        db.flush()  # so a duplicate later in the SAME batch is seen as applied
+        applied += 1
+    db.commit()
+    return {"applied": applied, "skipped": skipped}
 
 @app.post("/tests/from-weakest")
 def create_test_from_weakest(
@@ -3913,9 +4283,11 @@ def review_streak(db: Session = Depends(get_db),
                   user: Optional[UserModel] = Depends(get_current_user)):
     """Daily streak and activity counts for the requesting user."""
     uid = user.id if user else None
+    zone = _user_zone(user)  # "today" in the learner's zone, not UTC (P4.10)
     rows = db.query(ReviewLogModel.reviewed_at).filter(ReviewLogModel.user_id == uid).all()
-    days = {r[0].date() for r in rows}
-    today = datetime.utcnow().date()
+    local_days = [_local_day(r[0], zone) for r in rows]
+    days = set(local_days)
+    today = datetime.now(timezone.utc).astimezone(zone).date()
 
     # Streak of consecutive review days; still alive if yesterday was reviewed
     streak = 0
@@ -3932,27 +4304,40 @@ def review_streak(db: Session = Depends(get_db),
     week_ago = today - timedelta(days=6)
     return {
         "streak_days": streak,
-        "reviews_today": sum(1 for r in rows if r[0].date() == today),
-        "reviews_week": sum(1 for r in rows if r[0].date() >= week_ago),
+        "reviews_today": sum(1 for d in local_days if d == today),
+        "reviews_week": sum(1 for d in local_days if d >= week_ago),
         "active_days": len(days),
+        "tz": getattr(zone, "key", "UTC"),
+        "today": today.isoformat(),
     }
 
 @app.get("/reviews/stats")
 def review_stats(db: Session = Depends(get_db),
                  user: Optional[UserModel] = Depends(get_current_user)):
-    """Counts for the home-screen review badge, scoped to the requesting user."""
+    """Counts for the home-screen review badge, scoped to the requesting user.
+    `reviewed_today` counts grades on the learner's local day (P4.10)."""
     uid = user.id if user else None
     now = datetime.utcnow()
+    zone = _user_zone(user)
+    today = datetime.now(timezone.utc).astimezone(zone).date()
     total = db.query(DrillModel).count()
     tracked = db.query(DrillReviewModel).filter(DrillReviewModel.user_id == uid).count()
     due = db.query(DrillReviewModel).filter(
         DrillReviewModel.user_id == uid, DrillReviewModel.due_date <= now
     ).count()
+    # local midnight -> UTC lower bound keeps this a cheap indexed range scan
+    day_start_utc = datetime.combine(today, datetime.min.time(), tzinfo=zone) \
+        .astimezone(timezone.utc).replace(tzinfo=None)
+    reviewed_today = db.query(ReviewLogModel).filter(
+        ReviewLogModel.user_id == uid, ReviewLogModel.reviewed_at >= day_start_utc
+    ).count()
     return {
         "total_drills": total,
         "new": max(0, total - tracked),
         "due": due,
-        "learning": tracked
+        "learning": tracked,
+        "reviewed_today": reviewed_today,
+        "today": today.isoformat(),
     }
 
 # ===================== DEBUG ENDPOINTS =====================
@@ -4525,7 +4910,7 @@ async def evaluate_dataset(
     return results
 
 @app.post("/drills/{drill_id}/trim-audio")
-async def trim_drill_audio(
+def trim_drill_audio(
     drill_id: int,
     start_time: float = Body(..., embed=True),
     end_time: float = Body(..., embed=True),
@@ -4533,6 +4918,8 @@ async def trim_drill_audio(
 ):
     """
     Trims the audio of a drill using MoviePy and uploads the result.
+    Plain `def` on purpose (P4.5): download + MoviePy + Cloudinary all block,
+    so FastAPI runs this in the threadpool instead of on the event loop.
     """
     drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
     if not drill or not drill.audio_url:
@@ -4587,7 +4974,7 @@ async def trim_drill_audio(
                 except OSError: pass
 
 @app.post("/drills/{drill_id}/trim-video")
-async def trim_drill_video(
+def trim_drill_video(
     drill_id: int,
     start_time: float = Body(..., embed=True),
     end_time: float = Body(..., embed=True),
@@ -4595,6 +4982,7 @@ async def trim_drill_video(
 ):
     """
     Trims the video of a drill using MoviePy and uploads the result.
+    Plain `def` on purpose (P4.5) — see trim_drill_audio.
     """
     drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
     if not drill or not drill.video_url:
