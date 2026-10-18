@@ -557,9 +557,8 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                                 <img
                                     src={pendingMedia[drill.id]?.image || getMediaUrl(drill.image_url)}
                                     alt="Imatge del drill"
-                                    style={{ width: '100%', height: '160px', objectFit: 'cover', borderRadius: 'var(--r-lg)', border: '1px solid var(--border)' }}
+                                    style={{ width: '100%', height: '180px', objectFit: 'contain', background: 'var(--surface-2)', borderRadius: 'var(--r-lg)', border: '1px solid var(--border)' }}
                                 />
-                                <div style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)', borderRadius: 'var(--r-pill)', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '14px' }}>🖼️</div>
                             </div>
                         )}
 

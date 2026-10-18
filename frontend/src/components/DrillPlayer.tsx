@@ -797,6 +797,22 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
           boxShadow: 'var(--shadow-lg)',
           overflow: 'hidden'
         }}>
+          {/* Picture first, like a flashcard: the learner sees the scene, then the sentence.
+              Illustrations are square on a plain light ground, so they sit on the sand band
+              uncropped; video frames and photos get the same band. */}
+          {imageUrl && (
+            <div style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'center' }}>
+              <img
+                src={imageUrl}
+                alt=""
+                style={{ width: '100%', height: 'clamp(180px, 34vh, 300px)', objectFit: 'contain', display: 'block' }}
+                onError={(e) => {
+                  ((e.target as HTMLImageElement).parentElement as HTMLElement).style.display = 'none';
+                }}
+              />
+            </div>
+          )}
+
           {/* Catalan (primary) */}
           {currentDrill?.text_catalan && (
             <div style={{
@@ -860,25 +876,6 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
                   ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><FaVolumeUp /> Sintetitzant la veu…</span>
                   : <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}><FaVolumeUp /> Veu sintètica — encara sense gravació nativa</span>}
               </span>
-            </div>
-          )}
-
-          {/* Image */}
-          {imageUrl && (
-            <div style={{ padding: '0 24px 20px', display: 'flex', justifyContent: 'center' }}>
-              <img
-                src={imageUrl}
-                alt="Drill"
-                style={{
-                  maxWidth: '100%',
-                  maxHeight: '320px',
-                  borderRadius: 'var(--r-lg)',
-                  boxShadow: 'var(--shadow-md)'
-                }}
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                }}
-              />
             </div>
           )}
 
