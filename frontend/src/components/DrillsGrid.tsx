@@ -1,5 +1,5 @@
 import '../agGridSetup';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { AgGridReact } from 'ag-grid-react';
 import type { ColDef } from 'ag-grid-community';
@@ -51,6 +51,10 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
     // Inline media preview (video/audio) opened from the grid or the cards.
     const [preview, setPreview] = useState<{ url: string; kind: 'video' | 'audio'; title?: string; drillId?: number } | null>(null);
     const [autoNext, setAutoNext] = useState(true); // keep playing the next clip when one ends
+    const [reveal, setReveal] = useState(false); // meaning shown for the current clip (study mode hides it first)
+    const [alwaysReveal, setAlwaysReveal] = useState(() => { try { return localStorage.getItem('preview.alwaysReveal') === '1'; } catch { return false; } });
+    const autoNextTimer = useRef<number | null>(null);
+    const setAlwaysRevealPersist = (v: boolean) => { setAlwaysReveal(v); try { localStorage.setItem('preview.alwaysReveal', v ? '1' : '0'); } catch { /* private mode */ } };
     const [selectedRows, setSelectedRows] = useState<Drill[]>([]);
     const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
     const [recordDrill, setRecordDrill] = useState<Drill | null>(null);
@@ -380,7 +384,54 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
     const openPreviewOf = (d: Drill) => {
         const url = d.video_url ? getMediaUrl(d.video_url) : getMediaUrl(d.audio_url!);
         setPreview({ url, kind: d.video_url ? 'video' : 'audio', title: d.text_catalan || d.text_tachelhit || `Drill #${d.id}`, drillId: d.id });
+        setReveal(false);
+        if (autoNextTimer.current) { window.clearTimeout(autoNextTimer.current); autoNextTimer.current = null; }
     };
+    // Clip finished: listen -> read -> meaning -> next. With the meaning already on
+    // screen we move on at once; otherwise reveal it and give three seconds to read.
+    const onClipEnded = () => {
+        if (!autoNext) return;
+        if (alwaysReveal || reveal) { previewStep(1); return; }
+        setReveal(true);
+        autoNextTimer.current = window.setTimeout(() => previewStep(1), 3000);
+    };
+    const previewDrill = preview?.drillId != null ? playable.find((d) => d.id === preview.drillId) : undefined;
+    // The study card under the player: what you hear, in letters, while you listen;
+    // the meaning only when you ask for it (or always, for review sessions).
+    const previewCard = previewDrill && (() => {
+        const d = previewDrill;
+        const latin = d.text_tachelhit_latin || d.text_tachelhit;
+        const tifinagh = d.text_tachelhit && d.text_tachelhit !== latin ? d.text_tachelhit : null;
+        const draft = !latin && d.text_tachelhit_suggested;
+        const shown = reveal || alwaysReveal;
+        const timeSpan = d.video_start_time != null && d.video_end_time != null ? `${Math.round(d.video_start_time)}s–${Math.round(d.video_end_time)}s` : null;
+        return (
+            <div style={{ padding: '12px 14px 4px', background: 'var(--surface)', borderTop: '1px solid var(--border)' }}>
+                <div style={{ fontSize: '19px', fontWeight: 700, color: 'var(--text)', lineHeight: 1.3 }}>
+                    {latin || (draft ? <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>{draft} <span style={{ fontSize: '11px' }}>(esborrany IA)</span></span> : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>sense transcripció</span>)}
+                </div>
+                {tifinagh && <div style={{ fontSize: '15px', color: 'var(--text-soft)', marginTop: '2px' }}>{tifinagh}</div>}
+                {shown ? (
+                    <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        {d.text_catalan && <div style={{ fontSize: '15px', color: 'var(--text)' }}>{d.text_catalan}</div>}
+                        {d.text_arabic && <div dir="rtl" style={{ fontSize: '15px', color: 'var(--text-soft)', textAlign: 'right' }}>{d.text_arabic}</div>}
+                        {!d.text_catalan && !d.text_arabic && <div style={{ fontSize: '13px', color: 'var(--text-muted)', fontStyle: 'italic' }}>sense traducció</div>}
+                    </div>
+                ) : (
+                    <button onClick={() => setReveal(true)} style={{ marginTop: '8px', padding: '7px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer', color: 'var(--text)', fontSize: '13px' }}>
+                        Mostra el significat
+                    </button>
+                )}
+                <div style={{ marginTop: '8px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                    <span>#{d.id}</span>
+                    {d.variety && <span>{varietyShort(d.variety)}</span>}
+                    {timeSpan && <span>{timeSpan}</span>}
+                    {d.tag && <span>{d.tag}</span>}
+                    <SourceCredit drill={d} compact />
+                </div>
+            </div>
+        );
+    })();
     const previewStep = (delta: number) => {
         if (previewIndex < 0) return;
         const next = playable[previewIndex + delta];
@@ -393,6 +444,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
             if (e.key === 'ArrowRight') previewStep(1);
             else if (e.key === 'ArrowLeft') previewStep(-1);
             else if (e.key === 'Escape') setPreview(null);
+            else if (e.key === ' ' && !(e.target instanceof HTMLInputElement)) { /* space = reveal */ if (!reveal) { e.preventDefault(); setReveal(true); } }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
@@ -403,20 +455,24 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
         <div style={overlayStyle} onClick={() => setPreview(null)}>
             <div onClick={(e) => e.stopPropagation()} style={{ background: '#000', borderRadius: 'var(--r-xl)', width: '100%', maxWidth: preview.kind === 'video' ? '720px' : '420px', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }}>
                 {preview.kind === 'video' ? (
-                    <video key={preview.url} src={preview.url} controls autoPlay playsInline onEnded={() => { if (autoNext) previewStep(1); }} style={{ display: 'block', width: '100%', maxHeight: '75vh', background: '#000' }} />
+                    <video key={preview.url} src={preview.url} controls autoPlay playsInline onEnded={onClipEnded} style={{ display: 'block', width: '100%', maxHeight: '75vh', background: '#000' }} />
                 ) : (
-                    <audio key={preview.url} src={preview.url} controls autoPlay onEnded={() => { if (autoNext) previewStep(1); }} style={{ display: 'block', width: '100%', padding: '16px', background: 'var(--surface)' }} />
+                    <audio key={preview.url} src={preview.url} controls autoPlay onEnded={onClipEnded} style={{ display: 'block', width: '100%', padding: '16px', background: 'var(--surface)' }} />
                 )}
+                {previewCard}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--surface)', flexWrap: 'wrap' }}>
                     <button onClick={() => previewStep(-1)} disabled={previewIndex <= 0} aria-label="Drill anterior" title="Anterior (←)"
                         style={{ padding: '8px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: previewIndex <= 0 ? 'not-allowed' : 'pointer', opacity: previewIndex <= 0 ? 0.5 : 1, color: 'var(--text)' }}>◀</button>
                     <button onClick={() => previewStep(1)} disabled={previewIndex < 0 || previewIndex >= playable.length - 1} aria-label="Drill següent" title="Següent (→)"
                         style={{ padding: '8px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer', opacity: (previewIndex < 0 || previewIndex >= playable.length - 1) ? 0.5 : 1, color: 'var(--text)' }}>▶</button>
                     <span style={{ flex: 1, fontSize: '13px', color: 'var(--text-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {previewIndex >= 0 ? `${previewIndex + 1}/${playable.length} · ` : ''}{preview.title || ''}
+                        {previewIndex >= 0 ? `${previewIndex + 1}/${playable.length}` : (preview.title || '')}
                     </span>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-soft)', cursor: 'pointer' }}>
                         <input type="checkbox" checked={autoNext} onChange={(e) => setAutoNext(e.target.checked)} /> Seguit
+                    </label>
+                    <label title="Mostra la traducció sense haver de tocar" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-soft)', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={alwaysReveal} onChange={(e) => setAlwaysRevealPersist(e.target.checked)} /> Significat sempre
                     </label>
                     <a href={preview.url} target="_blank" rel="noreferrer" style={{ fontSize: '13px', color: 'var(--brand-1)', fontWeight: 700 }}>Obre en una pestanya</a>
                     <button onClick={() => setPreview(null)} style={{ padding: '8px 14px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer', color: 'var(--text)' }}>Tanca</button>

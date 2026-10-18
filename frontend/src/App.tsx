@@ -1,4 +1,5 @@
 import { useEffect, useState, lazy, Suspense } from 'react';
+import { useIsMobileLayout } from './utils/layout';
 import { Network } from '@capacitor/network';
 import axios from 'axios';
 import { API_BASE } from './config';
@@ -121,6 +122,7 @@ function App() {
 
   // Immersive routes render full-screen; the nav would collide with them
   const showNav = !location.pathname.startsWith('/player') && !/^\/tests\/\d/.test(location.pathname);
+  const compactNav = useIsMobileLayout(); // phones: icon-only tabs so Tests and Reels are not hidden off-screen
   const navLinks = [
     { to: '/', label: 'Drills', Icon: FaLayerGroup },
     { to: '/video-creator', label: 'Captura', Icon: FaVideo },
@@ -130,7 +132,7 @@ function App() {
   ];
   const navBtn = (active: boolean): React.CSSProperties => ({
     flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: '6px',
-    padding: '8px 14px', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: '14px',
+    padding: compactNav ? '8px 9px' : '8px 14px', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: '14px',
     cursor: 'pointer', border: '1px solid transparent', whiteSpace: 'nowrap',
     background: active ? 'var(--brand-gradient-soft)' : 'transparent',
     color: active ? 'var(--brand-1)' : 'var(--text-soft)',
@@ -150,13 +152,13 @@ function App() {
         }}>
           <button onClick={() => navigate('/')} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
             <span style={{ width: '30px', height: '30px', borderRadius: '9px', background: 'var(--brand-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>ⵣ</span>
-            <span style={{ fontWeight: 800, fontSize: '16px', color: 'var(--text)', letterSpacing: '-0.01em' }}>Tamazight</span>
+            {!compactNav && <span style={{ fontWeight: 800, fontSize: '16px', color: 'var(--text)', letterSpacing: '-0.01em' }}>Tamazight</span>}
           </button>
           <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', flex: 1, minWidth: 0, padding: '2px 0', scrollbarWidth: 'none' }}>
             {navLinks.map(l => (
-              <button key={l.to} onClick={() => navigate(l.to)}
+              <button key={l.to} onClick={() => navigate(l.to)} title={l.label} aria-label={l.label}
                 style={navBtn(l.to === '/' ? location.pathname === '/' : location.pathname.startsWith(l.to))}>
-                <l.Icon size={14} />{l.label}
+                <l.Icon size={compactNav ? 16 : 14} />{!compactNav && l.label}
               </button>
             ))}
           </div>
