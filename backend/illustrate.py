@@ -43,6 +43,30 @@ def illustration_prompt(text: str, hint: str | None = None) -> str:
     return out
 
 
+def describe_scene(text: str, timeout: int = 40) -> str:
+    """One concrete scene for the sentence, in English, chosen by the text model before
+    drawing. The image model left short or abstract items ("Afilat", "Dibuixem") as a
+    generic tea scene; naming the scene first ("a man sharpens a knife on a stone") keeps
+    the meaning in the picture. Returns "" on any failure so drawing still goes ahead."""
+    ask = (
+        "A language-learning flashcard needs ONE picture that shows the meaning of this item so a learner "
+        "can guess it from the picture alone. The item is in Catalan (sometimes with an English or Arabic "
+        "gloss); it may be a single word, an imperative, a question or a sentence. "
+        "Answer with one concrete scene in English, at most 30 words: who does what, with which object, where. "
+        "Make the key meaning visually unmistakable (for a question or command, show the situation it is said in; "
+        "for a quality like 'sharp' or 'far', show it on an object). No text in the scene.\n\n"
+        f"Item: «{' '.join((text or '').split())}»"
+    )
+    payload = {"contents": [{"role": "user", "parts": [{"text": ask}]}],
+               "generationConfig": {"temperature": 0.3, "maxOutputTokens": 80, "thinkingConfig": {"thinkingBudget": 0}}}
+    try:
+        data = _generate_content(payload, timeout)
+        out = "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"]).strip()
+        return " ".join(out.split())[:300]
+    except Exception:
+        return ""
+
+
 def shrink(png: bytes, side: int = 800) -> bytes:
     """Gemini returns ~1 MB PNGs; the card shows them at 320 px and the app caches them
     offline, so store an 800 px WebP (~60 KB). Falls back to the original bytes."""
@@ -61,7 +85,7 @@ def generate_illustration(text: str, hint: str | None = None, timeout: int = 120
     """WebP bytes for the sentence (see shrink). Raises RuntimeError when Gemini returns no
     image (safety block, quota) so callers can fall back to another source."""
     payload = {
-        "contents": [{"role": "user", "parts": [{"text": illustration_prompt(text, hint)}]}],
+        "contents": [{"role": "user", "parts": [{"text": illustration_prompt(text, hint or describe_scene(text))}]}],
         "generationConfig": {"responseModalities": ["IMAGE"]},
     }
     data = _generate_content(payload, timeout, model=IMAGE_MODEL)
