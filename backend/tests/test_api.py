@@ -732,4 +732,3 @@ def test_verify_queue_reasons_and_resolve():
     assert (d["text_tachelhit"], d["text_tachelhit_latin"], d["text_tachelhit_suggested"]) == ("ⴽⴰⴷ ⵍⴳⵓⴷⵉⵏⵓ", "kad lgudinu", None)
     left = {x["id"] for x in client.get("/corpus/verify-queue", params={"limit": 500}).json()["drills"]}
     assert not ({contested, differs, subtitle} & left) and empty in left
-
