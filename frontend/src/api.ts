@@ -44,6 +44,31 @@ export interface CorpusStats {
   by_region: Record<string, number>;
 }
 
+export interface CorpusSource {
+  source_url: string;
+  title: string | null;
+  channel: string | null;
+  playlist: string | null;
+  license: string | null;
+  drills: number;
+  with_video: number;
+  with_audio: number;
+  verified: number;
+  varieties: string[];
+  tags: string[];
+  from_s: number | null;
+  to_s: number | null;
+  first_id: number;
+}
+
+export interface CorpusSources {
+  total_drills: number;
+  from_sources: number;
+  without_source: number;
+  channels: number;
+  videos: CorpusSource[];
+}
+
 export interface Me {
   username: string;
   display_name: string;
@@ -110,6 +135,7 @@ export const api = {
 
   // --- corpus ---
   corpusStats: () => request<CorpusStats>('/corpus/stats'),
+  corpusSources: () => request<CorpusSources>('/corpus/sources'),
   corpusSearch: (params: { q?: string; variety?: string; region?: string; limit?: number; offset?: number }) => {
     const sp = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {

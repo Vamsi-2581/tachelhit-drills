@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getMediaUrl, getUserToken } from '../config';
-import { api, type CorpusStats } from '../api';
+import { api, type CorpusStats, type CorpusSources } from '../api';
 import { toast } from '../toast';
 import type { Drill } from '../types';
 import { FaTools, FaTimes, FaPlay, FaCheck, FaChevronDown } from 'react-icons/fa';
@@ -16,6 +16,8 @@ export default function CorpusPage() {
   const [gaps, setGaps] = useState<{ kind: string; label: string; count: number }[]>([]);
   const [activeGap, setActiveGap] = useState<string | null>(null);
   const [showCoverage, setShowCoverage] = useState(false);
+  const [sources, setSources] = useState<CorpusSources | null>(null);
+  const [showSources, setShowSources] = useState(false);
 
   const PAGE = 50;
   const [offset, setOffset] = useState(0);
@@ -43,6 +45,7 @@ export default function CorpusPage() {
   useEffect(() => {
     api.corpusStats().then(setStats).catch(() => {});
     api.corpusGapsSummary().then(r => setGaps(r.gaps)).catch(() => {});
+    api.corpusSources().then(setSources).catch(() => {});
   }, []);
 
   // Search only drives results when no gap filter is active
@@ -124,6 +127,15 @@ export default function CorpusPage() {
               >
                 {showCoverage ? 'Amaga cobertura' : 'Cobertura'}
               </button>
+              {sources && sources.videos.length > 0 && (
+                <button
+                  onClick={() => setShowSources(v => !v)}
+                  aria-pressed={showSources}
+                  style={{ padding: '5px 12px', background: 'var(--surface-2)', color: 'var(--text-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-pill)', cursor: 'pointer', fontWeight: 700, fontSize: '13px' }}
+                >
+                  {showSources ? 'Amaga el catàleg' : `Catàleg de fonts (${sources.videos.length})`}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -132,6 +144,44 @@ export default function CorpusPage() {
       <div style={{ maxWidth: '860px', margin: '20px auto 0', padding: '0 24px' }}>
         <ImageFillPanel />
       </div>
+
+      {/* Catalog of sources: channel > playlist > video, what each one gave us */}
+      {showSources && sources && (
+        <div style={{ maxWidth: '860px', margin: '20px auto 0', padding: '0 24px' }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', padding: '18px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 800, marginBottom: '4px', color: 'var(--text)', fontFamily: 'var(--font-display)' }}>Catàleg de fonts</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
+              {sources.from_sources} drills de {sources.videos.length} vídeos en {sources.channels} canals · {sources.without_source} gravacions pròpies sense font
+            </div>
+            {Object.entries(
+              sources.videos.reduce<Record<string, CorpusSources['videos']>>((acc, v) => {
+                const k = `${v.channel || '— canal desconegut'}${v.playlist ? ' › ' + v.playlist : ''}`;
+                (acc[k] ||= []).push(v);
+                return acc;
+              }, {})
+            ).map(([group, vids]) => (
+              <div key={group} style={{ marginBottom: '14px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-soft)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>{group}</div>
+                {vids.map(v => (
+                  <div key={v.source_url} style={{ display: 'flex', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap', padding: '6px 0', borderTop: '1px solid var(--border)', fontSize: '13px' }}>
+                    <a href={v.source_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--brand-1)', fontWeight: 600, textDecoration: 'none', flex: '1 1 260px' }}>
+                      {v.title || v.source_url} ↗
+                    </a>
+                    <span style={{ color: 'var(--text-muted)' }}>
+                      {v.drills} drills · {v.with_video} amb vídeo{v.varieties.length ? ' · ' + v.varieties.join(', ') : ''}
+                      {v.from_s != null && v.to_s != null ? ` · ${Math.round(v.from_s)}s–${Math.round(v.to_s)}s` : ''}
+                      {v.verified ? ` · ${v.verified} verificats` : ''}
+                    </span>
+                    {v.tags.map(t => (
+                      <a key={t} href={`/?q=${encodeURIComponent(t)}`} style={{ padding: '2px 8px', borderRadius: 'var(--r-pill)', fontSize: '11px', fontWeight: 700, background: 'var(--surface-2)', color: 'var(--text-soft)', textDecoration: 'none' }}>{t}</a>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Coverage dashboard — the atlas view: what's documented, by variety/region */}
       {showCoverage && stats && (

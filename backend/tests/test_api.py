@@ -316,6 +316,20 @@ def test_corpus_gaps():
     assert client.get("/corpus/gaps", params={"kind": "nonsense"}).status_code == 400
 
 
+def test_corpus_sources_catalog():
+    src = "https://www.youtube.com/watch?v=catalog1"
+    for t0, text in ((0.0, "ⴰⵣⵓⵍ"), (4.0, "ⵜⴰⵏⵎⵎⵉⵔⵜ")):
+        client.post("/drills/", json={"text_tachelhit": text, "source_url": src, "source_title": "Lesson 1",
+                                      "source_channel": "Chan", "source_playlist": "Course", "variety": "shi",
+                                      "tag": "lesson-1", "video_url": "https://x/v.mp4", "video_start_time": t0,
+                                      "video_end_time": t0 + 2.5})
+    r = client.get("/corpus/sources").json()
+    v = next(x for x in r["videos"] if x["source_url"] == src)
+    assert (v["drills"], v["with_video"], v["channel"], v["playlist"], v["title"]) == (2, 2, "Chan", "Course", "Lesson 1")
+    assert v["varieties"] == ["shi"] and v["tags"] == ["lesson-1"] and (v["from_s"], v["to_s"]) == (0.0, 6.5)
+    assert r["from_sources"] >= 2 and r["without_source"] + r["from_sources"] == r["total_drills"]
+
+
 # ---------- P4: backend basics a native client needs ----------
 
 def test_get_drill_by_id_404_and_ids_param():

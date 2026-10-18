@@ -4898,6 +4898,48 @@ def corpus_stats(db: Session = Depends(get_db)):
         "by_region": by_region,
     }
 
+@app.get("/corpus/sources")
+def corpus_sources(db: Session = Depends(get_db)):
+    """The catalog: every source video the drills came from, grouped
+    channel > playlist > video, with counts, media coverage, variety, the span of
+    the video covered and the tag(s) used — plus how many drills have no source
+    (speaker recordings)."""
+    rows = db.query(DrillModel).filter(DrillModel.source_url != None, DrillModel.source_url != '').all()
+    videos: Dict[str, Dict[str, Any]] = {}
+    for d in rows:
+        v = videos.setdefault(d.source_url, {
+            "source_url": d.source_url, "title": None, "channel": None, "playlist": None, "license": None,
+            "drills": 0, "with_video": 0, "with_audio": 0, "verified": 0, "varieties": set(), "tags": set(),
+            "from_s": None, "to_s": None, "ids": []})
+        v["drills"] += 1
+        v["ids"].append(d.id)
+        v["title"] = v["title"] or d.source_title
+        v["channel"] = v["channel"] or d.source_channel
+        v["playlist"] = v["playlist"] or d.source_playlist
+        v["license"] = v["license"] or d.license
+        v["with_video"] += 1 if d.video_url else 0
+        v["with_audio"] += 1 if d.audio_url else 0
+        v["verified"] += 1 if d.verified else 0
+        if d.variety:
+            v["varieties"].add(d.variety)
+        if d.tag:
+            v["tags"].add(d.tag)
+        if d.video_start_time is not None:
+            v["from_s"] = d.video_start_time if v["from_s"] is None else min(v["from_s"], d.video_start_time)
+        if d.video_end_time is not None:
+            v["to_s"] = d.video_end_time if v["to_s"] is None else max(v["to_s"], d.video_end_time)
+    out = []
+    for v in videos.values():
+        v["varieties"] = sorted(v["varieties"])
+        v["tags"] = sorted(v["tags"])
+        v["first_id"] = min(v["ids"])
+        del v["ids"]
+        out.append(v)
+    out.sort(key=lambda v: ((v["channel"] or "~"), (v["playlist"] or "~"), -v["drills"]))
+    total = db.query(DrillModel).count()
+    return {"total_drills": total, "from_sources": len(rows), "without_source": total - len(rows),
+            "channels": len({v["channel"] for v in out if v["channel"]}), "videos": out}
+
 # Documentation-gap definitions: (key, human label, SQLAlchemy filter builder).
 # A "gap" is a drill that has Tachelhit content but is missing some dimension a
 # complete corpus entry should have — the work-list for contributors.
