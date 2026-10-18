@@ -66,6 +66,7 @@ FFMPEG_MAC = "https://evermeet.cx/ffmpeg/getrelease/zip"
 # Caption languages worth sending to the server, best first. Teaching videos
 # often carry the Tamazight word AND its gloss in one cue ("agmar / horse").
 SUB_LANGS = ["shi", "ber", "zgh", "tzm", "kab", "ar", "ca", "fr", "es", "en"]
+AMAZIGH_SUB_LANGS = SUB_LANGS[:5]  # the only codes an AUTOMATIC caption track may have
 KEEP_DOWNLOADS_DAYS = 7
 FROZEN = bool(getattr(sys, "frozen", False))
 IS_WIN = platform.system() == "Windows"
@@ -315,15 +316,23 @@ def download(url: str, out_dir: str, audio_only: bool, cfg: dict) -> tuple[str, 
         raise RuntimeError("download produced no file")
     media = max(files, key=os.path.getsize)
 
-    # Captions: uploaded ones first (human-made), automatic ones only if none.
+    # Captions: uploaded ones first (human-made), automatic ones only if none —
+    # and automatic ones only in an Amazigh code: YouTube has no Tachelhit speech
+    # recognition, so its automatic Arabic/French/English track on a Tachelhit
+    # video is noise that must never become drill text.
     subs = sub_lang = sub_kind = None
     for flag in ("--write-subs", "--write-auto-subs"):
+        wanted = SUB_LANGS if flag == "--write-subs" else AMAZIGH_SUB_LANGS
         try:
-            run(["--skip-download", flag, "--sub-langs", ",".join(SUB_LANGS), "--sub-format", "vtt"] + common + [url])
+            run(["--skip-download", flag, "--sub-langs", ",".join(f"{l}.*" if flag == "--write-subs" else l for l in wanted),
+                 "--sub-format", "vtt"] + common + [url])
         except Exception as e:
             log(f"  (captions {flag}: {e})")
-        found = {os.path.basename(f).split(".")[-2]: f for f in glob.glob(os.path.join(out_dir, "video.*.vtt"))}
-        for lang in SUB_LANGS:
+        found = {}
+        for f in glob.glob(os.path.join(out_dir, "video.*.vtt")):
+            code = os.path.basename(f).split(".")[-2].split("-")[0].lower()  # en-US -> en
+            found.setdefault(code, f)
+        for lang in wanted:
             if lang in found:
                 subs, sub_lang = found[lang], lang
                 break
