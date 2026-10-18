@@ -1,5 +1,6 @@
 import '../agGridSetup';
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { AgGridReact } from 'ag-grid-react';
 import type { ColDef } from 'ag-grid-community';
 import axios from 'axios';
@@ -623,8 +624,8 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                 ))}
 
                 {/* Password confirmation pop-up */}
-                {deleteDialog}
-                {previewDialog}
+                {deleteDialog && createPortal(deleteDialog, document.body)}
+                {previewDialog && createPortal(previewDialog, document.body)}
             </div>
         );
     }
@@ -847,8 +848,8 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                     onSaved={() => { refreshData(); }}
                 />
             )}
-            {deleteDialog}
-            {previewDialog}
+            {deleteDialog && createPortal(deleteDialog, document.body)}
+            {previewDialog && createPortal(previewDialog, document.body)}
         </div>
     );
 }
