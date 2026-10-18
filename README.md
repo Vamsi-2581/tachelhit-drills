@@ -104,6 +104,7 @@ target the Render API.
   `gaps`, `verify-queue`
 - `/drills/{id}/verify`, `/drills/{id}/resolve` — contribution review and the
   speaker's verdict from the verification queue
+- `/generate-image/{id}` (`use_ai`, optional `search_query` hint), `/images/fill-missing` — drill pictures
 - `/capture/*` — queue a URL for the local capture agent (`tools/capture_agent.py`)
 
 Operator tools (run from `backend/` with its venv):
