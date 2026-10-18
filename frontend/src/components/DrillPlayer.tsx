@@ -419,8 +419,9 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
     // Voice-source chain: native recording (gold) -> stored synthetic voice
     // (scaffold) -> synthesize on demand for text-only cards (the backend
     // stores the result so this only happens once per drill)
-    let sourceUrl = currentDrill?.audio_url || currentDrill?.audio_tts_shi_url || '';
-    let synthetic = !currentDrill?.audio_url && !!sourceUrl;
+    // A captured video clip IS the native voice: play its sound track before any synthetic voice.
+    let sourceUrl = currentDrill?.audio_url || currentDrill?.video_url || currentDrill?.audio_tts_shi_url || '';
+    let synthetic = !currentDrill?.audio_url && !currentDrill?.video_url && !!sourceUrl;
 
     if (!sourceUrl && currentDrill?.text_tachelhit) {
       try {
@@ -787,6 +788,7 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
         <div style={{
           width: '100%',
           maxWidth: '560px',
+          flexShrink: 0, // never squeeze into the scroll area: that clipped the card and stacked its texts on phones
           display: 'flex',
           flexDirection: 'column',
           background: 'var(--surface)',
