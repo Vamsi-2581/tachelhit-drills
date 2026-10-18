@@ -92,7 +92,7 @@ export default function PublicTestView({ initialView = 'landing' }: { initialVie
         >
           ← Inici
         </button>
-        <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#fff' }}>Tachelhit Drills</h1>
+        <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#fff' }}>Tamazight</h1>
       </div>
 
       {/* Main Content */}

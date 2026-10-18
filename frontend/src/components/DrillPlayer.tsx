@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { answerSafeFilter } from '../utils/media';
 import SourceCredit from './SourceCredit';
 import { API_BASE, getMediaUrl } from '../config';
 import { fileNameFor, preferredRecorderMime, toPlayableAudioUrl } from '../utils/media';
@@ -805,7 +806,7 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
               <img
                 src={imageUrl}
                 alt=""
-                style={{ width: '100%', height: 'clamp(180px, 34vh, 300px)', objectFit: 'contain', display: 'block' }}
+                style={{ width: '100%', height: 'clamp(180px, 34vh, 300px)', objectFit: 'contain', display: 'block', filter: answerSafeFilter(currentDrill?.image_url, hideAnswer), transition: 'filter 0.3s' }}
                 onError={(e) => {
                   ((e.target as HTMLImageElement).parentElement as HTMLElement).style.display = 'none';
                 }}
