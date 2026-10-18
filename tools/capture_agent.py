@@ -55,7 +55,7 @@ try:
 except ImportError:  # the frozen build always has it
     sys.exit("Missing dependency. Run:  pip install requests yt-dlp")
 
-__version__ = "2.5.0"
+__version__ = "2.5.1"
 APP_NAME = "TachelhitCapture"
 DEFAULT_API = "https://tachelhit-drills-api.onrender.com"
 WEB_APP = "https://tachelhit-drills.vercel.app/video-creator"
@@ -344,7 +344,7 @@ def source_meta(url: str, cfg: dict) -> dict:
     try:
         if binary:
             out = subprocess.run([binary, "--no-playlist", "--skip-download", "--no-warnings",
-                                  "--print", "%(title)s\t%(channel)s\t%(license)s", url] + extra,
+                                  "--encoding", "utf-8", "--print", "%(title)s\t%(channel)s\t%(license)s", url] + extra,
                                  capture_output=True, timeout=120, text=True, encoding="utf-8", errors="replace",
                                  **_no_window()).stdout.strip().splitlines()
             if out:
@@ -362,7 +362,7 @@ def source_meta(url: str, cfg: dict) -> dict:
             cache = cfg.setdefault("playlists", {})
             if lid not in cache and binary:
                 out = subprocess.run([binary, "--flat-playlist", "--skip-download", "--no-warnings", "--playlist-items", "1",
-                                      "--print", "%(playlist_title)s", f"https://www.youtube.com/playlist?list={lid}"] + extra,
+                                      "--encoding", "utf-8", "--print", "%(playlist_title)s", f"https://www.youtube.com/playlist?list={lid}"] + extra,
                                      capture_output=True, timeout=120, text=True, encoding="utf-8", errors="replace",
                                      **_no_window()).stdout.strip().splitlines()
                 cache[lid] = (out[-1] if out else "").strip()
