@@ -32,7 +32,7 @@ const RouteLoader = () => (
 
 // Learner entry point in the top nav (saffron signature accent): review when
 // something is due/new, otherwise plain practice — never hidden.
-const ReviewNavButton = () => {
+const ReviewNavButton = ({ compact = false }: { compact?: boolean }) => {
   const navigate = useNavigate();
   const [counts, setCounts] = useState<{ due: number; new: number } | null>(null);
   const [streak, setStreak] = useState(0);
@@ -51,12 +51,12 @@ const ReviewNavButton = () => {
         title="Practica tots els drills"
         style={{
           flexShrink: 0, display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap',
-          padding: '8px 14px', background: 'var(--emerald-soft)', color: 'var(--emerald)',
-          border: '1px solid var(--emerald)', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: '14px', cursor: 'pointer'
+          padding: compact ? '8px 10px' : '8px 14px', background: 'var(--emerald-soft)', color: 'var(--emerald)',
+          border: '1px solid var(--emerald)', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: compact ? '13px' : '14px', cursor: 'pointer'
         }}
       >
-        <FaPlay size={12} /> Practica
-        {streak > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}><FaFire size={12} />{streak}</span>}
+        <FaPlay size={12} />{!compact && ' Practica'}
+        {streak > 0 && !compact && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}><FaFire size={12} />{streak}</span>}
       </button>
     );
   }
@@ -67,12 +67,12 @@ const ReviewNavButton = () => {
       title="Repàs espaiat"
       style={{
         flexShrink: 0, display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap',
-        padding: '8px 14px', background: 'var(--saffron)', color: '#fff',
-        border: 'none', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: '14px', cursor: 'pointer'
+        padding: compact ? '8px 10px' : '8px 14px', background: 'var(--saffron)', color: '#fff',
+        border: 'none', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: compact ? '13px' : '14px', cursor: 'pointer'
       }}
     >
-      <FaRedo size={13} /> {counts!.due > 0 ? counts!.due : `${counts!.new} nous`}
-      {streak > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}><FaFire size={12} />{streak}</span>}
+      <FaRedo size={13} /> {counts!.due > 0 ? counts!.due : compact ? counts!.new : `${counts!.new} nous`}
+      {streak > 0 && !compact && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}><FaFire size={12} />{streak}</span>}
     </button>
   );
 };
@@ -146,8 +146,8 @@ function App() {
       {showNav && (
         <nav style={{
           position: 'sticky', top: 0, zIndex: 1000, background: 'var(--surface)',
-          borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '10px',
-          padding: 'calc(10px + env(safe-area-inset-top, 0px)) 14px 10px', boxSizing: 'border-box',
+          borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: compactNav ? '6px' : '10px',
+          padding: compactNav ? 'calc(10px + env(safe-area-inset-top, 0px)) 8px 10px' : 'calc(10px + env(safe-area-inset-top, 0px)) 14px 10px', boxSizing: 'border-box',
           height: 'var(--nav-h)', boxShadow: '0 1px 3px rgba(15,23,42,0.04)'
         }}>
           <button onClick={() => navigate('/')} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
@@ -162,9 +162,9 @@ function App() {
               </button>
             ))}
           </div>
-          <ReviewNavButton />
-          <button onClick={() => setAiOpen(v => !v)} title="Copilot" aria-label="Copilot" style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '9px 12px', borderRadius: 'var(--r-pill)', cursor: 'pointer', border: 'none', background: aiOpen ? 'var(--brand-1)' : 'var(--brand-gradient)', color: '#fff' }}><FaComments size={15} /></button>
-          <button onClick={() => navigate('/profile')} title="Perfil" aria-label="Perfil" style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '9px 12px', borderRadius: 'var(--r-pill)', cursor: 'pointer', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-soft)' }}><FaUser size={15} /></button>
+          <ReviewNavButton compact={compactNav} />
+          <button onClick={() => setAiOpen(v => !v)} title="Copilot" aria-label="Copilot" style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: compactNav ? '9px 10px' : '9px 12px', borderRadius: 'var(--r-pill)', cursor: 'pointer', border: 'none', background: aiOpen ? 'var(--brand-1)' : 'var(--brand-gradient)', color: '#fff' }}><FaComments size={15} /></button>
+          <button onClick={() => navigate('/profile')} title="Perfil" aria-label="Perfil" style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: compactNav ? '9px 10px' : '9px 12px', borderRadius: 'var(--r-pill)', cursor: 'pointer', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-soft)' }}><FaUser size={15} /></button>
         </nav>
       )}
 
