@@ -18,9 +18,10 @@ def gemini_available() -> bool:
                 or (os.getenv("GEMINI_PROXY_URL") or "").strip())
 
 
-def _generate_content(payload: dict, timeout: int) -> dict:
+def _generate_content(payload: dict, timeout: int, model: str | None = None) -> dict:
     """
     POST a generateContent payload to Gemini and return the parsed JSON.
+    `model` overrides GEMINI_MODEL (e.g. the image model); the proxy forwards it as-is.
     If GEMINI_PROXY_URL is set, forward through that proxy (which holds the
     API key and calls Google from an un-blocked IP); otherwise call Google
     directly with GEMINI_API_KEY. Raises on non-200.
@@ -31,13 +32,13 @@ def _generate_content(payload: dict, timeout: int) -> dict:
         secret = (os.getenv("GEMINI_PROXY_SECRET") or "").strip()
         if secret:
             headers["X-Proxy-Secret"] = secret
-        resp = requests.post(proxy, json={"model": GEMINI_MODEL, "payload": payload},
+        resp = requests.post(proxy, json={"model": model or GEMINI_MODEL, "payload": payload},
                              headers=headers, timeout=timeout)
     else:
         key = (os.getenv("GEMINI_API_KEY") or "").strip()
         if not key:
             raise RuntimeError("GEMINI_API_KEY not configured")
-        url = f"{GEMINI_BASE}/models/{GEMINI_MODEL}:generateContent?key={key}"
+        url = f"{GEMINI_BASE}/models/{model or GEMINI_MODEL}:generateContent?key={key}"
         resp = requests.post(url, json=payload, timeout=timeout)
     if resp.status_code != 200:
         raise RuntimeError(f"Gemini API {resp.status_code}: {resp.text[:300]}")

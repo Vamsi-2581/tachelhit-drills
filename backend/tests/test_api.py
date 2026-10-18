@@ -732,3 +732,23 @@ def test_verify_queue_reasons_and_resolve():
     assert (d["text_tachelhit"], d["text_tachelhit_latin"], d["text_tachelhit_suggested"]) == ("ⴽⴰⴷ ⵍⴳⵓⴷⵉⵏⵓ", "kad lgudinu", None)
     left = {x["id"] for x in client.get("/corpus/verify-queue", params={"limit": 500}).json()["drills"]}
     assert not ({contested, differs, subtitle} & left) and empty in left
+
+
+def test_illustration_prompt_and_generate_image_endpoint(monkeypatch):
+    from illustrate import illustration_prompt
+    p = illustration_prompt("  Em deixes   el teu cotxe? ", hint="a small green car")
+    assert "«Em deixes el teu cotxe?»" in p and "a small green car" in p
+    assert "no text" in p.lower()  # the words are the drill, never the picture
+
+    # the endpoint uses the Gemini illustrator when it is configured, and stores the upload
+    d = client.post("/drills/", json={"text_catalan": "La mare fa pa"}).json()
+    seen = {}
+    monkeypatch.setattr(main, "illustration_available", lambda: True)
+    monkeypatch.setattr(main, "generate_illustration", lambda text, hint=None: seen.setdefault("args", (text, hint)) and b"PNG")
+    monkeypatch.setattr(main.cloudinary.uploader, "upload",
+                        lambda data, **kw: {"secure_url": f"https://res.cloudinary.com/x/{kw.get('public_id')}.png"})
+    r = client.post(f"/generate-image/{d['id']}", json={"use_ai": True, "search_query": "bread oven"})
+    assert r.status_code == 200, r.text
+    assert seen["args"] == ("La mare fa pa", "bread oven")
+    assert r.json()["photographer"] == "Gemini illustration"
+    assert client.get(f"/drills/{d['id']}").json()["image_url"].startswith("https://res.cloudinary.com/x/img_")
