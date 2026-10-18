@@ -59,6 +59,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
     const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
     const [recordDrill, setRecordDrill] = useState<Drill | null>(null);
     const [showTestConfig, setShowTestConfig] = useState(false);
+    const [mobileTestIds, setMobileTestIds] = useState<number[]>([]);
     const [pendingMedia, setPendingMedia] = useState<Record<number, { image?: string, audio?: Blob, audioUrl?: string, video?: Blob, videoUrl?: string }>>({});
     const navigate = useNavigate();
 
@@ -485,6 +486,22 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
     if (isMobile) {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '4px' }}>
+                {rowData.length > 0 && rowData.length <= 60 && (
+                    <button onClick={() => { setMobileTestIds(rowData.map((d) => d.id)); setShowTestConfig(true); }}
+                        style={{ alignSelf: 'flex-start', padding: '9px 14px', background: 'var(--brand-gradient-soft)', color: 'var(--brand-1)', border: '1px solid var(--border)', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                        <FaPlus style={{ marginRight: '6px' }} />Crea pràctica amb aquests {rowData.length} drills
+                    </button>
+                )}
+                {showTestConfig && createPortal(
+                    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.7)', zIndex: 30000, display: 'flex', alignItems: 'stretch', justifyContent: 'center' }}>
+                        <div style={{ background: 'var(--surface)', width: '100%', maxHeight: '100dvh', overflow: 'auto' }}>
+                            <TestConfigPanel
+                                onClose={() => setShowTestConfig(false)}
+                                onTestCreated={(id) => { setShowTestConfig(false); navigate(`/tests/${id}`); }}
+                                initialSelectedDrillIds={mobileTestIds}
+                            />
+                        </div>
+                    </div>, document.body)}
                 {rowData.length === 0 && (
                     <div style={{ textAlign: 'center', padding: '48px 20px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-xl)', boxShadow: 'var(--shadow-sm)', color: 'var(--text-soft)' }}>
                         <div style={{ fontSize: '44px', marginBottom: '12px' }}>{loadError === 'error' ? '📡' : '📭'}</div>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { Network } from '@capacitor/network';
 import { syncManager } from '../services/OfflineSyncManager';
 import TestTaking from './TestTaking';
@@ -38,6 +39,7 @@ interface TestStats {
 
 export default function TestsDashboard() {
   const isMobile = useIsMobileLayout();
+  const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
   const [tests, setTests] = useState<Test[]>([]);
   const [selectedTest, setSelectedTest] = useState<Test | null>(null);
@@ -434,6 +436,17 @@ export default function TestsDashboard() {
                         <p style={{ margin: '0 0 10px 0', fontSize: isMobile ? '14px' : '13px', color: 'var(--text-soft)', lineHeight: 1.4 }}>
                           {test.description || 'Sense descripció'}
                         </p>
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
+                          <button onClick={(e) => { e.stopPropagation(); navigate(`/tests/${test.id}`); }}
+                            style={{ padding: '7px 12px', background: 'var(--brand-1)', color: '#fff', border: 'none', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                            🎯 Fes el test
+                          </button>
+                          <button onClick={(e) => { e.stopPropagation(); navigate(`/tests/${test.id}/listen`); }}
+                            title="Només àudio, un drill rere l'altre"
+                            style={{ padding: '7px 12px', background: 'var(--surface-2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                            🎧 Escolta
+                          </button>
+                        </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                           <span style={{
                             display: 'inline-flex',

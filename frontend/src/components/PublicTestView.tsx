@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config';
 import TestTaking from './TestTaking';
 import DrillPlayer from './DrillPlayer';
+import TestListen from './TestListen';
 
 interface Test {
   id: number;
@@ -12,13 +13,13 @@ interface Test {
   drill_ids: string;
 }
 
-export default function PublicTestView() {
+export default function PublicTestView({ initialView = 'landing' }: { initialView?: 'landing' | 'listening' } = {}) {
   const { testId } = useParams<{ testId: string }>();
   const navigate = useNavigate();
   const [test, setTest] = useState<Test | null>(null);
   const [drills, setDrills] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'landing' | 'taking' | 'playing'>('landing');
+  const [view, setView] = useState<'landing' | 'taking' | 'playing' | 'listening'>(initialView);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -50,6 +51,10 @@ export default function PublicTestView() {
 
   if (view === 'playing') {
     return <DrillPlayer drills={drills} onExit={() => setView('landing')} />;
+  }
+
+  if (view === 'listening') {
+    return <TestListen drills={drills} title={test.title} onExit={() => setView('landing')} />;
   }
 
   return (
@@ -170,6 +175,22 @@ export default function PublicTestView() {
               onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
             >
               ▶️ Reprodueix els drills
+            </button>
+            <button
+              onClick={() => setView('listening')}
+              title="Només àudio, un drill rere l'altre: per escoltar mentre corres o camines"
+              style={{
+                padding: '14px 24px',
+                fontSize: '16px',
+                background: 'var(--surface-2)',
+                color: 'var(--text)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--r-lg)',
+                cursor: 'pointer',
+                fontWeight: 700
+              }}
+            >
+              🎧 Escolta sense mirar
             </button>
           </div>
 

@@ -174,6 +174,7 @@ function App() {
         <Route path="/" element={<DrillsResponsive />} />
         <Route path="/tests" element={<TestsDashboard />} />
         <Route path="/tests/:testId" element={<PublicTestView />} />
+        <Route path="/tests/:testId/listen" element={<PublicTestView initialView="listening" />} />
         <Route path="/shorts" element={<YouTubeShorts />} />
         <Route path="/video-creator" element={<VideoDrillCreator />} />
         <Route path="/srt-import" element={<SrtImport />} />
