@@ -3415,8 +3415,18 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         media_errors = []
         audio_src = is_audio_file(video_path)
         _prev_text = None
+        # When the capture located the segments on the timeline (subtitles / on-screen
+        # vocabulary), a segment WITHOUT a position is a word the model heard but could
+        # not place: it would become a drill with no clip at all (lessons 04/05/06/12 on
+        # 2026-10-18 each produced one, sometimes with the wrong letter). Drop those; a
+        # pure audio transcript (nothing timed) keeps its text-only drills as before.
+        _any_timed = any(s.get("start") is not None for s in segments)
         for seg in segments:
             original_text = seg.get("text")
+            if _any_timed and (seg.get("no_media") or seg.get("start") is None):
+                print(f"[AutoDrills] skipping untimed segment (no clip): {str(seg.get('latin') or original_text)[:60]!r}")
+                media_errors.append(f"{seg.get('latin') or original_text}: spoken but not shown on screen (no clip, skipped)")
+                continue
             drill_tachelhit = seg.get("text_tachelhit") or (original_text if effective_source in ("shi", "ber") else None)
             drill_arabic = seg.get("text_arabic") or (original_text if effective_source == "ar" else None)
 
