@@ -2164,19 +2164,25 @@ def _image_api_predict(client, prompt):
     return client.predict(prompt)
 
 
+_GRAMMAR_WORDS = ("verb", "temps verbals", "gramàt", "gramat", "conjug", "pronom", "adjectiu", "preposici", "plural ", "singular ")
+
+
 def _is_depictable(drill) -> bool:
+    """Is there a scene to draw? A single concrete word ("carbassa", "vent") is the most
+    drawable thing there is; what has no scene is a grammar label ("Verb comprar — temps
+    verbals") or a chant of one word ("sí sí sí")."""
     text = (drill.text_catalan or "").strip()
     if not text:
         return False
+    low = text.lower()
+    if any(k in low for k in _GRAMMAR_WORDS):
+        return False
     tag = (drill.tag or "").lower()
-    if any(k in tag for k in ("srt", "gramat", "grammar", "lyric")):
+    if any(k in tag for k in ("gramat", "gramàt", "grammar")):
         return False
     lowered = [w.strip(".,!?¡¿…-").lower() for w in text.split()]
     lowered = [w for w in lowered if w]
-    # single word or repeated interjection ("sí sí sí", "no, no, no")
-    if len(set(lowered)) <= 1 and len(text) <= 14:
-        return False
-    return True
+    return not (len(lowered) >= 2 and len(set(lowered)) == 1)
 
 
 def _run_image_fill(only_depictable: bool = True):

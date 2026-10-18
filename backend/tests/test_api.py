@@ -752,3 +752,14 @@ def test_illustration_prompt_and_generate_image_endpoint(monkeypatch):
     assert seen["args"] == ("La mare fa pa", "bread oven")
     assert r.json()["photographer"] == "Gemini illustration"
     assert client.get(f"/drills/{d['id']}").json()["image_url"].startswith("https://res.cloudinary.com/x/img_")
+
+
+def test_is_depictable_draws_single_words_not_grammar_labels():
+    class D:
+        def __init__(self, t, tag=None): self.text_catalan, self.tag = t, tag
+    assert main._is_depictable(D("carbassa"))            # one concrete word has a scene
+    assert main._is_depictable(D("Em deixes el teu cotxe?"))
+    assert not main._is_depictable(D("sí sí sí"))         # a chant of one word has none
+    assert not main._is_depictable(D("Verb comprar - temps verbals"))
+    assert not main._is_depictable(D("hola", tag="gramàtica 3"))
+    assert not main._is_depictable(D(""))

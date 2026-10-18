@@ -17,7 +17,8 @@ import {
   FaLanguage,
   FaChevronLeft,
   FaChevronRight,
-  FaCut as FaScissors
+  FaCut as FaScissors,
+  FaMagic
 } from 'react-icons/fa';
 import axios from 'axios';
 import { Network } from '@capacitor/network';
@@ -124,6 +125,23 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
     addLog(`Field change: ${field} -> ${value?.substring(0, 20)}...`);
     const updated = { ...localDrill, [field]: value };
     setLocalDrill(updated);
+  };
+
+  const [drawHint, setDrawHint] = useState('');
+  /** Ask the server to draw the sentence (Gemini, flashcard style). Replaces the current picture. */
+  const illustrate = async () => {
+    setAiLoadingKey('illustrate');
+    try {
+      const r = await api.illustrateDrill(localDrill.id, drawHint);
+      setLocalDrill(prev => ({ ...prev, image_url: r.image_url }));
+      setLocalMediaUrls(prev => { const n = { ...prev }; delete n.image; return n; });
+      toast.success('Dibuix fet');
+      onUpdate();
+    } catch (err: any) {
+      toast.error(`No s'ha pogut dibuixar: ${err?.message || 'error'}`);
+    } finally {
+      setAiLoadingKey(null);
+    }
   };
 
   /** Upload a blob for this drill (online) or queue it (native, offline).
@@ -471,7 +489,19 @@ export default function MobileDrillEditor({ drill, onClose, onUpdate, onNavigate
         </div>
 
         {localDrill.image_url && (
-          <img src={getSourceUrl(localDrill.image_url, 'image')} alt="Recurs del drill" style={{ width: '100%', height: '150px', borderRadius: 'var(--r-lg)', objectFit: 'cover', border: '1px solid var(--border)' }} />
+          <img src={getSourceUrl(localDrill.image_url, 'image')} alt="Recurs del drill" style={{ width: '100%', height: '180px', borderRadius: 'var(--r-lg)', objectFit: 'contain', background: 'var(--surface-2)', border: '1px solid var(--border)' }} />
+        )}
+
+        {/* Draw the sentence: one illustration in the deck's style, replacing whatever picture is there */}
+        {!localDrill.is_local && (localDrill.text_catalan || '').trim() && (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input value={drawHint} onChange={e => setDrawHint(e.target.value)} placeholder="Què s'ha de dibuixar? (opcional)" aria-label="Indicació per al dibuix"
+                   style={{ flex: 1, minWidth: 0, padding: '10px 12px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '14px' }} />
+            <button onClick={illustrate} disabled={aiLoadingKey === 'illustrate'} aria-label="Dibuixa la frase" title="Dibuixa la frase (IA)"
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderRadius: 'var(--r-md)', border: 'none', background: 'var(--saffron)', color: '#fff', fontWeight: 700, fontSize: '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <FaMagic /> {aiLoadingKey === 'illustrate' ? 'Dibuixant…' : localDrill.image_url ? 'Torna a dibuixar' : 'Dibuixa'}
+            </button>
+          </div>
         )}
 
         {localDrill.video_url && (
