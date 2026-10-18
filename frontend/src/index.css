@@ -124,7 +124,9 @@ button {
   cursor: pointer;
   transition: transform var(--t-fast), box-shadow var(--t-fast), background-color var(--t-fast), opacity var(--t-fast);
 }
-button:hover:not(:disabled) { transform: translateY(-1px); }
+@media (hover: hover) {
+  button:hover:not(:disabled) { transform: translateY(-1px); }
+}
 button:active:not(:disabled) { transform: translateY(0); }
 button:disabled { cursor: not-allowed; opacity: 0.55; }
 button:focus-visible {

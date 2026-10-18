@@ -1,23 +1,29 @@
 # INFO: Project: Tachelhit Drills. Feature: ASR, Correction, Translation, Video Processing. Status: Active.
 import asyncio
 import os
+import glob
+import subprocess
 import json
 import traceback
 import tempfile
 import shutil
 import yt_dlp
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from urllib.parse import quote
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Body, Form, BackgroundTasks, Request
-from pydantic import BaseModel
-from typing import Optional, List, Dict
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Body, Form, BackgroundTasks, Request, Response
+from fastapi.encoders import jsonable_encoder
+from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any, Tuple
 import hashlib
 import re
 import secrets
 from gemini_client import gemini_generate, gemini_available, gemini_agent
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func as sa_func
 from sqlalchemy.orm import sessionmaker, Session
 import requests
 from dotenv import load_dotenv
@@ -37,8 +43,8 @@ cloudinary.config(
     api_secret=os.getenv("CLOUDINARY_API_SECRET")
 )
 
-from models import Base, Drill as DrillModel, Test as TestModel, TestAttempt as TestAttemptModel, YouTubeShort as YouTubeShortModel, VideoProcessingJob as VideoProcessingJobModel, VideoSegment as VideoSegmentModel, GlossaryItem as GlossaryItemModel, DrillReview as DrillReviewModel, User as UserModel, ReviewLog as ReviewLogModel, Recording as RecordingModel, CaptureRequest as CaptureRequestModel  # ← Alias for ORM models
-from schemas import DrillCreate, DrillUpdate, Drill, TestCreate, TestUpdate, Test, TestAttemptCreate, TestAttempt, YouTubeShortCreate, YouTubeShort, VideoProcessingJobCreate, VideoProcessingJob, VideoSegmentCreate, VideoSegment, TranscribeRequest, TranscribeResponse, TranslateRequest, TranslateResponse, DrillPairInfo, GlossaryItem, GlossaryItemCreate, SrtImportRequest, SrtImportResponse, SrtSegment, BulkVideoUrlUpdateRequest, BulkVideoUrlUpdateResponse  # ← Pydantic schemas
+from models import Base, Drill as DrillModel, Test as TestModel, TestAttempt as TestAttemptModel, YouTubeShort as YouTubeShortModel, VideoProcessingJob as VideoProcessingJobModel, VideoSegment as VideoSegmentModel, GlossaryItem as GlossaryItemModel, DrillReview as DrillReviewModel, User as UserModel, ReviewLog as ReviewLogModel, Recording as RecordingModel, CaptureRequest as CaptureRequestModel, DrillTombstone as DrillTombstoneModel  # ← Alias for ORM models
+from schemas import DrillCreate, DrillUpdate, Drill, TestCreate, TestUpdate, Test, TestAttemptCreate, TestAttempt, YouTubeShortCreate, YouTubeShort, VideoProcessingJobCreate, VideoProcessingJob, VideoSegmentCreate, VideoSegment, TranscribeRequest, TranscribeResponse, TranslateRequest, TranslateResponse, DrillPairInfo, GlossaryItem, GlossaryItemCreate, SrtImportRequest, SrtImportResponse, SrtSegment, BulkVideoUrlUpdateRequest, BulkVideoUrlUpdateResponse, iso_z  # ← Pydantic schemas
 from correction_service import get_correction_service
 from srt_parser import parse_srt_content, create_youtube_url_with_timestamp
 
@@ -274,6 +280,9 @@ def generate_catalan_tts(text: str, drill_id: int) -> str:
         print(f"[TTS] Error generating TTS: {e}")
         raise
 
+_hf_clients: Dict[str, Any] = {}
+
+
 def hf_predict(space_id: str, *args, api_name: str = "/predict", token: str = None,
                retries: int = 3, timeout: float = 180.0, **kwargs):
     """
@@ -290,11 +299,17 @@ def hf_predict(space_id: str, *args, api_name: str = "/predict", token: str = No
     last_err = None
     for attempt in range(1, retries + 1):
         try:
-            client = Client(space_id, token=token,
-                            httpx_kwargs={"timeout": httpx.Timeout(timeout, connect=30.0)})
+            # Reuse the Gradio client per Space: building one costs a config
+            # round-trip (~5 s) and a 170-cue story paid it on every call.
+            client = _hf_clients.get(space_id)
+            if client is None:
+                client = Client(space_id, token=token,
+                                httpx_kwargs={"timeout": httpx.Timeout(timeout, connect=30.0)})
+                _hf_clients[space_id] = client
             return client.predict(*args, api_name=api_name, **kwargs)
         except Exception as e:
             last_err = e
+            _hf_clients.pop(space_id, None)  # a stale client after a cold restart: rebuild next time
             print(f"[HF] {space_id} attempt {attempt}/{retries} failed: {e}")
             if attempt < retries:
                 _time.sleep(min(20, 5 * attempt))  # give the Space time to finish booting
@@ -357,6 +372,801 @@ else:
 
 SessionLocal = sessionmaker(bind=engine)
 
+# ---------------------------------------------------------------------------
+# Auto-capture guard (P5.2): ASR on English or music sometimes yields English
+# sentences or hallucinated repeats ("R.R.R.R.R…"). Such segments must never
+# be saved as attested Tachelhit. Mirrors backend/tools/find_junk_drills.py.
+_JUNK_REPEAT_RUN = re.compile(r"(?:\b(\w{1,3})\b[\s.,]*)(?:\1[\s.,]*){5,}", re.I)
+_JUNK_ENGLISH = re.compile(r"\b(" + "the|and|you|that|this|with|have|from|they|what|about|going|actually|little|bit|bus|grab|called|can't|don't|didn't|won't|isn't|tell|i'm|i am|we are|it's|bear|fall|asleep|therefore|lost|because|would|could|should|there|here|where|when|then|than|your|their|just|like|know|think|want|need|make|take|come|some|thing|time|people|back|only|over|also|into|very|well|much|many|more|most|other|through|before|after|never|always|really|something|nothing|everything|world|life|love|heart|mind|night|every|again|please|thank|sorry|hello|goodbye" + r")\b", re.I)
+_TIFINAGH_RE = re.compile(r"[\u2D30-\u2D7F]")
+
+
+_TMZ_LETTERS = re.compile(r"[ɣḍḥẓṭṛṣɛƹǧčɛ\u2D30-\u2D7F]")
+_EN_LETTERS = re.compile(r"[ovpe]", re.I)  # rare in Latin Tachelhit, common in English
+_EN_SMALL = re.compile(
+    r"\b(a|an|the|of|and|to|in|is|are|my|your|his|her|our|their|this|that|with|for|from|"
+    r"animals?|birds?|horse|hen|owl|cat|dog|cow|goat|sheep|fish|water|bread|house|school|"
+    r"vocabulary|vocabuary|lesson|numbers?|colou?rs?|family|mother|father|brother|sister|"
+    r"hello|good|morning|night|thank|you|yes|no|one|two|three|four|five)\b", re.I)
+
+
+def cue_text_for_storage(seg: Dict[str, Any]) -> str:
+    """Keep a caption cue's line breaks in text_original (bilingual cues)."""
+    lines = seg.get("lines") or []
+    return "\n".join(lines) if len(lines) > 1 else (seg.get("text") or "")
+
+
+def split_bilingual_cue(text: Optional[str]) -> Tuple[str, Optional[str], Optional[str]]:
+    """Teaching videos caption one cue as `agmar` + `horse` (word + gloss).
+    Returns (tachelhit_text, gloss, gloss_lang) — gloss None for ordinary cues.
+    Decides by script-specific letters first, then English-likeness; on a tie
+    the first line is the target language (the convention in these videos)."""
+    t = (text or "").strip()
+    lines = [l.strip() for l in t.split("\n") if l.strip()]
+    if len(lines) != 2:
+        return t, None, None
+    a, b = lines
+
+    def tmz(x: str) -> int:
+        return 3 * len(_TMZ_LETTERS.findall(x))
+
+    def en(x: str) -> int:
+        return len(_EN_LETTERS.findall(x)) + 3 * len(_EN_SMALL.findall(x))
+
+    score_a = tmz(a) - en(a)   # >0 looks Tamazight, <0 looks English
+    score_b = tmz(b) - en(b)
+    if score_a == score_b:
+        return a, b, "en"
+    return (a, b, "en") if score_a > score_b else (b, a, "en")
+
+
+def _gloss_key(text: str) -> str:
+    """Lookup key for a translated item: no bidi/format marks, no surrounding
+    punctuation, collapsed spaces, lowercase — the model drops the invisible
+    RTL mark and trailing dots of Arabic subtitle cues from its JSON keys."""
+    import unicodedata
+    t = "".join(ch for ch in str(text or "") if unicodedata.category(ch) != "Cf")
+    t = " ".join(t.split()).strip(" .…-–—:;,!?\"'«»")
+    return t.lower()
+
+
+def _parse_gloss_json(answer: str) -> Dict[str, Dict[str, str]]:
+    """Gemini answers a JSON object {gloss: {"ca": ..., "ar": ...}}; tolerate fences."""
+    m = re.search(r"\{.*\}", answer or "", re.S)
+    if not m:
+        return {}
+    try:
+        data = json.loads(m.group(0))
+    except ValueError:
+        return {}
+    out: Dict[str, Dict[str, str]] = {}
+    for k, v in (data.items() if isinstance(data, dict) else []):
+        if isinstance(v, dict):
+            out[_gloss_key(k)] = {t: str(v.get(t) or "").strip() for t in ("ca", "ar")}
+    return out
+
+
+def translate_glosses(glosses: List[str], src_lang: str = "English",
+                      targets: Tuple[str, ...] = ("ca", "ar"), chunk: int = 40) -> Dict[str, Dict[str, str]]:
+    """Catalan (+ Arabic) for a list of items — glosses ("horse") or whole caption
+    sentences. Gemini in chunks of `chunk` items (a 170-sentence story blew the
+    output budget in one call and silently fell back to NLLB per cue); the
+    translation Space per item is the fallback."""
+    uniq = [g for g in dict.fromkeys((g or "").strip() for g in glosses) if g]
+    result: Dict[str, Dict[str, str]] = {}
+    if not uniq:
+        return result
+    names = {"ca": "Catalan", "ar": "Modern Standard Arabic"}
+    want = [t for t in targets if t in names and names[t] != src_lang]
+    if gemini_available() and want:
+        tlist = " and ".join(f"{names[t]} (\"{t}\")" for t in want)
+        for i in range(0, len(uniq), chunk):
+            part = uniq[i:i + chunk]
+            try:
+                prompt = ("Translate each " + src_lang + " item into " + tlist + ". Items are words, phrases or "
+                          "subtitle sentences from a language-learning video; keep number/article form and register, "
+                          "lowercase single words unless proper nouns, no explanations. Answer ONLY with a JSON object "
+                          "mapping each item (exactly as given) to {" + ", ".join(f"\"{t}\": ..." for t in want) + "}.\n\nItems:\n"
+                          + "\n".join(f"- {g}" for g in part))
+                answer = gemini_generate("You are a precise bilingual lexicographer.",
+                                         [{"role": "user", "text": prompt}], max_output_tokens=8000, temperature=0.1, timeout=180)
+                parsed = _parse_gloss_json(answer)
+                for g in part:
+                    hit = parsed.get(_gloss_key(g))
+                    if hit and all(hit.get(t) for t in want):
+                        result[g] = hit
+                print(f"[AUTO] Gemini translated {sum(1 for g in part if g in result)}/{len(part)} items ({src_lang} -> {','.join(want)})")
+            except Exception as e:
+                print(f"[AUTO] Gemini batch translation failed ({e}); using the translation Space for this chunk")
+    for g in uniq:
+        if g in result:
+            continue
+        entry: Dict[str, str] = {}
+        for tgt in want:
+            try:
+                entry[tgt] = translate_with_hf(g, src_lang, names[tgt])
+            except Exception as e:
+                print(f"[AUTO] Translation ({tgt}) failed for {g[:40]!r}: {e}")
+        result[g] = entry
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Lesson mode (frame reading). Talking-head lessons show the letter / word on
+# screen (Tifinagh and often Latin) while the teacher explains in English or
+# Arabic; speech recognition of that is useless, the frames are the content.
+def extract_frames(video_path: str, out_dir: str, every: float = 2.0, width: int = 640) -> List[Tuple[float, str]]:
+    """One JPEG every `every` seconds -> [(second, path)]. Needs ffmpeg."""
+    os.makedirs(out_dir, exist_ok=True)
+    pattern = os.path.join(out_dir, "f_%05d.jpg")
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", video_path,
+                    "-vf", f"fps=1/{every},scale={width}:-2", "-q:v", "4", pattern],
+                   check=True, capture_output=True, timeout=600)
+    files = sorted(glob.glob(os.path.join(out_dir, "f_*.jpg")))
+    return [(i * every, f) for i, f in enumerate(files)]
+
+
+def lesson_audio_vocabulary(video_path: str, tmp_dir: str) -> Dict[str, Any]:
+    """What the teacher SAYS: the letters taught and every example word with its
+    meaning. Frame OCR confuses ⵖ/ⵅ and ⵏ/ⵍ; the spoken lesson is unambiguous.
+    Returns {"speech_language", "letters": [{name, latin}], "words": [{latin, meaning_en}]} or {}."""
+    import base64
+    from gemini_client import _generate_content
+    # The audio goes in LABELLED 30 s chunks: Gemini's own timestamps drift, but
+    # "which chunk" is reliable, and 30 s is enough to find the word on screen.
+    CHUNK = 30.0
+    parts: List[Dict[str, Any]] = []
+    try:
+        probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", video_path],
+                               capture_output=True, text=True, timeout=60).stdout.strip()
+        duration = float(probe or 0) or 600.0
+        if duration > 1800:  # a 30-minute lecture is not a lesson clip
+            return {}
+        n = 0
+        t = 0.0
+        while t < duration:
+            chunk = os.path.join(tmp_dir, f"lesson_audio_{n:03d}.mp3")
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-ss", str(t), "-t", str(CHUNK), "-i", video_path, "-vn",
+                            "-ac", "1", "-ar", "16000", "-b:a", "40k", chunk], check=True, capture_output=True, timeout=600)
+            with open(chunk, "rb") as fh:
+                parts.append({"text": f"[audio chunk {n}: {t:.0f}s to {min(t + CHUNK, duration):.0f}s]"})
+                parts.append({"inline_data": {"mime_type": "audio/mpeg", "data": base64.b64encode(fh.read()).decode()}})
+            n += 1
+            t += CHUNK
+    except Exception as e:
+        print(f"[LESSON] audio extraction failed: {e}")
+        return {}
+    prompt = ("These are consecutive 30-second chunks of a Tamazight (Amazigh) language lesson, each labelled with its "
+              "chunk number and seconds. Identify the language the teacher speaks. List the Tifinagh letters being "
+              "taught (IRCAM name such as yab, and the Latin sound) and EVERY Tamazight example word or phrase the "
+              "teacher gives, spelled in academic Latin (ɣ ḍ ḥ ṭ ẓ ɛ; write 'gh' as ɣ), with the meaning in English "
+              "exactly as the teacher explains it, and the chunk number in which the teacher FIRST says it. Answer ONLY "
+              "with JSON {\"speech_language\": \"...\", \"letters\": [{\"name\": \"yab\", \"latin\": \"b\", \"chunk\": 1}], "
+              "\"words\": [{\"latin\": \"ibba\", \"meaning_en\": \"my father\", \"chunk\": 1}]}.")
+    payload = {"systemInstruction": {"parts": [{"text": "You transcribe language lessons precisely."}]},
+               "contents": [{"role": "user", "parts": parts + [{"text": prompt}]}],
+               "generationConfig": {"maxOutputTokens": 3000, "temperature": 0.1, "thinkingConfig": {"thinkingBudget": 0}}}
+    try:
+        out = _generate_content(payload, 240)
+        text = "".join(pp.get("text", "") for pp in out["candidates"][0]["content"]["parts"])
+        m = re.search(r"\{.*\}", text, re.S)
+        vocab = json.loads(m.group(0)) if m else {}
+        vocab["words"] = [w for w in (vocab.get("words") or []) if isinstance(w, dict) and (w.get("latin") or "").strip()]
+        vocab["letters"] = [l for l in (vocab.get("letters") or []) if isinstance(l, dict) and (l.get("latin") or "").strip()]
+        for item in vocab["words"] + vocab["letters"]:
+            try:
+                c = int(item.get("chunk"))
+                item["t0"], item["t1"] = c * CHUNK, (c + 1) * CHUNK
+            except (TypeError, ValueError):
+                item["t0"] = item["t1"] = None
+        print(f"[LESSON] audio: {vocab.get('speech_language')}; letters {[(l.get('name'), l.get('chunk')) for l in vocab['letters']]}; "
+              f"words {[(w['latin'], w.get('meaning_en'), w.get('chunk')) for w in vocab['words']]}")
+        return vocab
+    except Exception as e:
+        print(f"[LESSON] audio vocabulary failed: {e}")
+        return {}
+
+
+def apply_lesson_vocabulary(segs: List[Dict[str, Any]], vocab: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Reconcile frame readings with what the teacher said. Letters match by
+    sound; words are ALIGNED IN ORDER with the spoken example words (the teacher
+    shows them in the order he says them), scored by glyph similarity, so an OCR
+    misread (ⵖ read as ⵅ) still lands on the right word. Matched spans take the
+    teacher's meaning and a deterministic Tifinagh spelling; unmatched readings
+    are dropped. Pure, testable."""
+    import difflib
+    from transliteration import to_forms
+    norm = lambda k: k.translate(str.maketrans({"ɣ": "x", "n": "l", "e": "i", "ẓ": "z", "ḍ": "d", "ṭ": "t", "ḥ": "h", "ṛ": "r", "ɛ": "i"}))
+    words = []
+    for w in vocab.get("words") or []:
+        f = to_forms(w["latin"])
+        words.append({"key": f["key"], "latin": f["clean_latin"], "tifinagh": f["tifinagh"],
+                      "meaning_en": (w.get("meaning_en") or "").strip(), "t0": w.get("t0"), "t1": w.get("t1")})
+    letters = {}
+    letter_windows = []
+    for l in vocab.get("letters") or []:
+        f = to_forms(l["latin"])
+        letters[f["key"]] = {"latin": f["clean_latin"], "tifinagh": f["tifinagh"], "name": (l.get("name") or "").strip()}
+        if l.get("t0") is not None:
+            letter_windows.append((l["t0"] - 5.0, l["t1"] + 25.0))
+    if not words and not letters:
+        return segs
+    out: List[Dict[str, Any]] = []
+    word_spans: List[Dict[str, Any]] = []
+    seen_letters: set = set()
+    for sg in segs:
+        key = to_forms(sg.get("latin") or "")["key"] if sg.get("latin") else ""
+        in_letter_window = (not letter_windows) or any(lo <= sg["start"] <= hi for lo, hi in letter_windows)
+        if (sg.get("kind") == "letter" or len(key) == 1) and in_letter_window:
+            hit = letters.get(key)
+            if hit and key not in seen_letters:  # one drill per letter taught
+                seen_letters.add(key)
+                out.append({**sg, "text": hit["tifinagh"], "tifinagh": hit["tifinagh"], "latin": hit["latin"],
+                            "gloss": f"letter {hit['name']} ({hit['latin']})" if hit["name"] else sg.get("gloss"),
+                            "gloss_lang": "en", "kind": "letter"})
+            continue
+        # a "letter" read outside the letter's window is usually a misread word: let the
+        # window/order assignment decide
+        word_spans.append({**sg, "_key": key})
+    pairs = []
+    if words and all(w.get("t0") is not None for w in words):
+        # Time windows from the audio chunks + the order the words are taught: each
+        # spoken word takes the earliest still-free on-screen span that overlaps
+        # [t0 - 5, t1 + 25] and starts after the previous word's span. Glyph
+        # similarity only breaks ties (frame OCR of Tifinagh is unreliable).
+        taken: set = set()
+        prev_end = -1.0
+        for wj, w in enumerate(words):
+            lo, hi = w["t0"] - 5.0, w["t1"] + 25.0
+            cands = [(si, sg) for si, sg in enumerate(word_spans)
+                     if si not in taken and sg["end"] >= lo and sg["start"] <= hi and sg["start"] >= prev_end]
+            if not cands:
+                continue
+            best_sim = max(difflib.SequenceMatcher(None, norm(c[1]["_key"]), norm(w["key"])).ratio() for c in cands)
+            strong = [c for c in cands if difflib.SequenceMatcher(None, norm(c[1]["_key"]), norm(w["key"])).ratio() >= max(0.6, best_sim)]
+            si, sg = (strong or sorted(cands, key=lambda c: c[1]["start"]))[0]
+            taken.add(si)
+            prev_end = sg["end"]
+            pairs.append((si, wj))
+    if pairs:
+        n, m = len(word_spans), len(words)
+    else:
+        # monotonic alignment (longest-common-subsequence style DP on similarity)
+        n, m = len(word_spans), len(words)
+    sim = [[difflib.SequenceMatcher(None, norm(word_spans[i]["_key"]), norm(words[j]["key"])).ratio() for j in range(m)] for i in range(n)]
+    best = [[0.0] * (m + 1) for _ in range(n + 1)]
+    choice = [[None] * (m + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1 if not pairs else 0):
+        for j in range(1, m + 1):
+            cands = [(best[i - 1][j], "skip_span"), (best[i][j - 1], "skip_word")]
+            # Order carries most of the information (the teacher shows the words as he
+            # says them); glyph similarity only breaks ties, so every match earns a bonus.
+            cands.append((best[i - 1][j - 1] + 0.5 + sim[i - 1][j - 1], "match"))
+            best[i][j], choice[i][j] = max(cands)
+    if not pairs:
+        i, j = n, m
+        while i > 0 and j > 0:
+            c = choice[i][j]
+            if c == "match":
+                pairs.append((i - 1, j - 1)); i -= 1; j -= 1
+            elif c == "skip_span":
+                i -= 1
+            else:
+                j -= 1
+    matched_words = set()
+    for si, wj in sorted(pairs):
+        sg, w = word_spans[si], words[wj]
+        if wj in matched_words:
+            continue
+        matched_words.add(wj)
+        out.append({**sg, "text": w["tifinagh"], "tifinagh": w["tifinagh"], "latin": w["latin"],
+                    "gloss": w["meaning_en"] or sg.get("gloss"), "gloss_lang": "en", "kind": "word"})
+    for si, sg in enumerate(word_spans):
+        if not any(p[0] == si for p in pairs):
+            print(f"[LESSON] dropping frame reading {sg.get('latin')!r} ({sg['start']}-{sg['end']}s): not among the spoken words")
+    last_end = max([x["end"] for x in out] + [0.0])
+    for wj, w in enumerate(words):
+        if wj not in matched_words:
+            print(f"[LESSON] spoken word {w['latin']!r} ({w['meaning_en']}) was not found on screen: text-only drill")
+            out.append({"start": None, "end": None, "order": last_end + 0.001 * (wj + 1), "text": w["tifinagh"],
+                        "tifinagh": w["tifinagh"], "latin": w["latin"], "gloss": w["meaning_en"] or None,
+                        "gloss_lang": "en" if w["meaning_en"] else None, "kind": "word", "no_media": True})
+    return sorted(out, key=lambda x: x["start"] if x["start"] is not None else x["order"])
+
+
+_TIFINAGH_FONTS = ["C:/Windows/Fonts/ebrima.ttf", "/usr/share/fonts/truetype/noto/NotoSansTifinagh-Regular.ttf",
+                   "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"]
+
+
+def render_tifinagh(text: str, path: str, size: int = 96) -> Optional[str]:
+    """Render a Tifinagh string to a PNG (reference image for picture-to-picture
+    matching). Returns the path or None when no Tifinagh font is available."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return None
+    font = None
+    for f in _TIFINAGH_FONTS:
+        if os.path.exists(f):
+            try:
+                font = ImageFont.truetype(f, size)
+                break
+            except Exception:
+                continue
+    if font is None:
+        return None
+    probe = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    l, t, r, b = probe.textbbox((0, 0), text, font=font)
+    img = Image.new("RGB", (r - l + 60, b - t + 50), "white")
+    ImageDraw.Draw(img).text((30 - l, 25 - t), text, font=font, fill=(235, 120, 20))
+    img.save(path)
+    return path
+
+
+def _frame_choices_from_gemini(frames: List[Tuple[float, str]], options: List[Dict[str, str]],
+                               ref_dir: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Multiple choice per frame: which of the known lesson items is written on
+    screen (or none). Candidates are shown as RENDERED images (the model compares
+    shapes far better than it reads Tifinagh code points). Returns
+    [{"t": sec, "choice": option id or "N"}]."""
+    import base64
+    from gemini_client import _generate_content
+    parts: List[Dict[str, Any]] = [{"text": (
+        "These are frames from a Tamazight language lesson, each labelled with its second. The lesson's items are "
+        "listed below; each candidate is shown as a reference image of the exact same Tifinagh letters (the on-screen "
+        "font differs, the letter shapes are the same).")}]
+    for o in options:
+        parts.append({"text": f"Candidate {o['id']}: {o['tifinagh']} (Latin {o['latin']}{', ' + o['meaning'] if o.get('meaning') else ''})"})
+        ref = render_tifinagh(o["tifinagh"], os.path.join(ref_dir or tempfile.gettempdir(), f"ref_{o['id']}.png")) if ref_dir is not None else None
+        if ref:
+            with open(ref, "rb") as fh:
+                parts.append({"inline_data": {"mime_type": "image/png", "data": base64.b64encode(fh.read()).decode()}})
+    parts.append({"text": (
+        "Candidate N: none of them / no lesson text on screen.\n"
+        "For EACH frame below, which ONE candidate is written on screen? Match letter by letter against the reference "
+        "images; a word being written letter by letter counts as that word once its first letters match and no other "
+        "candidate fits. Ignore channel names, watermarks and logos. Answer ONLY with a JSON array of "
+        "{\"t\": second, \"choice\": \"A\"|\"B\"|...|\"N\"}, one object per frame.")})
+    for t, path in frames:
+        parts.append({"text": f"[frame t={t:.1f}s]"})
+        with open(path, "rb") as fh:
+            parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(fh.read()).decode()}})
+    payload = {"systemInstruction": {"parts": [{"text": "You compare Tifinagh text on screen with a short list of candidates."}]},
+               "contents": [{"role": "user", "parts": parts}],
+               "generationConfig": {"maxOutputTokens": 2000, "temperature": 0.0, "thinkingConfig": {"thinkingBudget": 0}}}
+    data = _generate_content(payload, 180)
+    text = "".join(pp.get("text", "") for pp in data["candidates"][0]["content"]["parts"])
+    m = re.search(r"\[.*\]", text, re.S)
+    items = json.loads(m.group(0)) if m else []
+    return [i for i in items if isinstance(i, dict)]
+
+
+def lesson_items_by_choice(frames: List[Tuple[float, str]], vocab: Dict[str, Any], every: float = 2.0,
+                           batch: int = 12) -> List[Dict[str, Any]]:
+    """Frames -> multiple-choice labels -> one span per lesson item (the longest run
+    of frames labelled with it, inside the item's audio window when known)."""
+    from transliteration import to_forms
+    options: List[Dict[str, Any]] = []
+    for l in vocab.get("letters") or []:
+        f = to_forms(l["latin"])
+        options.append({"kind": "letter", "latin": f["clean_latin"], "tifinagh": f["tifinagh"],
+                        "meaning": f"letter {l.get('name')}" if l.get("name") else "", "name": l.get("name") or "",
+                        "t0": l.get("t0"), "t1": l.get("t1")})
+    for w in vocab.get("words") or []:
+        f = to_forms(w["latin"])
+        options.append({"kind": "word", "latin": f["clean_latin"], "tifinagh": f["tifinagh"],
+                        "meaning": (w.get("meaning_en") or "").strip(), "t0": w.get("t0"), "t1": w.get("t1")})
+    # de-duplicate by spelling
+    uniq: Dict[str, Dict[str, Any]] = {}
+    for o in options:
+        uniq.setdefault(o["tifinagh"], o)
+    options = list(uniq.values())
+    for n, o in enumerate(options):
+        o["id"] = chr(ord("A") + n)
+    labels: Dict[float, str] = {}
+    ref_dir = os.path.join(os.path.dirname(frames[0][1]) if frames else tempfile.gettempdir(), "refs")
+    os.makedirs(ref_dir, exist_ok=True)
+    for i in range(0, len(frames), batch):
+        chunk = frames[i:i + batch]
+        try:
+            for c in _frame_choices_from_gemini(chunk, options, ref_dir):
+                labels[round(float(c.get("t") or 0), 1)] = str(c.get("choice") or "N").strip().upper()[:1]
+        except Exception as e:
+            print(f"[LESSON] choice batch {i // batch} failed: {e}")
+    # runs of frames with the same label -> spans
+    runs: List[Dict[str, Any]] = []
+    for t, _ in frames:
+        lab = labels.get(round(t, 1), "N")
+        if lab == "N":
+            continue
+        if runs and runs[-1]["id"] == lab and t - runs[-1]["end"] <= every + 0.01:
+            runs[-1]["end"] = t + every
+        else:
+            runs.append({"id": lab, "start": t, "end": t + every})
+    out: List[Dict[str, Any]] = []
+    for o in options:
+        mine = [r for r in runs if r["id"] == o["id"]]
+        if o.get("t0") is not None:
+            inside = [r for r in mine if r["end"] >= o["t0"] - 5.0 and r["start"] <= o["t1"] + 25.0]
+            mine = inside or mine
+        if not mine:
+            print(f"[LESSON] {o['latin']!r} ({o['meaning']}) never recognised on screen: text-only drill")
+            out.append({"start": None, "end": None, "order": (o.get("t0") or 0) + 0.001, "text": o["tifinagh"], "tifinagh": o["tifinagh"],
+                        "latin": o["latin"], "gloss": o["meaning"] or None, "gloss_lang": "en" if o["meaning"] else None,
+                        "kind": o["kind"], "no_media": True})
+            continue
+        best = max(mine, key=lambda r: r["end"] - r["start"])
+        out.append({"start": best["start"], "end": best["end"], "text": o["tifinagh"], "tifinagh": o["tifinagh"],
+                    "latin": o["latin"], "gloss": (o["meaning"] if o["kind"] == "word" else f"letter {o['name']} ({o['latin']})" if o["name"] else None),
+                    "gloss_lang": "en", "kind": o["kind"]})
+    return sorted(out, key=lambda x: x["start"] if x["start"] is not None else x["order"])
+
+
+def _frame_items_from_gemini(frames: List[Tuple[float, str]], vocab: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """Ask Gemini what vocabulary is written on each frame (batched images)."""
+    import base64
+    from gemini_client import _generate_content
+    hint = ""
+    if vocab and (vocab.get("words") or vocab.get("letters")):
+        hint = (" The teacher's spoken lesson contains these items: letters " +
+                ", ".join(f"{l.get('name')} ({l['latin']})" for l in vocab.get("letters") or []) + "; words " +
+                ", ".join(f"{w['latin']} = {w.get('meaning_en')}" for w in vocab.get("words") or []) +
+                ". The text on a frame is normally one of them (a letter, or a word, sometimes shown letter by "
+                "letter while being spelled); report the matching item's Latin exactly as listed, and kind "
+                "\"partial\" while a word is still incomplete.")
+    parts: List[Dict[str, Any]] = [{"text": (
+        "These are frames from a Tamazight (Amazigh) language lesson, each labelled with its second. "
+        "For EACH frame report the vocabulary text written on screen as part of the lesson: a Tifinagh "
+        "letter, a word or a short phrase, with its Latin transliteration (ɣ ḍ ḥ ṭ ẓ ɛ conventions) and "
+        "English meaning if it can be read or inferred from the frame. Write the tifinagh field with REAL "
+        "Tifinagh code points (U+2D30–U+2D7F), never Greek or Latin look-alikes (the letter that looks like Θ "
+        "is ⴱ yab, Ɛ is ⵄ yaɛ, O is ⵔ yar, X is ⵅ yax, E is ⵉ yai). For a single letter put its IRCAM name in "
+        "meaning_en (e.g. \"letter yab (b)\"). Ignore channel names, slogans, watermarks, social handles, "
+        "logos, UI chrome and background decorations. Answer ONLY with a JSON array of "
+        "objects {\"t\": second, \"kind\": \"letter\"|\"word\"|\"phrase\"|\"none\", \"tifinagh\": \"...\", "
+        "\"latin\": \"...\", \"meaning_en\": \"...\"} — one object per frame, kind \"none\" when there is no lesson text." + hint)}]
+    for t, path in frames:
+        parts.append({"text": f"[frame t={t:.1f}s]"})
+        with open(path, "rb") as fh:
+            parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(fh.read()).decode()}})
+    payload = {"systemInstruction": {"parts": [{"text": "You are a careful reader of Tifinagh and Latin Amazigh text on screen."}]},
+               "contents": [{"role": "user", "parts": parts}],
+               "generationConfig": {"maxOutputTokens": 4000, "temperature": 0.1, "thinkingConfig": {"thinkingBudget": 0}}}
+    data = _generate_content(payload, 180)
+    text = "".join(pp.get("text", "") for pp in data["candidates"][0]["content"]["parts"])
+    m = re.search(r"\[.*\]", text, re.S)
+    items = json.loads(m.group(0)) if m else []
+    return [i for i in items if isinstance(i, dict)]
+
+
+_TIFINAGH_LOOKALIKES = str.maketrans({"Θ": "ⴱ", "θ": "ⴱ", "Ɛ": "ⵉ", "ɛ": "ⵉ", "O": "ⵔ", "X": "ⵅ", "Σ": "ⵙ",
+                                      "E": "ⵉ", "Λ": "ⵍ", "I": "ⵏ", "C": "ⵛ", "U": "ⵓ", "H": "ⵀ", "Z": "ⵣ",
+                                      "W": "ⵡ", "N": "ⴻ", "K": "ⴽ", "Q": "ⵇ", "+": "ⵜ", "V": "ⵖ", "Δ": "ⴷ"})
+
+
+def _tifinagh_or_none(txt: str) -> str:
+    """Gemini sometimes types Greek/Latin look-alikes for isolated Tifinagh
+    letters; map them when the string has no real Tifinagh at all."""
+    t = (txt or "").strip()
+    if not t or _TIFINAGH_RE.search(t):
+        return t
+    mapped = t.translate(_TIFINAGH_LOOKALIKES)
+    return mapped if _TIFINAGH_RE.search(mapped) and len(mapped) <= 3 else t
+
+
+def merge_frame_items(items: List[Dict[str, Any]], every: float = 2.0, min_len: float = 1.5,
+                      ignore: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Consecutive frames showing the same item -> one span. Returns segments
+    {start, end, text, tifinagh, latin, gloss, gloss_lang, kind}. Pure, testable.
+    `ignore`: the channel name — a slogan that reads like it is not a lesson item."""
+    def key(i):
+        return " ".join(str(i.get("tifinagh") or i.get("latin") or "").split()).lower()
+    import difflib
+    ign = " ".join((ignore or "").lower().replace("-", " ").split())
+    spans: List[Dict[str, Any]] = []
+    for i in sorted(items, key=lambda x: float(x.get("t") or 0)):
+        if i.get("tifinagh"):
+            i["tifinagh"] = _tifinagh_or_none(str(i["tifinagh"]))
+        k = key(i)
+        kind = (i.get("kind") or "none").lower()
+        if kind == "none" or not k:
+            continue
+        if kind == "partial":
+            kind = "word"  # a word being spelled out: same span as the finished word
+        gloss = " ".join(str(i.get("meaning_en") or "").lower().split())
+        if ign and gloss and difflib.SequenceMatcher(None, gloss, ign).ratio() >= 0.6:
+            continue  # channel slogan ("Amazigh for all" ~ "Tamazight For All"), not vocabulary
+        t = float(i.get("t") or 0)
+        near_dup = bool(spans) and bool(spans[-1]["meaning_en"]) and spans[-1]["meaning_en"] == (i.get("meaning_en") or "") \
+            and difflib.SequenceMatcher(None, spans[-1]["_key"], k).ratio() >= 0.6
+        spelling = bool(spans) and (spans[-1]["_key"].startswith(k) or k.startswith(spans[-1]["_key"])) \
+            and kind != "letter" and spans[-1]["kind"] != "letter"
+        if spans and (spans[-1]["_key"] == k or near_dup or spelling) and t - spans[-1]["end"] <= every + 0.01:
+            spans[-1]["end"] = t + every
+            if spelling and len(k) > len(spans[-1]["_key"]):  # the word grew: keep the complete reading
+                spans[-1]["_key"] = k
+                spans[-1]["tifinagh"] = (i.get("tifinagh") or "").strip() or spans[-1]["tifinagh"]
+                spans[-1]["latin"] = (i.get("latin") or "").strip() or spans[-1]["latin"]
+            for f in ("latin", "meaning_en"):
+                if not spans[-1].get(f) and i.get(f):
+                    spans[-1][f] = i[f]
+            continue
+        spans.append({"_key": k, "start": t, "end": t + every, "kind": kind,
+                      "tifinagh": (i.get("tifinagh") or "").strip(), "latin": (i.get("latin") or "").strip(),
+                      "meaning_en": (i.get("meaning_en") or "").strip()})
+    out = []
+    for sp in spans:
+        if sp["end"] - sp["start"] < min_len:
+            sp["end"] = sp["start"] + min_len
+        text = sp["tifinagh"] or sp["latin"]
+        out.append({"start": round(sp["start"], 2), "end": round(sp["end"], 2), "text": text,
+                    "tifinagh": sp["tifinagh"] or None, "latin": sp["latin"] or None,
+                    "gloss": sp["meaning_en"] or None, "gloss_lang": "en" if sp["meaning_en"] else None,
+                    "kind": sp["kind"]})
+    return out
+
+
+def read_onscreen_vocabulary(video_path: str, tmp_dir: str, every: float = 2.0, batch: int = 12,
+                             ignore: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Frame reading end to end: frames -> Gemini (batched) -> merged spans.
+    Returns [] when Gemini is unavailable or nothing lesson-like is on screen."""
+    if not gemini_available():
+        return []
+    vocab = lesson_audio_vocabulary(video_path, tmp_dir)
+    frames = extract_frames(video_path, os.path.join(tmp_dir, "frames"), every=every)
+    if vocab and (vocab.get("words") or vocab.get("letters")):
+        segs = lesson_items_by_choice(frames, vocab, every=every, batch=batch)
+        print(f"[LESSON] {len(frames)} frames -> {len(segs)} lesson items (multiple choice against the spoken lesson)")
+        return segs
+    items: List[Dict[str, Any]] = []
+    for i in range(0, len(frames), batch):
+        chunk = frames[i:i + batch]
+        try:
+            items.extend(_frame_items_from_gemini(chunk, vocab))
+        except Exception as e:
+            print(f"[LESSON] frame batch {i // batch} failed: {e}")
+    segs = merge_frame_items(items, every=every, ignore=ignore)
+    if vocab:
+        segs = apply_lesson_vocabulary(segs, vocab)
+    print(f"[LESSON] {len(frames)} frames -> {len(items)} readings -> {len(segs)} lesson items"
+          + (" (reconciled with the spoken lesson)" if vocab else ""))
+    return segs
+
+
+def transcribe_narration(video_path: str, tmp_dir: str, cues: List[Dict[str, Any]], cue_lang: str = "Arabic",
+                         window: float = 150.0) -> Dict[int, Dict[str, str]]:
+    """Spoken Tamazight for each caption cue, anchored on the cue's text in the
+    caption language so the model cannot drift. Audio is sent in windows of
+    `window` seconds with the cues inside them. Returns {cue index: {"latin", "tifinagh"}}.
+    Quality is a DRAFT for a speaker to confirm — Tamazight ASR is not solved."""
+    import base64
+    from gemini_client import _generate_content
+    if not gemini_available() or not cues:
+        return {}
+    out: Dict[int, Dict[str, str]] = {}
+    end_all = max(float(c.get("end") or 0) for c in cues)
+    t0 = 0.0
+    while t0 < end_all:
+        t1 = min(t0 + window, end_all + 1)
+        idx = [i for i, c in enumerate(cues) if c.get("start") is not None and t0 <= float(c["start"]) < t1]
+        if idx:
+            wav = os.path.join(tmp_dir, f"narr_{int(t0)}.mp3")
+            try:
+                subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-ss", str(t0), "-t", str(t1 - t0), "-i", video_path,
+                                "-vn", "-ac", "1", "-ar", "16000", "-b:a", "40k", wav], check=True, capture_output=True, timeout=300)
+                with open(wav, "rb") as fh:
+                    data = base64.b64encode(fh.read()).decode()
+                listing = "\n".join(f"[{i}] {float(cues[i]['start']) - t0:.1f}s–{float(cues[i]['end']) - t0:.1f}s: {cues[i].get('text')}"
+                                    for i in idx)
+                prompt = (f"This audio is narrated in Tamazight (Amazigh). The {cue_lang} subtitles below give, for each numbered "
+                          "cue, the time inside this clip and the MEANING of what is said. Transcribe what is actually SPOKEN for "
+                          "each cue, in academic Latin (ɣ ḍ ḥ ṭ ẓ ɛ) and in Tifinagh; the meaning must match the subtitle. If a cue "
+                          "is inaudible, give an empty string. Answer ONLY with a JSON object mapping the cue number to "
+                          "{\"latin\": \"...\", \"tifinagh\": \"...\"}.\n\n" + listing)
+                payload = {"systemInstruction": {"parts": [{"text": "You are a careful transcriber of Moroccan Amazigh speech."}]},
+                           "contents": [{"role": "user", "parts": [{"inline_data": {"mime_type": "audio/mpeg", "data": data}}, {"text": prompt}]}],
+                           "generationConfig": {"maxOutputTokens": 8000, "temperature": 0.1, "thinkingConfig": {"thinkingBudget": 0}}}
+                res = _generate_content(payload, 300)
+                text = "".join(pp.get("text", "") for pp in res["candidates"][0]["content"]["parts"])
+                m = re.search(r"\{.*\}", text, re.S)
+                parsed = json.loads(m.group(0)) if m else {}
+                for k, v in parsed.items():
+                    try:
+                        i = int(k)
+                    except ValueError:
+                        continue
+                    if isinstance(v, dict) and (v.get("latin") or v.get("tifinagh")):
+                        out[i] = {"latin": (v.get("latin") or "").strip(), "tifinagh": (v.get("tifinagh") or "").strip()}
+                print(f"[NARRATION] {t0:.0f}-{t1:.0f}s: {len([i for i in idx if i in out])}/{len(idx)} cues transcribed")
+            except Exception as e:
+                print(f"[NARRATION] window {t0:.0f}-{t1:.0f}s failed: {e}")
+        t0 = t1
+    return out
+
+
+def _transcribe_short_clip_with_gemini(audio_url: str) -> Optional[Dict[str, str]]:
+    """Word/short-phrase ASR with Gemini (bake-off winner for isolated words,
+    docs/ASR_BAKEOFF_2026-10-17.md). Returns {"latin", "tifinagh"} or None when
+    Gemini is unavailable, the clip is longer than ASR_GEMINI_MAX_SECS, or the
+    call fails (the caller then uses the Space)."""
+    if not gemini_available():
+        return None
+    import base64
+    import tempfile as _tf
+    from gemini_client import _generate_content
+    try:
+        max_secs = float(os.getenv("ASR_GEMINI_MAX_SECS", "20"))
+        with _tf.TemporaryDirectory() as d:
+            src = os.path.join(d, "clip")
+            with requests.get(audio_url, timeout=120, stream=True) as r:
+                r.raise_for_status()
+                with open(src, "wb") as fh:
+                    for chunk in r.iter_content(1 << 16):
+                        fh.write(chunk)
+            dur = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src],
+                                 capture_output=True, text=True, timeout=60).stdout.strip()
+            if not dur or float(dur) > max_secs:
+                return None
+            wav = os.path.join(d, "clip.wav")
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", src, "-vn", "-ac", "1", "-ar", "16000", wav],
+                           check=True, capture_output=True, timeout=120)
+            with open(wav, "rb") as fh:
+                data = base64.b64encode(fh.read()).decode()
+        payload = {"systemInstruction": {"parts": [{"text": "You transcribe Moroccan Amazigh (Tamazight/Tachelhit) speech."}]},
+                   "contents": [{"role": "user", "parts": [{"inline_data": {"mime_type": "audio/wav", "data": data}},
+                                                            {"text": "Transcribe exactly the Tamazight word(s) spoken, in academic Latin (ɣ ḍ ḥ ṭ ẓ ɛ). Ignore any other language. Answer with the transcription only, or an empty line if no Tamazight is spoken."}]}],
+                   "generationConfig": {"maxOutputTokens": 100, "temperature": 0.0, "thinkingConfig": {"thinkingBudget": 0}}}
+        out = _generate_content(payload, 120)
+        latin = "".join(p.get("text", "") for p in out["candidates"][0]["content"]["parts"]).strip().strip('"')
+        if not latin or len(latin) > 120:
+            return None
+        from transliteration import to_forms
+        f = to_forms(latin)
+        print(f"[ASR] short clip via Gemini: {latin!r} -> {f['tifinagh']!r}")
+        return {"latin": f["clean_latin"], "tifinagh": f["tifinagh"]}
+    except Exception as e:
+        print(f"[ASR] Gemini short-clip path failed ({e}); using the Space")
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Burned-in subtitles (songs/clips with the text painted into the picture, often
+# several languages at once). Latin-script lines are read reliably by the vision
+# model; Tifinagh lines are kept only when they match the Latin line's spelling.
+def _subtitle_frames_from_gemini(frames: List[Tuple[float, str]]) -> List[Dict[str, Any]]:
+    import base64
+    from gemini_client import _generate_content
+    parts: List[Dict[str, Any]] = [{"text": (
+        "These are consecutive frames of a video that has SUBTITLES burned into the picture, usually in several "
+        "languages at once (for example English, French, Arabic and Tachelhit/Tamazight in Latin letters, or Tifinagh). "
+        "For EACH frame, transcribe exactly the subtitle lines visible, keeping each line's language. Answer ONLY with a "
+        "JSON array of {\"t\": second, \"lines\": [{\"lang\": \"en\"|\"fr\"|\"ar\"|\"es\"|\"ca\"|\"shi\"|\"zgh\"|\"other\", "
+        "\"text\": \"...\"}]} — one object per frame, an empty list when there is no subtitle. Use \"shi\" for Tachelhit "
+        "or Tamazight written in Latin letters and \"zgh\" for Tifinagh script. Ignore channel logos, watermarks, "
+        "titles and credits.")}]
+    for t, path in frames:
+        parts.append({"text": f"[frame t={t:.1f}s]"})
+        with open(path, "rb") as fh:
+            parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(fh.read()).decode()}})
+    payload = {"systemInstruction": {"parts": [{"text": "You transcribe burned-in subtitles exactly, line by line."}]},
+               "contents": [{"role": "user", "parts": parts}],
+               "generationConfig": {"maxOutputTokens": 6000, "temperature": 0.0, "thinkingConfig": {"thinkingBudget": 0}}}
+    data = _generate_content(payload, 240)
+    text = "".join(pp.get("text", "") for pp in data["candidates"][0]["content"]["parts"])
+    m = re.search(r"\[.*\]", text, re.S)
+    items = json.loads(m.group(0)) if m else []
+    return [i for i in items if isinstance(i, dict)]
+
+
+def merge_subtitle_frames(items: List[Dict[str, Any]], every: float = 1.0, min_len: float = 1.5) -> List[Dict[str, Any]]:
+    """Consecutive frames with the same Tachelhit line -> one cue. Returns segments
+    {start, end, text (shi Latin), tifinagh, gloss (en|fr|ar text), gloss_lang, lines}. Pure."""
+    def norm(t: str) -> str:
+        return " ".join((t or "").lower().replace("’", "'").split())
+    cues: List[Dict[str, Any]] = []
+    for i in sorted(items, key=lambda x: float(x.get("t") or 0)):
+        t = float(i.get("t") or 0)
+        lines = {}
+        for ln in i.get("lines") or []:
+            if isinstance(ln, dict) and (ln.get("text") or "").strip():
+                lines.setdefault(str(ln.get("lang") or "other").lower()[:5], (ln["text"] or "").strip())
+        shi = lines.get("shi") or lines.get("tzm") or ""
+        if not shi and not lines.get("zgh"):
+            continue
+        key = norm(shi) or norm(lines.get("zgh", ""))
+        if cues and cues[-1]["_key"] == key and t - cues[-1]["end"] <= every + 0.01:
+            cues[-1]["end"] = t + every
+            for k, v in lines.items():
+                cues[-1]["lines"].setdefault(k, v)
+            continue
+        cues.append({"_key": key, "start": t, "end": t + every, "lines": dict(lines)})
+    out = []
+    import difflib
+    seen_keys: List[str] = []
+    for c in cues:
+        if c["end"] - c["start"] < min_len:
+            continue  # a single misread frame
+        # A chorus repeats: one drill per distinct line (first occurrence keeps its clip);
+        # OCR spelling wobbles (lεar / l£ar / iɛar) count as the same line.
+        if any(difflib.SequenceMatcher(None, c["_key"], k).ratio() >= 0.85 for k in seen_keys):
+            continue
+        seen_keys.append(c["_key"])
+        gloss_lang = next((k for k in ("en", "fr", "ar", "es", "ca") if c["lines"].get(k)), None)
+        if not gloss_lang:
+            continue  # a line with no translation under it is a title, a name or credits, not a lyric
+        out.append({"start": round(c["start"], 2), "end": round(c["end"], 2),
+                    "text": c["lines"].get("shi") or c["lines"].get("tzm") or c["lines"].get("zgh"),
+                    "latin": c["lines"].get("shi") or c["lines"].get("tzm"), "tifinagh": c["lines"].get("zgh"),
+                    "gloss": c["lines"].get(gloss_lang) if gloss_lang else None, "gloss_lang": gloss_lang,
+                    "lines": c["lines"], "kind": "subtitle"})
+    return out
+
+
+def detect_text_mode(frames: List[Tuple[float, str]]) -> str:
+    """Sample a few frames and ask what kind of on-screen text the video has:
+    'subtitles' (burned-in lines, usually at the bottom), 'lesson' (vocabulary / letters
+    shown as teaching material) or 'none'."""
+    import base64
+    from gemini_client import _generate_content
+    sample = frames[:: max(1, len(frames) // 6)][:6]
+    parts: List[Dict[str, Any]] = [{"text": (
+        "Look at these sample frames from one video and answer with ONE word: 'subtitles' if the video has subtitle "
+        "lines burned into the picture (text that changes with the speech/singing, often several languages), 'lesson' if "
+        "it shows vocabulary, letters or words as teaching material, or 'none'.")}]
+    for t, path in sample:
+        with open(path, "rb") as fh:
+            parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(fh.read()).decode()}})
+    payload = {"systemInstruction": {"parts": [{"text": "You classify on-screen text."}]},
+               "contents": [{"role": "user", "parts": parts}],
+               "generationConfig": {"maxOutputTokens": 10, "temperature": 0.0, "thinkingConfig": {"thinkingBudget": 0}}}
+    try:
+        data = _generate_content(payload, 120)
+        ans = "".join(pp.get("text", "") for pp in data["candidates"][0]["content"]["parts"]).strip().lower()
+        for k in ("subtitles", "lesson", "none"):
+            if k in ans:
+                return k
+    except Exception as e:
+        print(f"[TEXTMODE] detection failed: {e}")
+    return "none"
+
+
+def read_burned_subtitles(video_path: str, tmp_dir: str, every: float = 1.0, batch: int = 10) -> List[Dict[str, Any]]:
+    """Burned-in subtitles -> cues with Tachelhit (Latin) + translations + seconds."""
+    if not gemini_available():
+        return []
+    frames = extract_frames(video_path, os.path.join(tmp_dir, "subframes"), every=every, width=800)
+    items: List[Dict[str, Any]] = []
+    for i in range(0, len(frames), batch):
+        try:
+            items.extend(_subtitle_frames_from_gemini(frames[i:i + batch]))
+        except Exception as e:
+            print(f"[SUBS] frame batch {i // batch} failed: {e}")
+    cues = merge_subtitle_frames(items, every=every)
+    print(f"[SUBS] {len(frames)} frames -> {len(items)} readings -> {len(cues)} subtitle cues")
+    return cues
+
+
+def looks_like_junk_asr(text: Optional[str], attested: bool = True) -> Optional[str]:
+    """Return a reason string if `text` should not be stored, else None.
+    `attested=False` (foreign-source draft mode) skips the English check."""
+    t = (text or "").strip()
+    if not t:
+        return None
+    if _JUNK_REPEAT_RUN.search(t):
+        return "repeated-run"
+    toks = re.findall(r"[^\W\d_]+", t.lower())
+    if len(toks) >= 6:
+        from collections import Counter
+        if Counter(toks).most_common(1)[0][1] / len(toks) >= 0.4:
+            return "repeated-tokens"
+    if attested and not _TIFINAGH_RE.search(t):
+        hits = len(_JUNK_ENGLISH.findall(t))
+        words = max(1, len(re.findall(r"[A-Za-z']+", t)))
+        # 3 hits, or 2 hits in a short segment ("I can't bear to fall asleep")
+        if hits >= 3 or (hits >= 2 and hits / words >= 0.25):
+            return "looks-english"
+    return None
+
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
@@ -400,6 +1210,26 @@ async def lifespan(app: FastAPI):
                     print(f"[SCHEMA] Added missing column {table.name}.{col.name} ({coltype})")
     except Exception as e:
         print(f"[SCHEMA] Column sync skipped: {e}")
+
+    # Stale-job reaper (P4.6): background jobs live in this process, so a
+    # redeploy / spin-down kills them mid-flight and leaves the row forever in
+    # TRANSCRIBING. Anything non-terminal and untouched for 2 h is dead.
+    try:
+        with SessionLocal() as db:
+            cutoff = datetime.utcnow() - timedelta(hours=2)
+            stale = db.query(VideoProcessingJobModel).filter(
+                ~VideoProcessingJobModel.status.in_(JOB_TERMINAL_STATUSES),
+                sa_func.coalesce(VideoProcessingJobModel.updated_at,
+                                 VideoProcessingJobModel.date_submitted) < cutoff,
+            ).all()
+            for j in stale:
+                j.status = "FAILED"
+                j.error_message = "stale after restart"
+            if stale:
+                db.commit()
+                print(f"[INIT] Reaped {len(stale)} stale video job(s)")
+    except Exception as e:
+        print(f"[INIT] Stale-job reaper skipped: {e}")
 
     # Add sample data if database is empty
     with SessionLocal() as db:
@@ -466,27 +1296,68 @@ from fastapi.exceptions import RequestValidationError
 
 app = FastAPI(title="Tachelhit Drills API", lifespan=lifespan)
 
+# ---- Error envelope (P4.10): every error body is {"detail": str, "code": str}.
+# The 500 handler runs OUTSIDE CORSMiddleware (ServerErrorMiddleware is the
+# outermost layer), so it has to add CORS headers itself — echoing the request
+# Origin only when it is an allowed one, never "*".
+_HTTP_CODES = {400: "bad_request", 401: "unauthorized", 403: "forbidden", 404: "not_found",
+               409: "conflict", 413: "payload_too_large", 415: "unsupported_media_type",
+               422: "validation_error", 429: "rate_limited", 500: "internal_error",
+               502: "bad_gateway", 503: "service_unavailable", 504: "gateway_timeout"}
+
+def _cors_headers_for(request) -> dict:
+    """CORS headers for a response built outside CORSMiddleware (see above)."""
+    origin = (request.headers.get("origin") or "").strip()
+    if not origin:
+        return {}
+    ok = origin in allowed_origins
+    rx = cors_kwargs.get("allow_origin_regex")
+    if not ok and rx:
+        ok = re.fullmatch(rx, origin) is not None
+    if not ok:
+        return {}
+    return {"Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin"}
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     print(f"[GLOBAL ERROR] {type(exc).__name__}: {str(exc)}")
     traceback.print_exc()
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Internal Server Error: {str(exc)}", "type": type(exc).__name__},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "*",
-            "Access-Control-Allow-Headers": "*"
-        }
+        content={"detail": f"Internal Server Error: {str(exc)}", "code": "internal_error",
+                 "type": type(exc).__name__},
+        headers=_cors_headers_for(request),
+    )
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request, exc):
+    """Keep FastAPI's {"detail": ...} shape for HTTPException, add "code"."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "code": _HTTP_CODES.get(exc.status_code, "http_error")},
+        headers=exc.headers,
     )
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
     print(f"[VALIDATION ERROR] {exc.errors()}")
+    try:
+        errors = jsonable_encoder(exc.errors())
+    except Exception:
+        errors = [{"loc": list(e.get("loc", ())), "msg": e.get("msg"), "type": e.get("type")}
+                  for e in exc.errors()]
+    parts = []
+    for e in errors:
+        loc = [str(p) for p in (e.get("loc") or ())]
+        field = ".".join(loc[1:] if loc and loc[0] in ("body", "query", "path", "header") else loc) or "body"
+        parts.append(f"{field}: {e.get('msg')}")
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors(), "body": exc.body},
-        headers={"Access-Control-Allow-Origin": "*"}
+        content={"detail": "; ".join(parts) or "validation error", "code": "validation_error",
+                 "errors": errors},
+        headers=_cors_headers_for(request),
     )
 
 # Development mode flag - enable automatically for SQLite (local dev)
@@ -691,11 +1562,86 @@ def _hash_token(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> Optional[UserModel]:
-    """Resolve the requesting user from the X-User-Token header (None = anonymous)."""
+    """Resolve the requesting user from the X-User-Token header.
+
+    No header -> None (anonymous, as before). A header that matches no user
+    -> 401 (P4.4): a stale/rotated token must not silently degrade a learner
+    to the shared anonymous schedule. The frontend only sends the header when
+    it holds a token, so anonymous flows are unaffected."""
     token = (request.headers.get("x-user-token") or "").strip()
     if not token:
         return None
-    return db.query(UserModel).filter(UserModel.token == _hash_token(token)).first()
+    user = db.query(UserModel).filter(UserModel.token == _hash_token(token)).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="invalid token")
+    return user
+
+# ---- Pagination + delta-sync helpers (P4.1-4.3)
+DEFAULT_PAGE_LIMIT = 100
+MAX_PAGE_LIMIT = 500
+JOB_TERMINAL_STATUSES = ("COMPLETED", "FAILED")
+DEFAULT_TZ = "Europe/Madrid"
+
+def _page_bounds(limit: Optional[int], offset: Optional[int]):
+    """None = no pagination (legacy "return everything"); else (offset, limit)."""
+    if limit is None and offset is None:
+        return None
+    lim = DEFAULT_PAGE_LIMIT if limit is None else limit
+    return max(0, offset or 0), max(1, min(lim, MAX_PAGE_LIMIT))
+
+def _paginate(query, response: Response, limit: Optional[int], offset: Optional[int]):
+    """Apply limit/offset to a query and set X-Total-Count (count BEFORE paging).
+
+    Backwards compatibility: when neither limit nor offset is given, every row
+    is returned (the current web frontend loads all ~600 drills in one call).
+    When either is given, limit defaults to 100 and is capped at 500."""
+    response.headers["X-Total-Count"] = str(query.order_by(None).count())
+    bounds = _page_bounds(limit, offset)
+    if bounds is None:
+        return query.all()
+    off, lim = bounds
+    return query.offset(off).limit(lim).all()
+
+def _parse_since(since: str) -> datetime:
+    """ISO-8601 -> naive UTC datetime (what the DB stores). 400 on garbage."""
+    try:
+        dt = datetime.fromisoformat(since.strip())
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="since must be an ISO-8601 timestamp")
+    return _to_naive_utc(dt)
+
+def _to_naive_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+def _parse_ids(ids: str) -> list[int]:
+    out: list[int] = []
+    for part in ids.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            n = int(part)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"ids must be comma-separated integers (got {part!r})")
+        if n not in out:
+            out.append(n)
+    return out
+
+def _user_zone(user: Optional[UserModel]):
+    """The learner's IANA zone (P4.10); unknown/missing -> Europe/Madrid, and
+    if even that cannot load (no tz database) -> UTC."""
+    name = (getattr(user, "tz", None) if user else None) or DEFAULT_TZ
+    for candidate in (name, DEFAULT_TZ):
+        try:
+            return ZoneInfo(candidate)
+        except Exception:
+            continue
+    return timezone.utc
+
+def _local_day(naive_utc: datetime, zone):
+    return naive_utc.replace(tzinfo=timezone.utc).astimezone(zone).date()
 
 class TtsRequest(BaseModel):
     text: str
@@ -741,8 +1687,31 @@ async def import_link_endpoint(request: ImportLinkRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ===================== CRUD =====================
+@app.get("/drills/tombstones")
+def get_drill_tombstones(since: Optional[str] = None, db: Session = Depends(get_db)):
+    """Ids of deleted drills (P4.3), newest first; `since` (ISO-8601) narrows to
+    deletions at/after that instant so a client can finish a delta sync."""
+    q = db.query(DrillTombstoneModel)
+    if since:
+        q = q.filter(DrillTombstoneModel.deleted_at >= _parse_since(since))
+    rows = q.order_by(DrillTombstoneModel.deleted_at.desc()).limit(MAX_PAGE_LIMIT * 4).all()
+    return [{"drill_id": t.drill_id, "deleted_at": iso_z(t.deleted_at)} for t in rows]
+
 @app.get("/drills/", response_model=list[Drill])
-def get_drills(tag: Optional[str] = None, author: Optional[str] = None, db: Session = Depends(get_db)):
+def get_drills(response: Response, tag: Optional[str] = None, author: Optional[str] = None,
+               ids: Optional[str] = None, since: Optional[str] = None,
+               limit: Optional[int] = None, offset: Optional[int] = None,
+               db: Session = Depends(get_db)):
+    """List drills, newest first.
+
+    - `ids=1,2,3` returns only those drills, in the given order (P4.1).
+    - `since=<ISO-8601>` returns drills changed (or created) at/after that
+      instant; pair with GET /drills/tombstones?since= for deletions (P4.3).
+    - `limit`/`offset` paginate (P4.2): limit defaults to 100 and is capped at
+      500 **only when at least one of them is sent**. With neither, ALL rows
+      are returned, as the current frontend expects. `X-Total-Count` always
+      carries the unpaginated count.
+    """
     try:
         query = db.query(DrillModel)
 
@@ -753,8 +1722,25 @@ def get_drills(tag: Optional[str] = None, author: Optional[str] = None, db: Sess
         if author:
             query = query.filter(DrillModel.author.ilike(f"%{author}%"))
 
-        drills = query.order_by(DrillModel.date_created.desc()).all()
-        print(f"[API] GET /drills/ (tag={tag}, author={author}) returning {len(drills)} drills")
+        if since:
+            query = query.filter(
+                sa_func.coalesce(DrillModel.updated_at, DrillModel.date_created) >= _parse_since(since)
+            )
+
+        if ids is not None:
+            wanted = _parse_ids(ids)
+            rows = query.filter(DrillModel.id.in_(wanted)).all() if wanted else []
+            by_id = {d.id: d for d in rows}
+            drills = [by_id[i] for i in wanted if i in by_id]
+            response.headers["X-Total-Count"] = str(len(drills))
+            bounds = _page_bounds(limit, offset)
+            if bounds is not None:
+                off, lim = bounds
+                drills = drills[off:off + lim]
+        else:
+            drills = _paginate(query.order_by(DrillModel.date_created.desc()), response, limit, offset)
+        print(f"[API] GET /drills/ (tag={tag}, author={author}, ids={ids}, since={since}, "
+              f"limit={limit}, offset={offset}) returning {len(drills)} drills")
         # Intentar serializar cada drill para detectar errores de validación Pydantic
         serialized_drills = []
         for drill in drills:
@@ -782,11 +1768,21 @@ def get_drills(tag: Optional[str] = None, author: Optional[str] = None, db: Sess
                 drill_schema = Drill(**drill_dict)
                 serialized_drills.append(drill_schema)
         return serialized_drills
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[API] ERROR in GET /drills/: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@app.get("/drills/{drill_id}", response_model=Drill)
+def get_drill(drill_id: int, db: Session = Depends(get_db)):
+    """One drill by id (P4.1); 404 when it does not exist."""
+    drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
+    if not drill:
+        raise HTTPException(status_code=404, detail="Drill not found")
+    return drill
 
 def _set_drill_key(db_drill) -> None:
     """Recompute the script-independent phonemic key from the Latin (preferred)
@@ -800,14 +1796,16 @@ def _set_drill_key(db_drill) -> None:
 @app.post("/drills/", response_model=Drill)
 def create_drill(drill: DrillCreate = None, db: Session = Depends(get_db),
                  user: Optional[UserModel] = Depends(get_current_user)):
+    # A drill needs at least one text or one media URL; a fully empty body
+    # used to create blank rows (P1.9). Checked before the try/except below,
+    # which turns any exception into a 500.
+    drill_data = drill.model_dump(exclude_unset=True) if drill is not None else {}
+    _content_keys = ("text_catalan", "text_tachelhit", "text_arabic", "text_tachelhit_latin",
+                     "audio_url", "video_url", "image_url")
+    if not any(str(drill_data.get(k) or "").strip() for k in _content_keys):
+        raise HTTPException(status_code=422, detail="Cal almenys un text (català, tachelhit o àrab) o un fitxer.")
     try:
-        # If no data is provided, create an empty drill
-        if drill is None:
-            db_drill = DrillModel()
-        else:
-            # Create drill with provided data
-            drill_data = drill.model_dump(exclude_unset=True)
-            db_drill = DrillModel(**drill_data)
+        db_drill = DrillModel(**drill_data)
 
         # Contributor attribution + variety provenance
         if user:
@@ -920,15 +1918,23 @@ def update_drill(drill_id: int, update_data: DrillUpdate, db: Session = Depends(
             # Don't raise exception to avoid breaking the update
 
     _set_drill_key(drill)
+    drill.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(drill)
     return drill
 
 @app.delete("/drills/{drill_id}")
 def delete_drill(drill_id: int, db: Session = Depends(get_db)):
+    """Delete a drill and everything keyed on it (P4.7): review state, review
+    log and extra recordings go first (explicitly — SQLite ignores FK cascades
+    unless PRAGMA foreign_keys is on, and the Postgres FKs were created before
+    ondelete=CASCADE existed), then a tombstone is written for delta sync."""
     drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
     if not drill:
         raise HTTPException(status_code=404, detail="Drill not found")
+    for model in (DrillReviewModel, ReviewLogModel, RecordingModel):
+        db.query(model).filter(model.drill_id == drill_id).delete(synchronize_session=False)
+    db.add(DrillTombstoneModel(drill_id=drill_id, deleted_at=datetime.utcnow()))
     db.delete(drill)
     db.commit()
     return {"detail": "Deleted"}
@@ -1410,8 +2416,9 @@ async def upload_media(drill_id: int, media_type: str, file: UploadFile = File(.
             if media_type == "audio":
                 resource_type = "video"
 
-            # Upload to Cloudinary
-            result = cloudinary.uploader.upload(
+            # Upload to Cloudinary — blocking HTTP, so off the event loop (P4.5)
+            result = await run_in_threadpool(
+                cloudinary.uploader.upload,
                 content,
                 folder=f"tachelhit/{media_type}",
                 public_id=f"{media_type}_{drill_id}_{int(datetime.utcnow().timestamp())}",
@@ -1456,8 +2463,17 @@ async def upload_media(drill_id: int, media_type: str, file: UploadFile = File(.
 
 # ===================== TEST CRUD =====================
 @app.get("/tests/", response_model=list[Test])
-def get_tests(db: Session = Depends(get_db)):
-    return db.query(TestModel).order_by(TestModel.date_created.desc()).all()
+def get_tests(response: Response, since: Optional[str] = None,
+              limit: Optional[int] = None, offset: Optional[int] = None,
+              db: Session = Depends(get_db)):
+    """List tests, newest first. Same `since`/`limit`/`offset`/X-Total-Count
+    contract as GET /drills/ (no pagination unless limit or offset is sent)."""
+    query = db.query(TestModel)
+    if since:
+        query = query.filter(
+            sa_func.coalesce(TestModel.updated_at, TestModel.date_created) >= _parse_since(since)
+        )
+    return _paginate(query.order_by(TestModel.date_created.desc()), response, limit, offset)
 
 @app.get("/tests/{test_id}", response_model=Test)
 def get_test(test_id: int, db: Session = Depends(get_db)):
@@ -1484,6 +2500,7 @@ def update_test(test_id: int, update_data: TestUpdate, db: Session = Depends(get
     for key, value in update_dict.items():
         setattr(test, key, value)
 
+    test.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(test)
     return test
@@ -1499,15 +2516,25 @@ def delete_test(test_id: int, db: Session = Depends(get_db)):
 
 # ===================== TEST ATTEMPT CRUD =====================
 @app.get("/test-attempts/", response_model=list[TestAttempt])
-def get_test_attempts(test_id: int = None, db: Session = Depends(get_db)):
+def get_test_attempts(response: Response, test_id: Optional[int] = None, mine: bool = False,
+                      limit: Optional[int] = None, offset: Optional[int] = None,
+                      db: Session = Depends(get_db),
+                      user: Optional[UserModel] = Depends(get_current_user)):
+    """List attempts, newest first. `mine=1` keeps only the requesting user's
+    (needs X-User-Token, P4.8). Pagination as GET /drills/."""
     query = db.query(TestAttemptModel)
     if test_id:
         query = query.filter(TestAttemptModel.test_id == test_id)
-    return query.order_by(TestAttemptModel.date_taken.desc()).all()
+    if mine:
+        if not user:
+            raise HTTPException(status_code=401, detail="mine=1 requires X-User-Token")
+        query = query.filter(TestAttemptModel.user_id == user.id)
+    return _paginate(query.order_by(TestAttemptModel.date_taken.desc()), response, limit, offset)
 
 @app.post("/test-attempts/", response_model=TestAttempt)
-def create_test_attempt(attempt: TestAttemptCreate, db: Session = Depends(get_db)):
-    db_attempt = TestAttemptModel(**attempt.model_dump())
+def create_test_attempt(attempt: TestAttemptCreate, db: Session = Depends(get_db),
+                        user: Optional[UserModel] = Depends(get_current_user)):
+    db_attempt = TestAttemptModel(**attempt.model_dump(), user_id=user.id if user else None)
     db.add(db_attempt)
     db.commit()
     db.refresh(db_attempt)
@@ -1587,12 +2614,35 @@ def call_huggingface_space(payload_data: list):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Video Generation failed: {str(e)}")
 
-def background_video_vault(job_type: str, item_id: int, payload_data: list):
+def _set_job_status(db, job, status: str, **fields) -> None:
+    """Best-effort status write for a tracked VideoProcessingJob (P4.6)."""
+    if job is None:
+        return
+    try:
+        job.status = status
+        for k, v in fields.items():
+            setattr(job, k, v)
+        job.updated_at = datetime.utcnow()
+        db.commit()
+    except Exception as e:
+        print(f"[WORKER] Could not update job {getattr(job, 'id', '?')}: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+def background_video_vault(job_type: str, item_id: int, payload_data: list, job_id: Optional[int] = None):
     """
     Background worker. Now uploads the LOCALLY downloaded file from Gradio Client.
+    When `job_id` is given, the VideoProcessingJob row tracks progress so
+    GET /video-analysis/job/{id} can be polled (P4.6).
     """
     db = SessionLocal()
+    job = None
     try:
+        if job_id:
+            job = db.query(VideoProcessingJobModel).filter(VideoProcessingJobModel.id == job_id).first()
+            _set_job_status(db, job, "IN_PROGRESS")
         # Step A: Call Hugging Face (Blocking call via Client)
         # This now returns a local file path like '/tmp/gradio/...'
         local_video_path = call_huggingface_space(payload_data)
@@ -1629,6 +2679,8 @@ def background_video_vault(job_type: str, item_id: int, payload_data: list):
 
         db.commit()
         print(f"[WORKER] ✅ Successfully vaulted {job_type} for ID {item_id}")
+        _set_job_status(db, job, "COMPLETED",
+                        processing_log=json.dumps({"video_url": cloudinary_url, "item_id": item_id}))
 
         # Cleanup the local temp file from Gradio Client
         if os.path.exists(local_video_path):
@@ -1638,8 +2690,22 @@ def background_video_vault(job_type: str, item_id: int, payload_data: list):
         print(f"[WORKER] ❌ Task Failed: {str(e)}")
         # Print full traceback to logs for debugging
         traceback.print_exc()
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        _set_job_status(db, job, "FAILED", error_message=str(e)[:2000])
     finally:
         db.close()
+
+def _new_render_job(db, kind: str, item_id: int) -> VideoProcessingJobModel:
+    """Create the job row that a reel/demo render reports into (P4.6)."""
+    job = VideoProcessingJobModel(kind=kind, status="PENDING",
+                                  processing_log=json.dumps({"item_id": item_id}))
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return job
 
 # ===================== YOUTUBE SHORTS =====================
 @app.post("/generate-short/{drill_id}")
@@ -1660,10 +2726,13 @@ async def generate_short(drill_id: int, background_tasks: BackgroundTasks, db: S
     filename = f"short_{drill_id}_{int(datetime.now().timestamp())}.mp4"
     payload_data = ["short", json.dumps(drill_data), None, filename, 0]
 
-    # 🚀 Start background task and return immediately
-    background_tasks.add_task(background_video_vault, "short", drill_id, payload_data)
+    # 🚀 Start background task and return immediately (job id is pollable at
+    # GET /video-analysis/job/{job_id})
+    job = _new_render_job(db, "short", drill_id)
+    background_tasks.add_task(background_video_vault, "short", drill_id, payload_data, job.id)
 
-    return {"status": "processing", "message": "Video generation started. It will appear in Cloudinary shortly."}
+    return {"status": "processing", "job_id": job.id,
+            "message": "Video generation started. It will appear in Cloudinary shortly."}
 # ===================== DRILL PLAYER DEMO VIDEO =====================
 @app.post("/generate-drillplayer-demo/{test_id}")
 async def generate_drillplayer_demo(test_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
@@ -1684,13 +2753,18 @@ async def generate_drillplayer_demo(test_id: int, background_tasks: BackgroundTa
     payload_data = ["demo", None, json.dumps(drills_data), filename, test_id]
 
     # 🚀 Offload the heavy demo rendering to background
-    background_tasks.add_task(background_video_vault, "demo", test_id, payload_data)
+    job = _new_render_job(db, "demo", test_id)
+    background_tasks.add_task(background_video_vault, "demo", test_id, payload_data, job.id)
 
-    return {"status": "processing", "message": "Demo video is being generated. This may take a few minutes."}
+    return {"status": "processing", "job_id": job.id,
+            "message": "Demo video is being generated. This may take a few minutes."}
 
 @app.get("/shorts/", response_model=list[YouTubeShort])
-def get_shorts(db: Session = Depends(get_db)):
-    return db.query(YouTubeShortModel).order_by(YouTubeShortModel.date_created.desc()).all()
+def get_shorts(response: Response, limit: Optional[int] = None, offset: Optional[int] = None,
+               db: Session = Depends(get_db)):
+    """List generated shorts, newest first. Pagination as GET /drills/."""
+    return _paginate(db.query(YouTubeShortModel).order_by(YouTubeShortModel.date_created.desc()),
+                     response, limit, offset)
 
 @app.delete("/shorts/{short_id}")
 def delete_short(short_id: int, db: Session = Depends(get_db)):
@@ -1779,10 +2853,14 @@ def resolve_hf_space_host(url: str) -> str:
 
 # ===================== NEW VIDEO ANALYSIS ENDPOINTS =====================
 
-async def process_video_analysis_task(job_id: int, video_path: str, tmp_dir: str, language: Optional[str] = None):
+def process_video_analysis_task(job_id: int, video_path: str, tmp_dir: str, language: Optional[str] = None):
     """
     Background task to extract audio, upload to Cloudinary, call ASR Space, and update job.
     `language` is an optional Whisper language hint forwarded to the ASR Space.
+
+    Deliberately a plain `def` (P4.5): it blocks on requests.post(timeout=600)
+    to the ASR Space, and as a sync BackgroundTask FastAPI runs it in the
+    threadpool instead of freezing the single-worker event loop for 10 min.
     """
     db = SessionLocal()
     try:
@@ -1959,25 +3037,30 @@ def get_video_analysis_job_status(job_id: int, db: Session = Depends(get_db)):
                 "text": seg.text_original
             })
 
-    # Auto-pipeline jobs record their created drill ids in processing_log
+    # Auto-pipeline jobs record their created drill ids in processing_log;
+    # reel/demo render jobs (P4.6) record the finished video_url there.
     drills_created = None
     media_errors = None
+    video_url = None
     if job.processing_log:
         try:
             log = json.loads(job.processing_log)
             if isinstance(log, dict):
                 drills_created = log.get("drills_created")
                 media_errors = log.get("media_errors")
+                video_url = log.get("video_url")
         except (ValueError, TypeError):
             pass
 
     return {
         "id": job.id,
+        "kind": getattr(job, "kind", None),
         "status": job.status,
         "error_message": job.error_message,
         "segments": segments,
         "drills_created": drills_created,
-        "media_errors": media_errors
+        "media_errors": media_errors,
+        "video_url": video_url,
     }
 
 @app.post("/video-analysis/analyze")
@@ -2139,7 +3222,13 @@ async def import_video_from_url(
 async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path: str, tmp_dir: str,
                                     language: Optional[str], tag: Optional[str],
                                     apply_correction: bool, has_segments: bool,
-                                    lyrics: Optional[str] = None, generate_reels: bool = False):
+                                    lyrics: Optional[str] = None, generate_reels: bool = False,
+                                    meta: Optional[Dict[str, Any]] = None):
+    # meta: {"title", "channel", "playlist", "license"} of the source, for the credit line
+    meta = {k: (v or "").strip() for k, v in (meta or {}).items() if isinstance(v, str)}
+    if not tag and meta.get("title"):
+        tag = meta["title"][:60]  # catalogue by video when the user gave no tag
+    variety = meta.get("variety") if meta.get("variety") in _VARIETY_CODES else None
     """
     Fully server-side capture pipeline: (ASR if needed) -> correction ->
     translation into all drill languages -> drill creation with media clips.
@@ -2152,22 +3241,66 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         job = db.query(VideoProcessingJobModel).filter(VideoProcessingJobModel.id == job_id).first()
         if not job:
             return
+        if not variety and meta.get("channel"):
+            # Same channel, same variety: reuse what earlier captures were labelled with.
+            prev = (db.query(DrillModel.variety).filter(DrillModel.source_channel == meta["channel"],
+                                                          DrillModel.variety.isnot(None)).first())
+            if prev and prev[0] in _VARIETY_CODES:
+                variety = prev[0]
+                print(f"[AUTO] variety {variety!r} inherited from earlier captures of {meta['channel']!r}")
 
-        # Phase 1: transcription (skipped when platform subtitles already gave segments)
+        # Phase 1: no captions -> read the lesson text off the frames first
+        # (letters / words burned into the picture); only if the frames carry no
+        # lesson text do we fall back to speech recognition.
+        lesson_segments: List[Dict[str, Any]] = []
+        if not has_segments and not is_audio_file(video_path):
+            job.status = "READING_FRAMES"
+            db.commit()
+            try:
+                probe_frames = await asyncio.to_thread(extract_frames, video_path, os.path.join(tmp_dir, "probe"), 10.0, 640)
+                mode = await asyncio.to_thread(detect_text_mode, probe_frames) if probe_frames else "none"
+                print(f"[AUTO] on-screen text mode: {mode}")
+                if mode == "subtitles":
+                    lesson_segments = await asyncio.to_thread(read_burned_subtitles, video_path, tmp_dir)
+                if not lesson_segments:
+                    lesson_segments = await asyncio.to_thread(read_onscreen_vocabulary, video_path, tmp_dir,
+                                                              2.0, 12, meta.get("channel"))
+            except Exception as e:
+                print(f"[LESSON] frame reading failed: {e}")
+            if lesson_segments:
+                for seg in lesson_segments:
+                    if seg.get("start") is None:
+                        continue  # spoken but never shown: a text-only drill, no section to clip
+                    db.add(VideoSegmentModel(job_id=job.id, segment_start_time=seg["start"],
+                                             segment_end_time=seg["end"], text_original=seg["text"]))
+                job.status = "COMPLETED"
+                db.commit()
+                has_segments = True
         if not has_segments:
             job.status = "TRANSCRIBING"
             db.commit()
-            await process_video_analysis_task(job_id, video_path, tmp_dir, language)
+            await asyncio.to_thread(process_video_analysis_task, job_id, video_path, tmp_dir, language)
             db.expire_all()
             job = db.query(VideoProcessingJobModel).filter(VideoProcessingJobModel.id == job_id).first()
             if not job or job.status != "COMPLETED":
                 return  # ASR failed; its task already recorded the error
 
-        segments = [{
-            "start": s.segment_start_time,
-            "end": s.segment_end_time,
-            "text": s.text_original
-        } for s in job.segments]
+        segments = []
+        if lesson_segments:
+            segments = lesson_segments
+            effective_source = "shi" if language in (None, "", "auto") else language
+        else:
+            db.expire_all()
+            job = db.query(VideoProcessingJobModel).filter(VideoProcessingJobModel.id == job_id).first()
+            for s_ in job.segments:
+                text_, gloss_, gloss_lang_ = split_bilingual_cue(s_.text_original) if has_segments else ((s_.text_original or ""), None, None)
+                segments.append({
+                    "start": s_.segment_start_time,
+                    "end": s_.segment_end_time,
+                    "text": text_,
+                    "gloss": gloss_,            # e.g. "horse" — translated instead of the Tamazight
+                    "gloss_lang": gloss_lang_,  # "en"
+                })
 
         if not segments:
             job.status = "FAILED"
@@ -2184,8 +3317,20 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
             segments = _align_lyrics_lines(segments, lyrics)
             apply_correction = False
 
-        # Phase 2: correction layer (Tachelhit-ish sources only)
-        if apply_correction and effective_source in ("shi", "ber"):
+        # Junk guard on the RAW transcript. It must run before correction: the
+        # correction layer rewrites hallucinated English into Tachelhit-looking
+        # text that no heuristic can catch afterwards (prod job 20, 2026-10-17).
+        for seg in segments:
+            if seg.get("gloss"):
+                continue  # human caption with a gloss: trusted
+            _j = looks_like_junk_asr(seg.get("text"), attested=effective_source in ("shi", "ber"))
+            if _j:
+                seg["junk"] = _j
+                print(f"[AUTO] junk segment ({_j}), not corrected/translated: {str(seg.get('text'))[:60]!r}")
+
+        # Phase 2: correction layer (Tachelhit-ish sources only; ASR output only —
+        # human captions are better than the corrector)
+        if apply_correction and not has_segments and effective_source in ("shi", "ber"):
             job.status = "CORRECTING"
             db.commit()
             ds = db.query(DrillModel).filter(DrillModel.is_correction_dataset == True).all()
@@ -2198,7 +3343,7 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
             svc = get_correction_service()
             for seg in segments:
                 text = (seg.get("text") or "").strip()
-                if text:
+                if text and not seg.get("junk"):
                     try:
                         corrected, _ = await asyncio.to_thread(svc.correct_transcription, text, phrases)
                         seg["text"] = corrected
@@ -2208,13 +3353,54 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         # Phase 3: translate into every drill language the source isn't
         job.status = "TRANSLATING"
         db.commit()
-        for seg in segments:
-            text = (seg.get("text") or "").strip()
-            if not text:
-                continue
+        # Captioned glosses ("horse") translate far better than the Tamazight word
+        # through NLLB, and all of them go in ONE Gemini call; the Tamazight line
+        # is kept verbatim.
+        glossed = [seg for seg in segments if (seg.get("gloss") or "").strip() and not seg.get("junk")]
+        if glossed:
+            gloss_src = LANGUAGE_CODE_MAP.get(glossed[0].get("gloss_lang") or "en", "English")
+            table = await asyncio.to_thread(translate_glosses, [seg["gloss"].strip() for seg in glossed], gloss_src)
+            for seg in glossed:
+                tr = table.get(seg["gloss"].strip(), {})
+                seg["text_tachelhit"] = (seg.get("text") or "").strip()
+                seg["text_catalan"] = tr.get("ca") or (seg["gloss"] if gloss_src == "Catalan" else None)
+                seg["text_arabic"] = tr.get("ar") or (seg["gloss"] if gloss_src == "Modern Standard Arabic" else None)
+        foreign = effective_source not in ("shi", "ber")
+        plain = [seg for seg in segments if (seg.get("text") or "").strip() and not seg.get("junk") and not seg.get("gloss")]
+        if foreign and plain:
+            # Foreign captions (e.g. a story subtitled in Arabic): Catalan/Arabic in
+            # one Gemini batch; machine Tachelhit is only ever a DRAFT suggestion.
+            table = await asyncio.to_thread(translate_glosses, [seg["text"].strip() for seg in plain], src_name,
+                                            tuple(t for t in ("ca", "ar") if LANGUAGE_CODE_MAP.get(t) != src_name))
+            for seg in plain:
+                tr = table.get(seg["text"].strip(), {})
+                if "ca" in tr:
+                    seg["text_catalan"] = tr["ca"]
+                if "ar" in tr:
+                    seg["text_arabic"] = tr["ar"]
+        if foreign and plain and has_segments and os.getenv("NARRATION_DRAFTS", "0") == "1":
+            # What is actually SPOKEN (draft): transcribe the narration per cue, with the
+            # caption as the meaning anchor. OFF by default: evaluated on the hedgehog
+            # story, 9 of 14 drafts were unrelated to the Arabic — Tamazight ASR is not
+            # solved, even anchored. Enable with NARRATION_DRAFTS=1 for experiments.
+            try:
+                spoken = await asyncio.to_thread(transcribe_narration, video_path, tmp_dir, plain, src_name)
+                for i, seg in enumerate(plain):
+                    if i in spoken:
+                        seg["text_tachelhit_suggested"] = spoken[i]["tifinagh"] or spoken[i]["latin"]
+                        seg["latin"] = spoken[i]["latin"] or None
+                print(f"[NARRATION] {len(spoken)}/{len(plain)} cues got a spoken-Tamazight draft")
+            except Exception as e:
+                print(f"[NARRATION] skipped: {e}")
+        for seg in plain:
+            text = seg["text"].strip()
             for tgt, field in TRANSLATE_TARGET_FIELDS.items():
-                if LANGUAGE_CODE_MAP.get(tgt) == src_name:
+                if LANGUAGE_CODE_MAP.get(tgt) == src_name or (foreign and seg.get(field)):
                     continue
+                if foreign and field == "text_tachelhit":
+                    field = "text_tachelhit_suggested"   # draft for a speaker to confirm
+                    if seg.get(field):
+                        continue
                 try:
                     seg[field] = await asyncio.to_thread(
                         translate_with_hf, text, src_name, LANGUAGE_CODE_MAP[tgt]
@@ -2228,22 +3414,49 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         drills_created = []
         media_errors = []
         audio_src = is_audio_file(video_path)
+        _prev_text = None
         for seg in segments:
             original_text = seg.get("text")
             drill_tachelhit = seg.get("text_tachelhit") or (original_text if effective_source in ("shi", "ber") else None)
             drill_arabic = seg.get("text_arabic") or (original_text if effective_source == "ar" else None)
 
             # Skip empty segments (no text in any language) — nothing to learn.
-            if not (drill_tachelhit or drill_arabic or seg.get("text_catalan")):
+            if not (drill_tachelhit or drill_arabic or seg.get("text_catalan") or seg.get("text_tachelhit_suggested")):
                 continue
+            _junk = seg.get("junk") or looks_like_junk_asr(drill_tachelhit, attested=effective_source in ("shi", "ber"))
+            if _junk:
+                print(f"[AutoDrills] skipping junk segment ({_junk}): {str(drill_tachelhit)[:60]!r}")
+                media_errors.append(f"segment skipped ({_junk})")
+                continue
+            # Whisper on music/silence repeats one sentence for every window
+            # (job 20: 4 identical "I can't bear to fall asleep"). One drill is
+            # enough for identical consecutive text.
+            _key = " ".join(str(original_text or drill_tachelhit or "").lower().split())
+            if _key and _key == _prev_text:
+                print(f"[AutoDrills] skipping repeated segment: {_key[:60]!r}")
+                media_errors.append("segment skipped (repeat of previous)")
+                continue
+            _prev_text = _key
 
+            if seg.get("kind") == "subtitle" and (seg.get("lines") or {}).get("ar") and not drill_arabic:
+                drill_arabic = seg["lines"]["ar"]  # the video's own Arabic line beats a translation
             db_drill = DrillModel(
                 text_catalan=seg.get("text_catalan"),
                 text_tachelhit=drill_tachelhit,
                 text_arabic=drill_arabic,
+                text_tachelhit_latin=seg.get("latin") or None,
+                text_tachelhit_suggested=seg.get("text_tachelhit_suggested"),
                 tag=tag or "auto_capture",
                 author="Auto Capture",
-                source_url=url
+                source_url=url,
+                source_title=meta.get("title") or None,
+                source_channel=meta.get("channel") or None,
+                source_playlist=meta.get("playlist") or None,
+                license=meta.get("license") or ("youtube-standard" if url and "youtu" in url else None),
+                variety=variety,
+                # provenance: which seconds of the source this clip comes from
+                video_start_time=seg.get("start"),
+                video_end_time=seg.get("end"),
             )
             db.add(db_drill)
             db.commit()
@@ -2252,6 +3465,10 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
             # fails; the audio/video clip is best-effort enrichment on top.
             drills_created.append(db_drill.id)
             try:
+                if seg.get("no_media") or seg.get("start") is None:
+                    media_errors.append(f"{seg.get('latin') or seg.get('text')}: spoken but not shown on screen (no clip)")
+                    db.commit()
+                    continue
                 if audio_src:
                     res = await asyncio.to_thread(process_and_upload_audio_segment, video_path, seg["start"], seg["end"], db_drill.id)
                     db_drill.audio_url = normalize_media_url(res["audio_url"])
@@ -2368,7 +3585,7 @@ async def auto_drills_from_url(
                     job_id=job.id,
                     segment_start_time=seg["start"],
                     segment_end_time=seg["end"],
-                    text_original=seg["text"]
+                    text_original=cue_text_for_storage(seg)
                 ))
             db.commit()
 
@@ -2376,7 +3593,9 @@ async def auto_drills_from_url(
             auto_drills_pipeline_task,
             job.id, url, video_path, tmp_dir,
             lang_to_use or language, tag, bool(apply_correction), bool(segments),
-            lyrics, bool(generate_reels)
+            lyrics, bool(generate_reels),
+            {"title": (info or {}).get("title"), "channel": (info or {}).get("channel") or (info or {}).get("uploader"),
+             "playlist": (info or {}).get("playlist_title"), "license": (info or {}).get("license")},
         )
 
         return {
@@ -2403,6 +3622,15 @@ async def auto_drills_from_upload(
     apply_correction: Optional[bool] = Form(True),
     lyrics: Optional[str] = Form(None),
     generate_reels: Optional[bool] = Form(False),
+    subtitles: Optional[UploadFile] = File(None),
+    source_url: Optional[str] = Form(None),
+    captions_lang: Optional[str] = Form(None),   # language code of `subtitles` (agent)
+    captions_kind: Optional[str] = Form(None),   # "uploaded" (human) | "automatic"
+    source_title: Optional[str] = Form(None),    # credit line: video title
+    source_channel: Optional[str] = Form(None),  # credit line: channel / author
+    source_playlist: Optional[str] = Form(None), # catalogue: playlist / course
+    source_license: Optional[str] = Form(None),  # as declared on the platform
+    variety: Optional[str] = Form(None),         # variety the source teaches (shi/tzm/rif/zgh/kab)
     db: Session = Depends(get_db),
 ):
     """One-shot capture from an ALREADY-DOWNLOADED file — download the video on
@@ -2419,7 +3647,7 @@ async def auto_drills_from_upload(
             f.write(await video.read())
 
         job = VideoProcessingJobModel(
-            source_url=f"local-upload:{video.filename or 'video'}",
+            source_url=(source_url or "").strip() or f"local-upload:{video.filename or 'video'}",
             source_filepath=video_path,
             status="PENDING",
             date_submitted=datetime.utcnow(),
@@ -2428,12 +3656,42 @@ async def auto_drills_from_upload(
         db.commit()
         db.refresh(job)
 
-        # No URL -> no platform subtitles; the pipeline runs ASR on the uploaded file.
+        # Captions sent by the local agent (platform subtitles, human-made when
+        # available) replace ASR: exact timings, and bilingual cues keep the gloss.
+        segments = []
+        # Automatic captions are YouTube's own ASR with a guessed language (an
+        # English lesson came back as "Arabic"); only trust them when they match
+        # the language the user asked for. Human captions set the source language.
+        if subtitles is not None and (captions_kind or "uploaded") == "automatic" and \
+                (language or "").lower() != (captions_lang or "").lower():
+            print(f"[AUTO-UPLOAD] ignoring automatic captions ({captions_lang}); language hint={language!r}")
+            subtitles = None
+        if subtitles is not None and not language and captions_lang:
+            language = captions_lang.split("-")[0].lower()
+        if subtitles is not None:
+            try:
+                from video_utils import parse_vtt
+                raw = (await subtitles.read()).decode("utf-8", "replace")
+                segments = parse_vtt(raw)
+                for seg in segments:
+                    db.add(VideoSegmentModel(
+                        job_id=job.id,
+                        segment_start_time=seg["start"],
+                        segment_end_time=seg["end"],
+                        text_original=cue_text_for_storage(seg),
+                    ))
+                db.commit()
+                print(f"[AUTO-UPLOAD] {len(segments)} caption cues from {subtitles.filename}; ASR skipped")
+            except Exception as e:
+                print(f"[AUTO-UPLOAD] captions unusable ({e}); falling back to ASR")
+                segments = []
         background_tasks.add_task(
             auto_drills_pipeline_task,
-            job.id, None, video_path, tmp_dir,
-            language, tag, bool(apply_correction), False,
+            job.id, (source_url or "").strip() or None, video_path, tmp_dir,
+            language, tag, bool(apply_correction), bool(segments),
             lyrics, bool(generate_reels),
+            {"title": source_title, "channel": source_channel, "playlist": source_playlist, "license": source_license,
+             "variety": variety},
         )
         return {
             "job_id": job.id,
@@ -2451,6 +3709,20 @@ async def auto_drills_from_upload(
 # The web app queues a URL here; a local agent (tools/capture_agent.py) running
 # on the user's machine polls, downloads it on their residential IP (dodging
 # YouTube's block of Render's IP), and uploads the file back — no manual step.
+# Liveness of the local agent: the single-worker backend remembers the last
+# poll so the web app can tell the user whether an agent is connected before
+# they queue a URL that nobody will download.
+_capture_agent_seen: Dict[str, Any] = {"at": None, "version": None}
+
+
+@app.get("/capture/agent")
+def capture_agent_status():
+    at = _capture_agent_seen.get("at")
+    online = bool(at and (datetime.utcnow() - at).total_seconds() < 45)
+    return {"online": online, "last_seen": at.isoformat() + "Z" if at else None,
+            "version": _capture_agent_seen.get("version")}
+
+
 @app.post("/capture/request")
 def capture_request(
     url: str = Body(..., embed=True),
@@ -2458,12 +3730,14 @@ def capture_request(
     language: Optional[str] = Body(None, embed=True),
     audio_only: bool = Body(True, embed=True),
     apply_correction: bool = Body(True, embed=True),
+    variety: Optional[str] = Body(None, embed=True),
     db: Session = Depends(get_db),
 ):
     """Queue a URL for the local agent to download. Poll GET /capture/{id}."""
     req = CaptureRequestModel(
         url=url.strip(), tag=tag, language=language,
         audio_only=bool(audio_only), apply_correction=bool(apply_correction),
+        variety=(variety or "").strip() or None,
         status="pending",
     )
     db.add(req)
@@ -2473,9 +3747,11 @@ def capture_request(
 
 
 @app.get("/capture/pending")
-def capture_pending(db: Session = Depends(get_db)):
+def capture_pending(request: Request, db: Session = Depends(get_db)):
     """The local agent polls this: returns and CLAIMS the oldest pending
     request, or {request: null} when the queue is empty."""
+    _capture_agent_seen["at"] = datetime.utcnow()
+    _capture_agent_seen["version"] = request.headers.get("X-Agent-Version")
     req = (db.query(CaptureRequestModel)
            .filter(CaptureRequestModel.status == "pending")
            .order_by(CaptureRequestModel.created_at.asc()).first())
@@ -2488,6 +3764,7 @@ def capture_pending(db: Session = Depends(get_db)):
     return {"request": {
         "id": req.id, "url": req.url, "tag": req.tag, "language": req.language,
         "audio_only": req.audio_only, "apply_correction": req.apply_correction,
+        "variety": req.variety,
     }}
 
 
@@ -2790,6 +4067,10 @@ async def create_drills_from_video(
                 # table; otherwise route the original text by source language
                 drill_tachelhit = seg.get("text_tachelhit") or (original_text if source_lang in [None, 'shi', 'ber'] else None)
                 drill_arabic = seg.get("text_arabic") or (original_text if source_lang == 'ar' else None)
+                _junk = looks_like_junk_asr(drill_tachelhit, attested=source_lang in [None, 'shi', 'ber'])
+                if _junk:
+                    print(f"[CreateDrills] skipping junk segment ({_junk}): {str(drill_tachelhit)[:60]!r}")
+                    continue
 
                 db_drill = DrillModel(
                     text_catalan=seg.get("text_catalan"),
@@ -2833,6 +4114,10 @@ async def create_drills_from_video(
                 # Prefer explicit per-language translations when present
                 drill_tachelhit = seg.get("text_tachelhit") or (original_text if source_lang in [None, 'shi', 'ber'] else None)
                 drill_arabic = seg.get("text_arabic") or (original_text if source_lang == 'ar' else None)
+                _junk = looks_like_junk_asr(drill_tachelhit, attested=source_lang in [None, 'shi', 'ber'])
+                if _junk:
+                    print(f"[CreateDrills] skipping junk segment ({_junk}): {str(drill_tachelhit)[:60]!r}")
+                    continue
 
                 db_drill = DrillModel(
                     text_catalan=seg.get("text_catalan"),
@@ -2952,7 +4237,8 @@ def get_me(user: Optional[UserModel] = Depends(get_current_user), db: Session = 
         "display_name": user.display_name,
         "variety": user.variety,
         "region": user.region,
-        "date_created": user.date_created.isoformat(),
+        "tz": user.tz or DEFAULT_TZ,
+        "date_created": iso_z(user.date_created),
         "drills_contributed": drills_contributed,
         "cards_learning": cards_learning
     }
@@ -2963,11 +4249,12 @@ def update_me(
     display_name: Optional[str] = Body(None, embed=True),
     variety: Optional[str] = Body(None, embed=True),
     region: Optional[str] = Body(None, embed=True),
+    tz: Optional[str] = Body(None, embed=True),
     user: Optional[UserModel] = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Update the contributor's own profile (display name, variety, region).
-    Only fields that are sent are changed."""
+    """Update the contributor's own profile (display name, variety, region,
+    tz = IANA zone for streak days). Only fields that are sent are changed."""
     if not user:
         raise HTTPException(status_code=401, detail="Missing or invalid X-User-Token")
     if display_name is not None:
@@ -2976,10 +4263,18 @@ def update_me(
         user.variety = variety or None
     if region is not None:
         user.region = region.strip() or None
+    if tz is not None:
+        tz = tz.strip()
+        if tz:
+            try:
+                ZoneInfo(tz)
+            except Exception:
+                raise HTTPException(status_code=400, detail=f"Unknown time zone: {tz}")
+        user.tz = tz or None
     db.commit()
     db.refresh(user)
     return {"username": user.username, "display_name": user.display_name,
-            "variety": user.variety, "region": user.region}
+            "variety": user.variety, "region": user.region, "tz": user.tz or DEFAULT_TZ}
 
 
 @app.post("/drills/{drill_id}/recordings")
@@ -2998,7 +4293,8 @@ async def add_recording(
     if not drill:
         raise HTTPException(status_code=404, detail="Drill not found")
     content = await file.read()
-    up = cloudinary.uploader.upload(
+    up = await run_in_threadpool(
+        cloudinary.uploader.upload,
         content, resource_type="auto", folder="tachelhit/recordings",
         public_id=f"rec_{drill_id}_{int(datetime.utcnow().timestamp())}",
     )
@@ -3602,6 +4898,48 @@ def corpus_stats(db: Session = Depends(get_db)):
         "by_region": by_region,
     }
 
+@app.get("/corpus/sources")
+def corpus_sources(db: Session = Depends(get_db)):
+    """The catalog: every source video the drills came from, grouped
+    channel > playlist > video, with counts, media coverage, variety, the span of
+    the video covered and the tag(s) used — plus how many drills have no source
+    (speaker recordings)."""
+    rows = db.query(DrillModel).filter(DrillModel.source_url != None, DrillModel.source_url != '').all()
+    videos: Dict[str, Dict[str, Any]] = {}
+    for d in rows:
+        v = videos.setdefault(d.source_url, {
+            "source_url": d.source_url, "title": None, "channel": None, "playlist": None, "license": None,
+            "drills": 0, "with_video": 0, "with_audio": 0, "verified": 0, "varieties": set(), "tags": set(),
+            "from_s": None, "to_s": None, "ids": []})
+        v["drills"] += 1
+        v["ids"].append(d.id)
+        v["title"] = v["title"] or d.source_title
+        v["channel"] = v["channel"] or d.source_channel
+        v["playlist"] = v["playlist"] or d.source_playlist
+        v["license"] = v["license"] or d.license
+        v["with_video"] += 1 if d.video_url else 0
+        v["with_audio"] += 1 if d.audio_url else 0
+        v["verified"] += 1 if d.verified else 0
+        if d.variety:
+            v["varieties"].add(d.variety)
+        if d.tag:
+            v["tags"].add(d.tag)
+        if d.video_start_time is not None:
+            v["from_s"] = d.video_start_time if v["from_s"] is None else min(v["from_s"], d.video_start_time)
+        if d.video_end_time is not None:
+            v["to_s"] = d.video_end_time if v["to_s"] is None else max(v["to_s"], d.video_end_time)
+    out = []
+    for v in videos.values():
+        v["varieties"] = sorted(v["varieties"])
+        v["tags"] = sorted(v["tags"])
+        v["first_id"] = min(v["ids"])
+        del v["ids"]
+        out.append(v)
+    out.sort(key=lambda v: ((v["channel"] or "~"), (v["playlist"] or "~"), -v["drills"]))
+    total = db.query(DrillModel).count()
+    return {"total_drills": total, "from_sources": len(rows), "without_source": total - len(rows),
+            "channels": len({v["channel"] for v in out if v["channel"]}), "videos": out}
+
 # Documentation-gap definitions: (key, human label, SQLAlchemy filter builder).
 # A "gap" is a drill that has Tachelhit content but is missing some dimension a
 # complete corpus entry should have — the work-list for contributors.
@@ -3794,18 +5132,9 @@ def get_due_reviews(limit: int = 20, db: Session = Depends(get_db),
         drills.extend(new_drills)
     return drills
 
-@app.post("/reviews/{drill_id}/grade")
-def grade_review(drill_id: int, grade: int = Body(..., embed=True), db: Session = Depends(get_db),
-                 user: Optional[UserModel] = Depends(get_current_user)):
-    """Record a review grade for this user and reschedule the drill (SM-2)."""
-    if grade not in (0, 1, 2, 3):
-        raise HTTPException(status_code=400, detail="grade must be 0 (again), 1 (hard), 2 (good) or 3 (easy)")
-    drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
-    if not drill:
-        raise HTTPException(status_code=404, detail="Drill not found")
-
-    uid = user.id if user else None
-    now = datetime.utcnow()
+def _apply_sm2_grade(db, drill_id: int, uid: Optional[int], grade: int, now: datetime):
+    """Reschedule one card for one user (SM-2) and log the grade at `now`.
+    Shared by the single and batch grade endpoints (P4.9). Caller commits."""
     review = db.query(DrillReviewModel).filter(
         DrillReviewModel.drill_id == drill_id, DrillReviewModel.user_id == uid
     ).first()
@@ -3847,16 +5176,66 @@ def grade_review(drill_id: int, grade: int = Body(..., embed=True), db: Session 
     review.last_grade = grade
     review.last_reviewed = now
     review.total_reviews += 1
+    review.updated_at = now
     db.add(ReviewLogModel(drill_id=drill_id, user_id=uid, grade=grade, reviewed_at=now))
+    return review
+
+@app.post("/reviews/{drill_id}/grade")
+def grade_review(drill_id: int, grade: int = Body(..., embed=True), db: Session = Depends(get_db),
+                 user: Optional[UserModel] = Depends(get_current_user)):
+    """Record a review grade for this user and reschedule the drill (SM-2)."""
+    if grade not in (0, 1, 2, 3):
+        raise HTTPException(status_code=400, detail="grade must be 0 (again), 1 (hard), 2 (good) or 3 (easy)")
+    drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
+    if not drill:
+        raise HTTPException(status_code=404, detail="Drill not found")
+
+    uid = user.id if user else None
+    review = _apply_sm2_grade(db, drill_id, uid, grade, datetime.utcnow())
     db.commit()
     db.refresh(review)
     return {
         "drill_id": drill_id,
-        "next_due": review.due_date.isoformat(),
+        "next_due": iso_z(review.due_date),
         "interval_days": round(review.interval_days, 3),
         "ease": round(review.ease, 2),
         "repetitions": review.repetitions
     }
+
+class GradeBatchItem(BaseModel):
+    drill_id: int
+    grade: int = Field(..., ge=0, le=3)
+    graded_at: datetime  # ISO-8601; "Z" / offsets accepted, naive = UTC
+
+@app.post("/reviews/grade-batch")
+def grade_batch(items: List[GradeBatchItem], db: Session = Depends(get_db),
+                user: Optional[UserModel] = Depends(get_current_user)):
+    """Apply grades queued offline (P4.9), oldest first, through the same SM-2
+    logic as /reviews/{id}/grade. Idempotent on (user, drill, graded_at): a
+    grade whose ReviewLog row already exists is skipped, so a client may
+    re-send its whole queue after a lost response without double-scheduling.
+    Grades for drills that no longer exist are skipped too."""
+    uid = user.id if user else None
+    applied = 0
+    skipped = 0
+    for it in sorted(items, key=lambda i: _to_naive_utc(i.graded_at)):
+        ts = _to_naive_utc(it.graded_at)
+        dup = db.query(ReviewLogModel.id).filter(
+            ReviewLogModel.user_id == uid,
+            ReviewLogModel.drill_id == it.drill_id,
+            ReviewLogModel.reviewed_at == ts,
+        ).first()
+        if dup is not None:
+            skipped += 1
+            continue
+        if db.query(DrillModel.id).filter(DrillModel.id == it.drill_id).first() is None:
+            skipped += 1
+            continue
+        _apply_sm2_grade(db, it.drill_id, uid, it.grade, ts)
+        db.flush()  # so a duplicate later in the SAME batch is seen as applied
+        applied += 1
+    db.commit()
+    return {"applied": applied, "skipped": skipped}
 
 @app.post("/tests/from-weakest")
 def create_test_from_weakest(
@@ -3913,9 +5292,11 @@ def review_streak(db: Session = Depends(get_db),
                   user: Optional[UserModel] = Depends(get_current_user)):
     """Daily streak and activity counts for the requesting user."""
     uid = user.id if user else None
+    zone = _user_zone(user)  # "today" in the learner's zone, not UTC (P4.10)
     rows = db.query(ReviewLogModel.reviewed_at).filter(ReviewLogModel.user_id == uid).all()
-    days = {r[0].date() for r in rows}
-    today = datetime.utcnow().date()
+    local_days = [_local_day(r[0], zone) for r in rows]
+    days = set(local_days)
+    today = datetime.now(timezone.utc).astimezone(zone).date()
 
     # Streak of consecutive review days; still alive if yesterday was reviewed
     streak = 0
@@ -3932,27 +5313,40 @@ def review_streak(db: Session = Depends(get_db),
     week_ago = today - timedelta(days=6)
     return {
         "streak_days": streak,
-        "reviews_today": sum(1 for r in rows if r[0].date() == today),
-        "reviews_week": sum(1 for r in rows if r[0].date() >= week_ago),
+        "reviews_today": sum(1 for d in local_days if d == today),
+        "reviews_week": sum(1 for d in local_days if d >= week_ago),
         "active_days": len(days),
+        "tz": getattr(zone, "key", "UTC"),
+        "today": today.isoformat(),
     }
 
 @app.get("/reviews/stats")
 def review_stats(db: Session = Depends(get_db),
                  user: Optional[UserModel] = Depends(get_current_user)):
-    """Counts for the home-screen review badge, scoped to the requesting user."""
+    """Counts for the home-screen review badge, scoped to the requesting user.
+    `reviewed_today` counts grades on the learner's local day (P4.10)."""
     uid = user.id if user else None
     now = datetime.utcnow()
+    zone = _user_zone(user)
+    today = datetime.now(timezone.utc).astimezone(zone).date()
     total = db.query(DrillModel).count()
     tracked = db.query(DrillReviewModel).filter(DrillReviewModel.user_id == uid).count()
     due = db.query(DrillReviewModel).filter(
         DrillReviewModel.user_id == uid, DrillReviewModel.due_date <= now
     ).count()
+    # local midnight -> UTC lower bound keeps this a cheap indexed range scan
+    day_start_utc = datetime.combine(today, datetime.min.time(), tzinfo=zone) \
+        .astimezone(timezone.utc).replace(tzinfo=None)
+    reviewed_today = db.query(ReviewLogModel).filter(
+        ReviewLogModel.user_id == uid, ReviewLogModel.reviewed_at >= day_start_utc
+    ).count()
     return {
         "total_drills": total,
         "new": max(0, total - tracked),
         "due": due,
-        "learning": tracked
+        "learning": tracked,
+        "reviewed_today": reviewed_today,
+        "today": today.isoformat(),
     }
 
 # ===================== DEBUG ENDPOINTS =====================
@@ -4405,6 +5799,13 @@ async def transcribe_audio(
         for d in drills if d.text_tachelhit
     ]
 
+    # Short clips (a word, a short phrase): Gemini measured a 0.19 character error
+    # rate on the 2026-10-17 bake-off against 0.76 for the NeMo Space, so it is the
+    # engine for clips up to ASR_GEMINI_MAX_SECS (20 s; the bake-off clips went to 18 s). Longer audio keeps the Space.
+    short = await asyncio.to_thread(_transcribe_short_clip_with_gemini, audio_url)
+    if short is not None:
+        return TranscribeResponse(rough_transcription=short["latin"], corrected_transcription=short["tifinagh"], similarity_score=0.0)
+
     # Call HF Space
     asr_space_url = os.getenv("HUGGINGFACE_ASR_SPACE_URL", "https://huggingface.co/spaces/Tamazight-NLP/ASR")
     if not asr_space_url:
@@ -4429,6 +5830,11 @@ async def transcribe_audio(
                 corrected, score = await asyncio.to_thread(
                     get_correction_service().correct_transcription, fixed, phrases
                 )
+                # Mapping onto the nearest known phrase turned junk into a real-looking
+                # sentence (a squirrel clip came back as the video's title). Only accept
+                # the mapping when it is actually close; otherwise keep what was heard.
+                if score < float(os.getenv("ASR_CORRECTION_MIN_SCORE", "0.6")):
+                    corrected = fixed
             except Exception as corr_err:
                 print(f"[CORRECTION] Failed, returning rough transcription: {corr_err}")
                 corrected, score = fixed, 0.0
@@ -4525,7 +5931,7 @@ async def evaluate_dataset(
     return results
 
 @app.post("/drills/{drill_id}/trim-audio")
-async def trim_drill_audio(
+def trim_drill_audio(
     drill_id: int,
     start_time: float = Body(..., embed=True),
     end_time: float = Body(..., embed=True),
@@ -4533,6 +5939,8 @@ async def trim_drill_audio(
 ):
     """
     Trims the audio of a drill using MoviePy and uploads the result.
+    Plain `def` on purpose (P4.5): download + MoviePy + Cloudinary all block,
+    so FastAPI runs this in the threadpool instead of on the event loop.
     """
     drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
     if not drill or not drill.audio_url:
@@ -4587,7 +5995,7 @@ async def trim_drill_audio(
                 except OSError: pass
 
 @app.post("/drills/{drill_id}/trim-video")
-async def trim_drill_video(
+def trim_drill_video(
     drill_id: int,
     start_time: float = Body(..., embed=True),
     end_time: float = Body(..., embed=True),
@@ -4595,6 +6003,7 @@ async def trim_drill_video(
 ):
     """
     Trims the video of a drill using MoviePy and uploads the result.
+    Plain `def` on purpose (P4.5) — see trim_drill_audio.
     """
     drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
     if not drill or not drill.video_url:

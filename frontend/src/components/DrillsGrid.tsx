@@ -1,5 +1,6 @@
 import '../agGridSetup';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { AgGridReact } from 'ag-grid-react';
 import type { ColDef } from 'ag-grid-community';
 import axios from 'axios';
@@ -10,6 +11,7 @@ import { Network } from '@capacitor/network';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { API_BASE, getMediaUrl } from '../config';
 import { setSelectedDrillIds } from '../selection';
+import SourceCredit from './SourceCredit';
 import {
     FaVolumeUp,
     FaVideo,
@@ -32,28 +34,38 @@ import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 
 import type { Drill } from '../types';
+import { toast } from '../toast';
+import { isMobileLayout } from '../utils/layout';
 
 interface DrillsGridProps {
     rowData: Drill[];
     refreshData: () => Promise<void>;
     onEditDrill?: (drill: Drill) => void;
+    /** 'error' = server unreachable and no local copy; 'cached' = showing the local copy */
+    loadError?: 'error' | 'cached' | null;
 }
 
-export default function DrillsGrid({ rowData, refreshData, onEditDrill }: DrillsGridProps) {
-    const [isMobile, setIsMobile] = useState(window.innerWidth < 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
-    const [showPasswordModal, setShowPasswordModal] = useState(false);
-    const [passwordInput, setPasswordInput] = useState('');
+export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadError }: DrillsGridProps) {
+    const [isMobile, setIsMobile] = useState(isMobileLayout);
     const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+    // Inline media preview (video/audio) opened from the grid or the cards.
+    const [preview, setPreview] = useState<{ url: string; kind: 'video' | 'audio'; title?: string; drillId?: number } | null>(null);
+    const [autoNext, setAutoNext] = useState(true); // keep playing the next clip when one ends
+    const [reveal, setReveal] = useState(false); // meaning shown for the current clip (study mode hides it first)
+    const [alwaysReveal, setAlwaysReveal] = useState(() => { try { return localStorage.getItem('preview.alwaysReveal') === '1'; } catch { return false; } });
+    const autoNextTimer = useRef<number | null>(null);
+    const setAlwaysRevealPersist = (v: boolean) => { setAlwaysReveal(v); try { localStorage.setItem('preview.alwaysReveal', v ? '1' : '0'); } catch { /* private mode */ } };
     const [selectedRows, setSelectedRows] = useState<Drill[]>([]);
     const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
     const [recordDrill, setRecordDrill] = useState<Drill | null>(null);
     const [showTestConfig, setShowTestConfig] = useState(false);
+    const [mobileTestIds, setMobileTestIds] = useState<number[]>([]);
     const [pendingMedia, setPendingMedia] = useState<Record<number, { image?: string, audio?: Blob, audioUrl?: string, video?: Blob, videoUrl?: string }>>({});
     const navigate = useNavigate();
 
     // Track responsive screen resize configurations
     useEffect(() => {
-        const handleResize = () => setIsMobile(window.innerWidth < 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
+        const handleResize = () => setIsMobile(isMobileLayout());
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
     }, []);
@@ -63,7 +75,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
         console.log(`[DrillsGrid] Starting translation: ${source} -> ${target} for drill ${drill.id}`);
         const sourceText = source === 'ca' ? drill.text_catalan : drill.text_tachelhit;
         if (!sourceText) {
-            alert(`Introdueix primer el text en ${source === 'ca' ? 'català' : 'taixelhit'}.`);
+            toast.error(`Introdueix primer el text en ${source === 'ca' ? 'català' : 'taixelhit'}.`);
             return;
         }
 
@@ -74,7 +86,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
         try {
             const status = await Network.getStatus();
             if (!status.connected) {
-                alert("⚠️ La traducció requereix una connexió a internet activa.");
+                toast.error("⚠️ La traducció requereix una connexió a internet activa.");
                 return;
             }
 
@@ -86,20 +98,21 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             });
             console.log('[DrillsGrid] API Success:', res.data.translated_text);
 
-            const freshTranslation = res.data.translated_text;
-            const currentText = (drill as any)[targetField] || '';
-
-            // Guard against deleting text: append in parentheses if text exists
-            const preservedText = currentText.trim()
-                ? `${currentText} (${freshTranslation})`
-                : freshTranslation;
+            const preservedText = (res.data.translated_text || '').trim();
+            if (!preservedText) { toast.error('La traducció ha retornat un text buit.'); return; }
 
             // Commit the safe update to the backend DB
-            await axios.put(`${API_BASE}/drills/${drill.id}`, { [targetField]: preservedText });
+            // Never overwrite text that is already there (it may be attested or captured
+            // from a source): the machine output goes to the suggestion field instead.
+            const existing = (target === 'shi' ? drill.text_tachelhit : drill.text_catalan)?.trim();
+            const field = existing ? `${targetField}_suggested` : targetField;
+            await axios.put(`${API_BASE}/drills/${drill.id}`, { [field]: preservedText });
+            if (existing) toast.success(`Suggeriment IA desat, el text «${existing}» es manté: ${preservedText}`);
+            else toast.success(`Traducció: ${preservedText}`);
             await refreshData();
         } catch (err) {
             console.error('Translation workflow crashed:', err);
-            alert("No s'ha pogut completar la traducció amb IA.");
+            toast.error("No s'ha pogut completar la traducció amb IA.");
         } finally {
             setActionLoadingId(null);
         }
@@ -115,7 +128,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
         console.log(`[Transcribe] Starting for drill ${drill.id}, source type: ${sourceType || 'auto'}, url: ${mediaSource}`);
 
         if (!mediaSource) {
-            alert('No hi ha cap mèdia per transcriure.');
+            toast.error('No hi ha cap mèdia per transcriure.');
             return;
         }
 
@@ -126,7 +139,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             const status = await Network.getStatus();
             if (!status.connected) {
                 console.warn('[Transcribe] Offline. Aborting.');
-                alert("⚠️ La transcripció de veu requereix una connexió a internet.");
+                toast.error("⚠️ La transcripció de veu requereix una connexió a internet.");
                 return;
             }
 
@@ -147,20 +160,19 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                 freshTranscription = `[Video] ${freshTranscription}`;
             }
 
-            const currentTachelhit = drill.text_tachelhit || '';
-
-            // Guard against deleting text: append text gracefully
-            const preservedText = currentTachelhit.trim()
-                ? `${currentTachelhit} (${freshTranscription})`
-                : freshTranscription;
+            const preservedText = (freshTranscription || '').trim();
+            if (!preservedText) { toast.error('La transcripció ha retornat un text buit.'); return; }
 
             console.log(`[Transcribe] Saving updated Tachelhit text: ${preservedText}`);
-            await axios.put(`${API_BASE}/drills/${drill.id}`, { text_tachelhit: preservedText });
+            // Same rule as translation: keep what is there, store ASR as a suggestion.
+            const existingTa = (drill.text_tachelhit || '').trim();
+            await axios.put(`${API_BASE}/drills/${drill.id}`, existingTa ? { text_tachelhit_suggested: preservedText } : { text_tachelhit: preservedText });
+            if (existingTa) toast.success(`Transcripció desada com a suggeriment (es manté «${existingTa}»): ${preservedText}`);
             await refreshData();
             console.log('[Transcribe] Success.');
         } catch (error) {
             console.error('[Transcribe] Transcription loop error:', error);
-            alert('El procés de transcripció amb IA ha fallat.');
+            toast.error('El procés de transcripció amb IA ha fallat.');
         } finally {
             setActionLoadingId(null);
         }
@@ -170,7 +182,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
     const handleTachelhitTTS = async (drill: Drill) => {
         const text = drill.text_tachelhit;
         if (!text) {
-            alert('El camp de taixelhit és buit.');
+            toast.error('El camp de taixelhit és buit.');
             return;
         }
 
@@ -180,7 +192,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
         try {
             const status = await Network.getStatus();
             if (!status.connected) {
-                alert("⚠️ El TTS requereix una connexió a internet activa.");
+                toast.error("⚠️ El TTS requereix una connexió a internet activa.");
                 return;
             }
 
@@ -195,7 +207,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             }
         } catch (err) {
             console.error('TTS workflow crashed:', err);
-            alert("No s'ha pogut generar l'àudio de TTS.");
+            toast.error("No s'ha pogut generar l'àudio de TTS.");
         } finally {
             setActionLoadingId(null);
         }
@@ -206,8 +218,8 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
         const field = colDef.field;
         try {
             await axios.put(`${API_BASE}/drills/${data.id}`, { [field]: newValue });
-        } catch (err) {
-            console.error('Failed to save inline edit:', err);
+        } catch (err: any) {
+            toast.error(`No s'ha pogut desar el canvi: ${err?.response?.data?.detail || err?.message || 'error'}`);
             refreshData();
         }
     };
@@ -223,10 +235,10 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                     await axios.delete(`${API_BASE}/drills/${drill.id}`);
                 }
             }
-            alert('Eliminació massiva completada.');
+            toast.success('Eliminació massiva completada.');
             await refreshData();
         } catch (error) {
-            alert('Una o més eliminacions han fallat.');
+            toast.error('Una o més eliminacions han fallat.');
         }
     };
 
@@ -239,39 +251,18 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             for (const drill of selectedRows) {
                 await axios.put(`${API_BASE}/drills/${drill.id}`, { tag: newTag });
             }
-            alert("Actualització massiva d'etiquetes completada.");
+            toast.success("Actualització massiva d'etiquetes completada.");
             await refreshData();
         } catch (error) {
-            alert("L'actualització d'etiquetes ha fallat.");
+            toast.error("L'actualització d'etiquetes ha fallat.");
         }
     };
 
     // 🗑️ Handle Deletion Security Check Sequence
-    const handleDeleteIntent = (id: number) => {
-        const isSessionAuthenticated = sessionStorage.getItem('drill_delete_auth') === 'true';
-
-        if (isSessionAuthenticated) {
-            executeDeletePipeline(id);
-        } else {
-            setPendingDeleteId(id);
-            setShowPasswordModal(true);
-        }
-    };
-
-    const verifyPasswordAndConfirm = () => {
-        if (passwordInput === 'borrar') {
-            sessionStorage.setItem('drill_delete_auth', 'true');
-            setShowPasswordModal(false);
-            setPasswordInput('');
-
-            if (pendingDeleteId !== null) {
-                executeDeletePipeline(pendingDeleteId);
-            }
-        } else {
-            alert('❌ Contrasenya incorrecta. Accés denegat.');
-            setPasswordInput('');
-        }
-    };
+    // The trash button used to open a "password" dialog ('borrar', hard-coded
+    // client-side) that was only rendered in the mobile layout, so on desktop
+    // nothing happened. One in-app confirmation now, in both layouts.
+    const handleDeleteIntent = (id: number) => setPendingDeleteId(id);
 
     const handleQuickPhoto = async (drillId: number) => {
         try {
@@ -349,40 +340,174 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             // Artificial delay to allow Preferences to settle before refresh
             setTimeout(() => refreshData(), 100);
         } catch (err) {
-            alert("No s'ha pogut desar el mèdia.");
+            toast.error("No s'ha pogut desar el mèdia.");
         } finally {
             setActionLoadingId(null);
         }
     };
 
     const executeDeletePipeline = async (id: number) => {
-        const confirmDelete = window.confirm('Segur que vols eliminar aquest drill de manera permanent?');
-        if (!confirmDelete) return;
-
+        setPendingDeleteId(null);
         try {
             // Removes from the local cache, queues/executes the server delete,
             // and waits for a sync attempt so refreshData sees the result.
             await syncManager.deleteDrill(id);
 
-            alert('🗑️ Drill eliminat correctament.');
+            toast.success('🗑️ Drill eliminat correctament.');
             await refreshData();
         } catch (error) {
             console.error('Failed to complete delete request:', error);
-            alert("S'ha produït un error en intentar eliminar el registre.");
+            toast.error("S'ha produït un error en intentar eliminar el registre.");
         } finally {
             setPendingDeleteId(null);
         }
     };
 
+    const overlayStyle = { position: 'fixed' as const, inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' };
+
+    const deleteDialog = pendingDeleteId !== null && (
+        <div style={overlayStyle} onClick={() => setPendingDeleteId(null)}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)', padding: '28px', borderRadius: 'var(--r-xl)', width: '100%', maxWidth: '360px', boxShadow: 'var(--shadow-xl)', textAlign: 'center' }}>
+                <div style={{ fontSize: '40px', marginBottom: '12px' }}>🗑️</div>
+                <h3 style={{ margin: '0 0 8px 0', fontSize: '19px', fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>Eliminar el drill #{pendingDeleteId}?</h3>
+                <p style={{ margin: '0 0 20px 0', fontSize: '14px', color: 'var(--text-soft)' }}>S'esborra de manera permanent, amb el seu àudio i vídeo.</p>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button onClick={() => setPendingDeleteId(null)} style={{ flex: 1, padding: '12px', background: 'var(--surface)', color: 'var(--text-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer' }}>Cancel·la</button>
+                    <button autoFocus onClick={() => executeDeletePipeline(pendingDeleteId)} style={{ flex: 1, padding: '12px', background: 'var(--rose)', color: 'white', border: 'none', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer', boxShadow: 'var(--shadow-sm)' }}>Elimina</button>
+                </div>
+            </div>
+        </div>
+    );
+
+    // Walk the current (filtered, ordered) list: a story or lesson plays in video order.
+    const playable = rowData.filter((d) => d.video_url || d.audio_url);
+    const previewIndex = preview?.drillId != null ? playable.findIndex((d) => d.id === preview.drillId) : -1;
+    const openPreviewOf = (d: Drill) => {
+        const url = d.video_url ? getMediaUrl(d.video_url) : getMediaUrl(d.audio_url!);
+        setPreview({ url, kind: d.video_url ? 'video' : 'audio', title: d.text_catalan || d.text_tachelhit || `Drill #${d.id}`, drillId: d.id });
+        setReveal(false);
+        if (autoNextTimer.current) { window.clearTimeout(autoNextTimer.current); autoNextTimer.current = null; }
+    };
+    // Clip finished: listen -> read -> meaning -> next. With the meaning already on
+    // screen we move on at once; otherwise reveal it and give three seconds to read.
+    const onClipEnded = () => {
+        if (!autoNext) return;
+        if (alwaysReveal || reveal) { previewStep(1); return; }
+        setReveal(true);
+        autoNextTimer.current = window.setTimeout(() => previewStep(1), 3000);
+    };
+    const previewDrill = preview?.drillId != null ? playable.find((d) => d.id === preview.drillId) : undefined;
+    // The study card under the player: what you hear, in letters, while you listen;
+    // the meaning only when you ask for it (or always, for review sessions).
+    const previewCard = previewDrill && (() => {
+        const d = previewDrill;
+        const latin = d.text_tachelhit_latin || d.text_tachelhit;
+        const tifinagh = d.text_tachelhit && d.text_tachelhit !== latin ? d.text_tachelhit : null;
+        const draft = !latin && d.text_tachelhit_suggested;
+        const shown = reveal || alwaysReveal;
+        const timeSpan = d.video_start_time != null && d.video_end_time != null ? `${Math.round(d.video_start_time)}s–${Math.round(d.video_end_time)}s` : null;
+        return (
+            <div style={{ padding: '12px 14px 4px', background: 'var(--surface)', borderTop: '1px solid var(--border)' }}>
+                <div style={{ fontSize: '19px', fontWeight: 700, color: 'var(--text)', lineHeight: 1.3 }}>
+                    {latin || (draft ? <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>{draft} <span style={{ fontSize: '11px' }}>(esborrany IA)</span></span> : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>sense transcripció</span>)}
+                </div>
+                {tifinagh && <div style={{ fontSize: '15px', color: 'var(--text-soft)', marginTop: '2px' }}>{tifinagh}</div>}
+                {shown ? (
+                    <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        {d.text_catalan && <div style={{ fontSize: '15px', color: 'var(--text)' }}>{d.text_catalan}</div>}
+                        {d.text_arabic && <div dir="rtl" style={{ fontSize: '15px', color: 'var(--text-soft)', textAlign: 'right' }}>{d.text_arabic}</div>}
+                        {!d.text_catalan && !d.text_arabic && <div style={{ fontSize: '13px', color: 'var(--text-muted)', fontStyle: 'italic' }}>sense traducció</div>}
+                    </div>
+                ) : (
+                    <button onClick={() => setReveal(true)} style={{ marginTop: '8px', padding: '7px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer', color: 'var(--text)', fontSize: '13px' }}>
+                        Mostra el significat
+                    </button>
+                )}
+                <div style={{ marginTop: '8px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                    <span>#{d.id}</span>
+                    {d.variety && <span>{varietyShort(d.variety)}</span>}
+                    {timeSpan && <span>{timeSpan}</span>}
+                    {d.tag && <span>{d.tag}</span>}
+                    <SourceCredit drill={d} compact />
+                </div>
+            </div>
+        );
+    })();
+    const previewStep = (delta: number) => {
+        if (previewIndex < 0) return;
+        const next = playable[previewIndex + delta];
+        if (next) openPreviewOf(next);
+    };
+
+    useEffect(() => {
+        if (!preview) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'ArrowRight') previewStep(1);
+            else if (e.key === 'ArrowLeft') previewStep(-1);
+            else if (e.key === 'Escape') setPreview(null);
+            else if (e.key === ' ' && !(e.target instanceof HTMLInputElement)) { /* space = reveal */ if (!reveal) { e.preventDefault(); setReveal(true); } }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [preview, previewIndex]);
+
+    const previewDialog = preview && (
+        <div style={overlayStyle} onClick={() => setPreview(null)}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: '#000', borderRadius: 'var(--r-xl)', width: '100%', maxWidth: preview.kind === 'video' ? '720px' : '420px', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }}>
+                {preview.kind === 'video' ? (
+                    <video key={preview.url} src={preview.url} controls autoPlay playsInline onEnded={onClipEnded} style={{ display: 'block', width: '100%', maxHeight: '75vh', background: '#000' }} />
+                ) : (
+                    <audio key={preview.url} src={preview.url} controls autoPlay onEnded={onClipEnded} style={{ display: 'block', width: '100%', padding: '16px', background: 'var(--surface)' }} />
+                )}
+                {previewCard}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--surface)', flexWrap: 'wrap' }}>
+                    <button onClick={() => previewStep(-1)} disabled={previewIndex <= 0} aria-label="Drill anterior" title="Anterior (←)"
+                        style={{ padding: '8px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: previewIndex <= 0 ? 'not-allowed' : 'pointer', opacity: previewIndex <= 0 ? 0.5 : 1, color: 'var(--text)' }}>◀</button>
+                    <button onClick={() => previewStep(1)} disabled={previewIndex < 0 || previewIndex >= playable.length - 1} aria-label="Drill següent" title="Següent (→)"
+                        style={{ padding: '8px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer', opacity: (previewIndex < 0 || previewIndex >= playable.length - 1) ? 0.5 : 1, color: 'var(--text)' }}>▶</button>
+                    <span style={{ flex: 1, fontSize: '13px', color: 'var(--text-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {previewIndex >= 0 ? `${previewIndex + 1}/${playable.length}` : (preview.title || '')}
+                    </span>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-soft)', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={autoNext} onChange={(e) => setAutoNext(e.target.checked)} /> Seguit
+                    </label>
+                    <label title="Mostra la traducció sense haver de tocar" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-soft)', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={alwaysReveal} onChange={(e) => setAlwaysRevealPersist(e.target.checked)} /> Significat sempre
+                    </label>
+                    <a href={preview.url} target="_blank" rel="noreferrer" style={{ fontSize: '13px', color: 'var(--brand-1)', fontWeight: 700 }}>Obre en una pestanya</a>
+                    <button onClick={() => setPreview(null)} style={{ padding: '8px 14px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer', color: 'var(--text)' }}>Tanca</button>
+                </div>
+            </div>
+        </div>
+    );
+
     // 📱 MOBILE INTERFACE: Card stream equipped with translation and transcription capabilities
     if (isMobile) {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '4px' }}>
+                {rowData.length > 0 && rowData.length <= 60 && (
+                    <button onClick={() => { setMobileTestIds(rowData.map((d) => d.id)); setShowTestConfig(true); }}
+                        style={{ alignSelf: 'flex-start', padding: '9px 14px', background: 'var(--brand-gradient-soft)', color: 'var(--brand-1)', border: '1px solid var(--border)', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                        <FaPlus style={{ marginRight: '6px' }} />Crea pràctica amb aquests {rowData.length} drills
+                    </button>
+                )}
+                {showTestConfig && createPortal(
+                    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.7)', zIndex: 30000, display: 'flex', alignItems: 'stretch', justifyContent: 'center' }}>
+                        <div style={{ background: 'var(--surface)', width: '100%', maxHeight: '100dvh', overflow: 'auto' }}>
+                            <TestConfigPanel
+                                onClose={() => setShowTestConfig(false)}
+                                onTestCreated={(id) => { setShowTestConfig(false); navigate(`/tests/${id}`); }}
+                                initialSelectedDrillIds={mobileTestIds}
+                            />
+                        </div>
+                    </div>, document.body)}
                 {rowData.length === 0 && (
                     <div style={{ textAlign: 'center', padding: '48px 20px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-xl)', boxShadow: 'var(--shadow-sm)', color: 'var(--text-soft)' }}>
-                        <div style={{ fontSize: '44px', marginBottom: '12px' }}>📭</div>
-                        <div style={{ fontSize: '17px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px', fontFamily: 'var(--font-display)' }}>Encara no hi ha cap drill</div>
-                        <div style={{ fontSize: '14px', color: 'var(--text-muted)' }}>Crea el teu primer drill per veure'l aquí.</div>
+                        <div style={{ fontSize: '44px', marginBottom: '12px' }}>{loadError === 'error' ? '📡' : '📭'}</div>
+                        <div style={{ fontSize: '17px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px', fontFamily: 'var(--font-display)' }}>{loadError === 'error' ? "No s'han pogut carregar els drills" : 'Encara no hi ha cap drill'}</div>
+                        <div style={{ fontSize: '14px', color: 'var(--text-muted)' }}>{loadError === 'error' ? "El servidor no respon (pot estar despertant-se). Torna-ho a provar d'aquí a uns segons." : "Crea el teu primer drill per veure'l aquí."}</div>
+                        {loadError === 'error' && <button onClick={() => refreshData()} style={{ marginTop: '14px', padding: '10px 18px', borderRadius: 'var(--r-pill)', border: 'none', background: 'var(--brand-gradient)', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Torna-ho a provar</button>}
                     </div>
                 )}
                 {rowData.map((drill) => (
@@ -491,9 +616,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                             )}
                             {drill.video_url && (
                                 <button
-                                    onClick={() => {
-                                        window.open(getMediaUrl(drill.video_url!), '_blank');
-                                    }}
+                                    onClick={() => openPreviewOf(drill)}
                                     style={{
                                         flex: 1,
                                         padding: '11px',
@@ -516,6 +639,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                         </div>
 
 
+                        <SourceCredit drill={drill} />
                         <hr style={{ border: 'none', height: '1px', background: 'var(--border)', margin: '2px 0' }} />
 
                         {/* Quick Update Row */}
@@ -537,7 +661,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                     {pendingMedia[drill.id].image && <img src={pendingMedia[drill.id].image} alt="" style={{ width: '40px', height: '40px', borderRadius: 'var(--r-sm)', objectFit: 'cover' }} />}
                                     {pendingMedia[drill.id].audioUrl && <button onClick={() => new Audio(pendingMedia[drill.id].audioUrl).play()} aria-label="Reprodueix l'àudio" style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: 'var(--sky)' }}><FaVolumeUp /></button>}
-                                    {pendingMedia[drill.id].videoUrl && <button onClick={() => window.open(pendingMedia[drill.id].videoUrl, '_blank')} aria-label="Obre el vídeo" style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: 'var(--brand-1)' }}><FaVideo /></button>}
+                                    {pendingMedia[drill.id].videoUrl && <video src={pendingMedia[drill.id].videoUrl} controls playsInline preload="metadata" aria-label="Vídeo pendent" style={{ width: '96px', height: '54px', borderRadius: 'var(--r-sm)', background: '#000' }} />}
                                     <div style={{ flex: 1 }}></div>
                                     <button
                                         onClick={() => handleQuickSave(drill)}
@@ -573,40 +697,8 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                 ))}
 
                 {/* Password confirmation pop-up */}
-                {showPasswordModal && (
-                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-                        <div style={{ background: 'var(--surface)', padding: '28px', borderRadius: 'var(--r-xl)', width: '100%', maxWidth: '360px', boxShadow: 'var(--shadow-xl)', textAlign: 'center' }}>
-                            <div style={{ fontSize: '40px', marginBottom: '12px' }}>🔒</div>
-                            <h3 style={{ margin: '0 0 8px 0', fontSize: '19px', fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>Verificació de seguretat</h3>
-                            <p style={{ margin: '0 0 20px 0', fontSize: '14px', color: 'var(--text-soft)' }}>Introdueix la contrasenya d'eliminació per continuar.</p>
-
-                            <input
-                                type="password"
-                                placeholder="Introdueix la contrasenya"
-                                value={passwordInput}
-                                onChange={(e) => setPasswordInput(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && verifyPasswordAndConfirm()}
-                                style={{ width: '100%', padding: '12px 14px', fontSize: '16px', border: '1px solid var(--border)', background: 'var(--surface-2)', borderRadius: 'var(--r-md)', marginBottom: '18px', outline: 'none', textAlign: 'center', color: 'var(--text)' }}
-                                autoFocus
-                            />
-
-                            <div style={{ display: 'flex', gap: '10px' }}>
-                                <button
-                                    onClick={() => { setShowPasswordModal(false); setPasswordInput(''); }}
-                                    style={{ flex: 1, padding: '12px', background: 'var(--surface)', color: 'var(--text-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer' }}
-                                >
-                                    Cancel·la
-                                </button>
-                                <button
-                                    onClick={verifyPasswordAndConfirm}
-                                    style={{ flex: 1, padding: '12px', background: 'var(--rose)', color: 'white', border: 'none', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer', boxShadow: 'var(--shadow-sm)' }}
-                                >
-                                    Confirma
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                {deleteDialog && createPortal(deleteDialog, document.body)}
+                {previewDialog && createPortal(previewDialog, document.body)}
             </div>
         );
     }
@@ -620,8 +712,18 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             width: 90,
             cellRenderer: (p: any) => p.value ? <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}><img src={getMediaUrl(p.value)} alt="Imatge del drill" style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }} /></div> : null
         },
-        { field: 'text_catalan', headerName: 'Català', flex: 2, minWidth: 150, filter: true, wrapText: true, autoHeight: true, editable: true, cellStyle: { 'line-height': '20px', 'padding-top': '10px', 'padding-bottom': '10px', 'color': 'var(--text)', 'font-weight': '600' } },
-        { field: 'text_tachelhit', headerName: 'Tamazight', flex: 2, minWidth: 150, filter: true, wrapText: true, autoHeight: true, editable: true, cellStyle: { 'line-height': '20px', 'padding-top': '10px', 'padding-bottom': '10px', 'font-family': 'var(--font-tifinagh)', 'color': 'var(--brand-1)', 'font-weight': '700' } },
+        { field: 'text_catalan', headerName: 'Català', flex: 2, minWidth: 150, filter: true, wrapText: true, autoHeight: true, editable: true,
+          tooltipValueGetter: (p: { data?: Drill }) => p.data?.text_catalan_suggested ? `Suggeriment IA: ${p.data.text_catalan_suggested}` : undefined,
+          cellRenderer: (p: { value?: string; data?: Drill }) => <span>{p.value}{p.data?.text_catalan_suggested ? <span title={`Suggeriment IA: ${p.data.text_catalan_suggested}`} style={{ marginLeft: 6, fontSize: 12 }}>💡</span> : null}</span>,
+          cellStyle: { 'line-height': '20px', 'padding-top': '10px', 'padding-bottom': '10px', 'color': 'var(--text)', 'font-weight': '600' } },
+        { field: 'text_tachelhit', headerName: 'Tamazight', flex: 2, minWidth: 150, filter: true, wrapText: true, autoHeight: true, editable: true,
+          tooltipValueGetter: (p: { data?: Drill }) => p.data?.text_tachelhit_suggested ? `Suggeriment IA: ${p.data.text_tachelhit_suggested}` : undefined,
+          cellRenderer: (p: { value?: string; data?: Drill }) => p.value
+            ? <span>{p.value}{p.data?.text_tachelhit_suggested ? <span title={`Suggeriment IA: ${p.data.text_tachelhit_suggested}`} style={{ marginLeft: 6, fontSize: 12 }}>💡</span> : null}</span>
+            : (p.data?.text_tachelhit_suggested
+                ? <span title="Esborrany automàtic (no verificat): edita el drill per confirmar-lo" style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontWeight: 500 }}>{p.data.text_tachelhit_suggested}{p.data.text_tachelhit_latin ? <span style={{ display: 'block', fontSize: 11, fontFamily: 'var(--font-body)' }}>{p.data.text_tachelhit_latin}</span> : null}<span style={{ display: 'block', fontSize: 10, letterSpacing: '0.04em', textTransform: 'uppercase' }}>esborrany</span></span>
+                : null),
+          cellStyle: { 'line-height': '20px', 'padding-top': '10px', 'padding-bottom': '10px', 'font-family': 'var(--font-tifinagh)', 'color': 'var(--brand-1)', 'font-weight': '700' } },
         { field: 'text_arabic', headerName: 'العربية', flex: 2, minWidth: 150, filter: true, wrapText: true, autoHeight: true, editable: true, cellStyle: { 'line-height': '20px', 'padding-top': '10px', 'padding-bottom': '10px', 'direction': 'rtl', 'color': 'var(--emerald)', 'font-weight': '600' } },
         { field: 'tag', headerName: 'Etiqueta', width: 120, filter: true, editable: true },
         {
@@ -633,8 +735,17 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                         <button onClick={() => new Audio(getMediaUrl(params.data.audio_url)).play()} style={{ background: 'var(--brand-gradient-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '8px', cursor: 'pointer', color: 'var(--brand-1)' }} title="Reprodueix l'àudio" aria-label="Reprodueix l'àudio"><FaVolumeUp size={16} /></button>
                     )}
                     {params.data.video_url && (
-                        <button onClick={() => window.open(getMediaUrl(params.data.video_url), '_blank')} style={{ background: 'var(--brand-gradient-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '8px', cursor: 'pointer', color: 'var(--brand-2)' }} title="Reprodueix el vídeo" aria-label="Reprodueix el vídeo"><FaVideo size={16} /></button>
+                        <button onClick={() => openPreviewOf(params.data)} style={{ background: 'var(--brand-gradient-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', padding: '8px', cursor: 'pointer', color: 'var(--brand-2)' }} title="Reprodueix el vídeo" aria-label="Reprodueix el vídeo"><FaVideo size={16} /></button>
                     )}
+                </div>
+            )
+        },
+        {
+            headerName: 'Font',
+            width: 170,
+            cellRenderer: (params: { data: Drill }) => (
+                <div style={{ display: 'flex', alignItems: 'center', height: '100%', overflow: 'hidden' }}>
+                    <SourceCredit drill={params.data} compact />
                 </div>
             )
         },
@@ -679,7 +790,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                                 const mediaType = audio ? 'audio' : 'video';
                                 await syncManager.downloadAndCacheMedia(media, mediaType);
                                 setActionLoadingId(null);
-                                alert('Mèdia descarregat per a ús fora de línia!');
+                                toast.success('Mèdia descarregat per a ús fora de línia!');
                             }
                         }}
                         disabled={actionLoadingId !== null || !(params.data.audio_url || params.data.video_url)}
@@ -749,8 +860,10 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
             {rowData.length === 0 ? (
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ textAlign: 'center', padding: '56px 40px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-xl)', boxShadow: 'var(--shadow-sm)', maxWidth: '420px' }}>
-                        <div style={{ fontSize: '52px', marginBottom: '16px' }}>📭</div>
-                        <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>Encara no hi ha cap drill</h3>
+                        <div style={{ fontSize: '52px', marginBottom: '16px' }}>{loadError === 'error' ? '📡' : '📭'}</div>
+                        <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>{loadError === 'error' ? "No s'han pogut carregar els drills" : 'Encara no hi ha cap drill'}</h3>
+                        {loadError === 'error' && <p style={{ margin: '0 0 12px 0', fontSize: '14px', color: 'var(--text-muted)' }}>El servidor no respon (pot estar despertant-se).</p>}
+                        {loadError === 'error' && <button onClick={() => refreshData()} style={{ padding: '10px 18px', borderRadius: 'var(--r-pill)', border: 'none', background: 'var(--brand-gradient)', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Torna-ho a provar</button>}
                         <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-muted)' }}>Crea el teu primer drill per veure'l aquí.</p>
                     </div>
                 </div>
@@ -808,6 +921,8 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill }: Drills
                     onSaved={() => { refreshData(); }}
                 />
             )}
+            {deleteDialog && createPortal(deleteDialog, document.body)}
+            {previewDialog && createPortal(previewDialog, document.body)}
         </div>
     );
 }

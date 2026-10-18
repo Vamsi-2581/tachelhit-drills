@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if os.path.exists(TEST_DB):
     os.remove(TEST_DB)
 
+from datetime import datetime, timezone  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 import main  # noqa: E402
 
@@ -313,3 +314,376 @@ def test_corpus_gaps():
     assert "_sa_instance_state" not in r["drills"][0]
     # bad kind rejected
     assert client.get("/corpus/gaps", params={"kind": "nonsense"}).status_code == 400
+
+
+def test_corpus_sources_catalog():
+    src = "https://www.youtube.com/watch?v=catalog1"
+    for t0, text in ((0.0, "ⴰⵣⵓⵍ"), (4.0, "ⵜⴰⵏⵎⵎⵉⵔⵜ")):
+        client.post("/drills/", json={"text_tachelhit": text, "source_url": src, "source_title": "Lesson 1",
+                                      "source_channel": "Chan", "source_playlist": "Course", "variety": "shi",
+                                      "tag": "lesson-1", "video_url": "https://x/v.mp4", "video_start_time": t0,
+                                      "video_end_time": t0 + 2.5})
+    r = client.get("/corpus/sources").json()
+    v = next(x for x in r["videos"] if x["source_url"] == src)
+    assert (v["drills"], v["with_video"], v["channel"], v["playlist"], v["title"]) == (2, 2, "Chan", "Course", "Lesson 1")
+    assert v["varieties"] == ["shi"] and v["tags"] == ["lesson-1"] and (v["from_s"], v["to_s"]) == (0.0, 6.5)
+    assert r["from_sources"] >= 2 and r["without_source"] + r["from_sources"] == r["total_drills"]
+
+
+# ---------- P4: backend basics a native client needs ----------
+
+def test_get_drill_by_id_404_and_ids_param():
+    a = client.post("/drills/", json={"text_catalan": "p4 a"}).json()
+    b = client.post("/drills/", json={"text_catalan": "p4 b"}).json()
+    c = client.post("/drills/", json={"text_catalan": "p4 c"}).json()
+    # single
+    r = client.get(f"/drills/{a['id']}")
+    assert r.status_code == 200 and r.json()["id"] == a["id"]
+    # missing -> 404 with the envelope code
+    r = client.get("/drills/99999999")
+    assert r.status_code == 404 and r.json()["code"] == "not_found"
+    # ids= returns only those, in the GIVEN order, ignoring unknown ids
+    r = client.get("/drills/", params={"ids": f"{c['id']},{a['id']},99999999,{b['id']}"})
+    assert r.status_code == 200
+    assert [d["id"] for d in r.json()] == [c["id"], a["id"], b["id"]]
+    assert r.headers["X-Total-Count"] == "3"
+    # garbage ids -> 400
+    assert client.get("/drills/", params={"ids": "1,x"}).status_code == 400
+
+
+def test_pagination_and_total_count():
+    for i in range(3):
+        client.post("/drills/", json={"text_catalan": f"page {i}"})
+    everything = client.get("/drills/")
+    total = len(everything.json())
+    # no limit/offset -> all rows (current frontend contract) + the header
+    assert everything.headers["X-Total-Count"] == str(total)
+    assert total > 2
+    # limit paginates, header still carries the unpaginated count
+    r = client.get("/drills/", params={"limit": 2})
+    assert len(r.json()) == 2 and r.headers["X-Total-Count"] == str(total)
+    # offset alone -> default limit (100) from that offset
+    r = client.get("/drills/", params={"offset": total - 1})
+    assert len(r.json()) == 1
+    # limit capped at 500
+    r = client.get("/drills/", params={"limit": 10000})
+    assert len(r.json()) == min(total, 500)
+    # same contract on the other list routes
+    for path in ("/tests/", "/test-attempts/", "/shorts/"):
+        r = client.get(path, params={"limit": 1})
+        assert r.status_code == 200, (path, r.text)
+        assert "X-Total-Count" in r.headers, path
+        assert len(r.json()) <= 1
+
+
+def test_stale_token_401_and_no_header_anonymous():
+    # no header -> anonymous works on an optional-identity route
+    assert client.get("/reviews/stats").status_code == 200
+    # present-but-unknown token -> 401 everywhere identity is resolved
+    r = client.get("/reviews/stats", headers={"X-User-Token": "stale-token"})
+    assert r.status_code == 401
+    assert r.json()["detail"] == "invalid token" and r.json()["code"] == "unauthorized"
+    assert client.get("/drills/", headers={"X-User-Token": "stale-token"}).status_code == 200  # no identity needed
+    assert client.post("/drills/", json={"text_catalan": "x"},
+                       headers={"X-User-Token": "stale-token"}).status_code == 401
+
+
+def test_delete_drill_with_review_writes_tombstone_and_since_sync():
+    token = register("deleter")
+    hdr = {"X-User-Token": token}
+    marker = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    d = client.post("/drills/", json={"text_catalan": "to delete"}, headers=hdr).json()
+    # review state + log rows on the drill
+    assert client.post(f"/reviews/{d['id']}/grade", json={"grade": 2}, headers=hdr).status_code == 200
+    # updated_at is set and serialized with Z; since= sees the new drill
+    got = client.get(f"/drills/{d['id']}").json()
+    assert got["updated_at"] and got["updated_at"].endswith("Z")
+    changed = client.get("/drills/", params={"since": marker}).json()
+    assert any(x["id"] == d["id"] for x in changed)
+    # delete succeeds despite the dependent rows
+    r = client.delete(f"/drills/{d['id']}")
+    assert r.status_code == 200, r.text
+    assert client.get(f"/drills/{d['id']}").status_code == 404
+    db = main.SessionLocal()
+    try:
+        assert db.query(main.DrillReviewModel).filter_by(drill_id=d["id"]).count() == 0
+        assert db.query(main.ReviewLogModel).filter_by(drill_id=d["id"]).count() == 0
+    finally:
+        db.close()
+    stones = client.get("/drills/tombstones", params={"since": marker}).json()
+    assert any(t["drill_id"] == d["id"] and t["deleted_at"].endswith("Z") for t in stones)
+    assert client.get("/drills/tombstones", params={"since": "not-a-date"}).status_code == 400
+
+
+def test_grade_batch_applies_once_and_resend_is_skipped():
+    token = register("offline.grader")
+    hdr = {"X-User-Token": token}
+    d1 = client.post("/drills/", json={"text_tachelhit": "ⴱ1"}).json()
+    d2 = client.post("/drills/", json={"text_tachelhit": "ⴱ2"}).json()
+    batch = [
+        {"drill_id": d1["id"], "grade": 2, "graded_at": "2026-10-16T08:00:00Z"},
+        {"drill_id": d1["id"], "grade": 3, "graded_at": "2026-10-16T09:30:00Z"},
+        {"drill_id": d2["id"], "grade": 0, "graded_at": "2026-10-16T09:31:00+02:00"},
+        {"drill_id": 99999999, "grade": 1, "graded_at": "2026-10-16T09:32:00Z"},  # unknown drill
+    ]
+    r = client.post("/reviews/grade-batch", json=batch, headers=hdr)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"applied": 3, "skipped": 1}
+    # the SM-2 state matches grading good then easy on d1 (rep 2, 8-day interval)
+    db = main.SessionLocal()
+    try:
+        me = db.query(main.UserModel).filter_by(username="offline.grader").first()
+        rv = db.query(main.DrillReviewModel).filter_by(drill_id=d1["id"], user_id=me.id).first()
+        assert rv.repetitions == 2 and rv.interval_days == 8.0
+        logs = db.query(main.ReviewLogModel).filter_by(user_id=me.id).count()
+        assert logs == 3
+    finally:
+        db.close()
+    # re-sending the whole queue changes nothing
+    r = client.post("/reviews/grade-batch", json=batch, headers=hdr)
+    assert r.json() == {"applied": 0, "skipped": 4}
+    # validation: grade out of range -> 422 envelope
+    r = client.post("/reviews/grade-batch", json=[{"drill_id": d1["id"], "grade": 7, "graded_at": "2026-10-16T10:00:00Z"}],
+                    headers=hdr)
+    assert r.status_code == 422 and r.json()["code"] == "validation_error"
+
+
+def test_error_envelope_and_z_datetimes():
+    # 422: detail is a string, code is set, field errors kept under "errors"
+    r = client.post("/tests/", json={"title": "no type"})
+    assert r.status_code == 422
+    body = r.json()
+    assert body["code"] == "validation_error"
+    assert isinstance(body["detail"], str) and "question_type" in body["detail"]
+    assert isinstance(body["errors"], list)
+    # datetimes render as UTC with a trailing Z on list + detail responses
+    d = client.get("/drills/").json()[0]
+    assert d["date_created"].endswith("Z")
+    t = client.post("/tests/", json={"title": "z", "question_type": "text_input", "hint_level": "none",
+                                     "drill_ids": str(d["id"])}).json()
+    assert t["date_created"].endswith("Z") and t["updated_at"].endswith("Z")
+    # HTTPException keeps its shape and gains a code
+    r = client.get("/tests/99999999")
+    assert r.json() == {"detail": "Test not found", "code": "not_found"}
+
+
+def test_test_attempts_keyed_by_user_and_mine_filter():
+    token = register("attempter")
+    hdr = {"X-User-Token": token}
+    d = client.get("/drills/").json()[0]
+    t = client.post("/tests/", json={"title": "mine", "question_type": "text_input", "hint_level": "none",
+                                     "drill_ids": str(d["id"])}).json()
+    payload = {"test_id": t["id"], "user_name": None, "score": 100.0, "time_taken_seconds": 5,
+               "total_questions": 1, "correct_answers": 1}
+    anon = client.post("/test-attempts/", json=payload).json()
+    mine = client.post("/test-attempts/", json=payload, headers=hdr).json()
+    assert anon["user_id"] is None and mine["user_id"] is not None
+    assert mine["date_taken"].endswith("Z")
+    r = client.get("/test-attempts/", params={"mine": 1}, headers=hdr)
+    assert [a["id"] for a in r.json()] == [mine["id"]]
+    assert client.get("/test-attempts/", params={"mine": 1}).status_code == 401
+
+
+def test_streak_today_follows_user_tz():
+    token = register("tz.user")
+    hdr = {"X-User-Token": token}
+    me = client.get("/users/me", headers=hdr).json()
+    assert me["tz"] == "Europe/Madrid"
+    assert client.put("/users/me", json={"tz": "Mars/Olympus"}, headers=hdr).status_code == 400
+    assert client.put("/users/me", json={"tz": "Pacific/Kiritimati"}, headers=hdr).json()["tz"] == "Pacific/Kiritimati"
+    d = client.get("/drills/").json()[0]
+    client.post(f"/reviews/{d['id']}/grade", json={"grade": 2}, headers=hdr)
+    s = client.get("/reviews/streak", headers=hdr).json()
+    from zoneinfo import ZoneInfo as _Z
+    expected_today = datetime.now(timezone.utc).astimezone(_Z("Pacific/Kiritimati")).date().isoformat()
+    assert s["tz"] == "Pacific/Kiritimati" and s["today"] == expected_today
+    assert s["streak_days"] == 1 and s["reviews_today"] == 1
+    st = client.get("/reviews/stats", headers=hdr).json()
+    assert st["reviewed_today"] == 1 and st["today"] == expected_today
+
+
+def test_generate_short_returns_pollable_job_id(monkeypatch):
+    # The render Space is stubbed to fail — the point is that the job row
+    # exists, its id is returned, and the worker records the outcome on it.
+    def _space_offline(payload):
+        raise RuntimeError("space offline (test stub)")
+    monkeypatch.setattr(main, "call_huggingface_space", _space_offline)
+    d = client.get("/drills/").json()[0]
+    r = client.post(f"/generate-short/{d['id']}")
+    assert r.status_code == 200, r.text
+    job_id = r.json()["job_id"]
+    j = client.get(f"/video-analysis/job/{job_id}").json()
+    assert j["kind"] == "short"
+    assert j["status"] in ("FAILED", "COMPLETED", "IN_PROGRESS", "PENDING")
+    assert j["status"] == "FAILED" and "space offline" in (j["error_message"] or "")
+
+
+# ---- P1.9: a drill needs content ------------------------------------------
+def test_create_drill_requires_text_or_media():
+    r = client.post("/drills/", json={})
+    assert r.status_code == 422, r.text
+    r = client.post("/drills/", json={"text_catalan": "   ", "tag": "x"})
+    assert r.status_code == 422, r.text
+    r = client.post("/drills/", json={"text_tachelhit": "azul"})
+    assert r.status_code == 200, r.text
+    assert r.json()["text_tachelhit"] == "azul"
+
+
+# ---- P5.2: junk ASR guard ---------------------------------------------------
+def test_looks_like_junk_asr():
+    assert main.looks_like_junk_asr("Is ghorsh lan ait mash? Is ghorom lan aitmam") is None
+    assert main.looks_like_junk_asr("ⴰⵣⵓⵍ ⴼⵍⵍⴰⵡⵏ") is None
+    assert main.looks_like_junk_asr("L.A.R.R.R.R.R.R.R.R.R.R.R.R.R.R.R.R") == "repeated-run"
+    assert main.looks_like_junk_asr("I'm going to get a little bit of a little bit of a little bit") in ("repeated-tokens", "looks-english")
+    assert main.looks_like_junk_asr("I actually grab a bus to the station with them and they tell me") == "looks-english"
+    # foreign-source draft mode: English is expected, only repeats are junk
+    assert main.looks_like_junk_asr("I actually grab a bus to the station with them and they tell me", attested=False) is None
+    assert main.looks_like_junk_asr("", attested=True) is None
+    # job 20 (2026-10-17): Whisper on a vocabulary video with music
+    assert main.looks_like_junk_asr("I can't bear to fall asleep") == "looks-english"
+    assert main.looks_like_junk_asr("Emoidar Emoidar Agmar Agmar Therefore, lost, therefore, lost. I can't bear to fall asleep") == "looks-english"
+    # real Tachelhit in Latin script with short tokens must pass
+    assert main.looks_like_junk_asr("ur ssinegh is d iyi d yusa, mani gh illa uzddar") is None
+    assert main.looks_like_junk_asr("Manza ait zdan? Is tsnt?") is None
+
+
+def test_capture_agent_liveness():
+    """The web app asks whether a local capture agent is polling before it queues a URL."""
+    main._capture_agent_seen.update({"at": None, "version": None})
+    r = client.get("/capture/agent")
+    assert r.status_code == 200 and r.json()["online"] is False
+    # an agent poll (with its version header) marks it online
+    r = client.get("/capture/pending", headers={"X-Agent-Version": "2.0.0"})
+    assert r.status_code == 200 and r.json()["request"] is None
+    r = client.get("/capture/agent")
+    assert r.json()["online"] is True and r.json()["version"] == "2.0.0"
+    assert r.json()["last_seen"].endswith("Z")
+
+
+def test_split_bilingual_cue():
+    """Caption cues from teaching videos: Tamazight word + gloss on two lines."""
+    assert main.split_bilingual_cue("agmar\nhorse") == ("agmar", "horse", "en")
+    assert main.split_bilingual_cue("horse\nagmar") == ("agmar", "horse", "en")
+    assert main.split_bilingual_cue("agḍiḍ\nbird") == ("agḍiḍ", "bird", "en")
+    assert main.split_bilingual_cue("imudar\nAnimals") == ("imudar", "Animals", "en")
+    assert main.split_bilingual_cue("amawal n tamaziɣt\nVocabuary of Tamazight") == ("amawal n tamaziɣt", "Vocabuary of Tamazight", "en")
+    assert main.split_bilingual_cue("ⴰⴳⵎⴰⵔ\nhorse") == ("ⴰⴳⵎⴰⵔ", "horse", "en")
+    # ordinary one-line cue: untouched, no gloss
+    assert main.split_bilingual_cue("Is ghorsh lan ait mash?") == ("Is ghorsh lan ait mash?", None, None)
+    assert main.split_bilingual_cue(None) == ("", None, None)
+
+
+def test_parse_vtt_keeps_lines_and_storage_join():
+    from video_utils import parse_vtt
+    segs = parse_vtt("WEBVTT\n\n00:00:18.801 --> 00:00:23.379\nagmar\nhorse\n\n00:00:24.800 --> 00:00:28.072\ntafullust\n")
+    assert segs[0]["lines"] == ["agmar", "horse"] and segs[0]["text"] == "agmar horse"
+    assert main.cue_text_for_storage(segs[0]) == "agmar\nhorse"
+    assert main.cue_text_for_storage(segs[1]) == "tafullust"
+
+
+def test_parse_gloss_json():
+    ans = 'Sure:\n```json\n{"horse": {"ca": "cavall", "ar": "حصان"}, "Owl": {"ca": "mussol", "ar": "بومة"}}\n```'
+    t = main._parse_gloss_json(ans)
+    assert t["horse"] == {"ca": "cavall", "ar": "حصان"} and t["owl"]["ca"] == "mussol"
+    assert main._parse_gloss_json("no json here") == {}
+
+
+def test_merge_frame_items():
+    items = [
+        {"t": 0, "kind": "none"},
+        {"t": 2, "kind": "letter", "tifinagh": "ⴱ", "latin": "b", "meaning_en": ""},
+        {"t": 4, "kind": "letter", "tifinagh": "ⴱ", "latin": "b"},
+        {"t": 6, "kind": "word", "tifinagh": "ⴰⵟⵟⵓⵍ", "latin": "aṭṭul", "meaning_en": "long"},
+        {"t": 8, "kind": "word", "tifinagh": "ⴰⵟⵟⵓⵍ", "latin": "", "meaning_en": ""},
+        {"t": 10, "kind": "none"},
+        {"t": 14, "kind": "word", "tifinagh": "ⴰⵟⵟⵓⵍ", "latin": "aṭṭul", "meaning_en": "long"},
+    ]
+    segs = main.merge_frame_items(items, every=2.0)
+    assert [(x["text"], x["start"], x["end"]) for x in segs] == [("ⴱ", 2.0, 6.0), ("ⴰⵟⵟⵓⵍ", 6.0, 10.0), ("ⴰⵟⵟⵓⵍ", 14.0, 16.0)]
+    assert segs[1]["gloss"] == "long" and segs[1]["latin"] == "aṭṭul" and segs[1]["gloss_lang"] == "en"
+    assert segs[0]["gloss"] is None and segs[0]["kind"] == "letter"
+
+
+def test_merge_frame_items_lookalikes_and_slogan():
+    items = [
+        {"t": 8, "kind": "phrase", "tifinagh": "ⴰⵎⴰⵣⵉⵖ ⵉⴳⴰ ⵉⵎⴷⴷⵏ", "latin": "Amaziɣ iga imddn", "meaning_en": "Amazigh for all"},
+        {"t": 36, "kind": "letter", "tifinagh": "Θ", "latin": "b", "meaning_en": "letter yab (b)"},
+        {"t": 168, "kind": "word", "tifinagh": "ⴰⵖⵔⵓⵎ", "latin": "aɣrum", "meaning_en": "bread"},
+        {"t": 170, "kind": "word", "tifinagh": "ⴰⵖⵓⵔⵓ", "latin": "aɣuru", "meaning_en": "bread"},
+    ]
+    segs = main.merge_frame_items(items, every=2.0, ignore="Tamazight For All")
+    assert [x["text"] for x in segs] == ["ⴱ", "ⴰⵖⵔⵓⵎ"]
+    assert segs[1]["end"] == 172.0  # the misread frame extended the span instead of making a drill
+
+
+def test_apply_lesson_vocabulary():
+    vocab = {"letters": [{"name": "yab", "latin": "b"}],
+             "words": [{"latin": "ibba", "meaning_en": "my father"}, {"latin": "abghan", "meaning_en": "black"},
+                       {"latin": "ibbi", "meaning_en": "to cut"}, {"latin": "abgur", "meaning_en": "squirrel"}]}
+    segs = [  # what the frame reader actually produced on Lesson #02 (misreads included)
+        {"start": 36, "end": 40, "text": "ⴱ", "tifinagh": "ⴱ", "latin": "b", "gloss": None, "gloss_lang": None, "kind": "letter"},
+        {"start": 48, "end": 66, "text": "ⵄⴱⵔ", "tifinagh": "ⵄⴱⵔ", "latin": "ɛbr", "gloss": "april", "gloss_lang": "en", "kind": "word"},
+        {"start": 96, "end": 120, "text": "ⴰⴱⵅⵅⵍ", "tifinagh": "ⴰⴱⵅⵅⵍ", "latin": "abxxl", "gloss": "unknown", "gloss_lang": "en", "kind": "word"},
+        {"start": 134, "end": 142, "text": "ⵄⴱⴱ", "tifinagh": "ⵄⴱⴱ", "latin": "ɛbb", "gloss": "carry", "gloss_lang": "en", "kind": "word"},
+        {"start": 168, "end": 196, "text": "ⴱⵅⵔⵓ", "tifinagh": "ⴱⵅⵔⵓ", "latin": "bxru", "gloss": "none", "gloss_lang": "en", "kind": "word"},
+    ]
+    out = main.apply_lesson_vocabulary(segs, vocab)
+    assert [(x["tifinagh"], x["latin"], x["gloss"]) for x in out] == [
+        ("ⴱ", "b", "letter yab (b)"), ("ⵉⴱⴱⴰ", "ibba", "my father"), ("ⴰⴱⵖⴰⵏ", "abɣan", "black"),
+        ("ⵉⴱⴱⵉ", "ibbi", "to cut"), ("ⴰⴱⴳⵓⵔ", "abgur", "squirrel")]
+    assert [x["start"] for x in out] == [36, 48, 96, 134, 168]
+
+
+def test_merge_frame_items_spelling_out():
+    items = [{"t": 48, "kind": "partial", "tifinagh": "ⵉ", "latin": "i"},
+             {"t": 50, "kind": "word", "tifinagh": "ⵉⴱ", "latin": "ib"},
+             {"t": 52, "kind": "word", "tifinagh": "ⵉⴱⴱ", "latin": "ibb"},
+             {"t": 54, "kind": "word", "tifinagh": "ⵉⴱⴱⴰ", "latin": "ibba", "meaning_en": "my father"},
+             {"t": 56, "kind": "word", "tifinagh": "ⵉⴱⴱⴰ", "latin": "ibba", "meaning_en": "my father"}]
+    segs = main.merge_frame_items(items, every=2.0)
+    assert len(segs) == 1 and segs[0]["latin"] == "ibba" and segs[0]["start"] == 48.0 and segs[0]["end"] == 58.0
+
+
+def test_gloss_key_tolerates_bidi_marks_and_dots():
+    assert main._gloss_key("‫- ثم جاء صاحب البستان....") == main._gloss_key("ثم جاء صاحب البستان")
+    t = main._parse_gloss_json('{"ثم جاء صاحب البستان": {"ca": "Llavors va arribar l’amo de l’hort", "ar": "x"}}')
+    assert t[main._gloss_key("‫- ثم جاء صاحب البستان....")]["ca"].startswith("Llavors")
+
+
+def test_apply_lesson_vocabulary_windows():
+    """With audio chunk windows, each spoken word takes the on-screen span inside its window."""
+    vocab = {"letters": [{"name": "yab", "latin": "b", "t0": 30, "t1": 60}],
+             "words": [{"latin": "ibba", "meaning_en": "my father", "t0": 30, "t1": 60},
+                       {"latin": "abghan", "meaning_en": "black", "t0": 90, "t1": 120},
+                       {"latin": "ibbi", "meaning_en": "to cut", "t0": 150, "t1": 180},
+                       {"latin": "abgur", "meaning_en": "squirrel", "t0": 180, "t1": 210}]}
+    segs = [
+        {"start": 36, "end": 40, "text": "ⴱ", "tifinagh": "ⴱ", "latin": "b", "gloss": None, "gloss_lang": None, "kind": "letter"},
+        {"start": 48, "end": 66, "text": "x", "tifinagh": "ⵄⴱⵔ", "latin": "ɛbr", "gloss": "", "gloss_lang": None, "kind": "word"},
+        {"start": 96, "end": 120, "text": "x", "tifinagh": "ⴰⴱⵅⵅⵍ", "latin": "abxxl", "gloss": "", "gloss_lang": None, "kind": "word"},
+        {"start": 156, "end": 170, "text": "x", "tifinagh": "ⵄⴱⴱ", "latin": "ɛbb", "gloss": "", "gloss_lang": None, "kind": "word"},
+        {"start": 182, "end": 196, "text": "x", "tifinagh": "ⴱⵅⵔⵓ", "latin": "bxru", "gloss": "", "gloss_lang": None, "kind": "word"},
+    ]
+    out = main.apply_lesson_vocabulary(segs, vocab)
+    assert [(x["latin"], x["start"]) for x in out] == [("b", 36), ("ibba", 48), ("abɣan", 96), ("ibbi", 156), ("abgur", 182)]
+
+
+def test_merge_subtitle_frames():
+    items = [
+        {"t": 60, "lines": [{"lang": "en", "text": "The cracks on their skin is filled with soil"}, {"lang": "fr", "text": "De terre, leurs gerçures remplies"},
+                            {"lang": "ar", "text": "حتى امتلأت تشققات جلدهم بالتراب"}, {"lang": "shi", "text": "ifurskln nnsn kturn s wakal"}]},
+        {"t": 61, "lines": [{"lang": "en", "text": "The cracks on their skin is filled with soil"}, {"lang": "shi", "text": "Ifurskln nnsn kturn s wakal"}]},
+        {"t": 62, "lines": []},
+        {"t": 63, "lines": [{"lang": "shi", "text": "ar ttaddun s uzmz"}, {"lang": "en", "text": "They go on in time"}]},
+        {"t": 64, "lines": [{"lang": "shi", "text": "ar ttaddun s uzmz"}, {"lang": "en", "text": "They go on in time"}]},
+        {"t": 70, "lines": [{"lang": "shi", "text": "misread once"}]},
+        {"t": 75, "lines": [{"lang": "shi", "text": "Tamraght"}]},
+        {"t": 76, "lines": [{"lang": "shi", "text": "Tamraght"}]},
+        {"t": 77, "lines": [{"lang": "shi", "text": "Tamraght"}]},
+        {"t": 80, "lines": [{"lang": "shi", "text": "ar ttaddun s uzmz."}, {"lang": "en", "text": "They go on in time"}]},
+        {"t": 81, "lines": [{"lang": "shi", "text": "ar ttaddun s uzmz"}, {"lang": "en", "text": "They go on in time"}]},
+    ]
+    cues = main.merge_subtitle_frames(items, every=1.0)
+    # the repeated chorus line at 80 s collapses into the first occurrence; the title card (no translation) is dropped
+    assert [(c["start"], c["end"], c["text"]) for c in cues] == [(60.0, 62.0, "ifurskln nnsn kturn s wakal"), (63.0, 65.0, "ar ttaddun s uzmz")]
+    assert cues[0]["gloss_lang"] == "en" and cues[0]["lines"]["ar"].startswith("حتى") and cues[0]["kind"] == "subtitle"

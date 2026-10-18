@@ -3,6 +3,7 @@ import { Network } from '@capacitor/network';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import axios from 'axios';
 import { API_BASE, getMediaUrl } from '../config';
+import { mimeForFileName } from './../utils/media';
 
 import type { Drill } from '../types';
 
@@ -16,11 +17,19 @@ export interface SyncAction {
   mediaType?: 'audio' | 'video' | 'image';
   localPath?: string;
   fileName?: string;
+  /** Stable id so a sync run can remove exactly the actions it completed. */
+  uid?: string;
+  /** Failed attempts so far; parked in the dead-letter list at MAX_ATTEMPTS. */
+  attempts?: number;
+  lastError?: string;
 }
 
 const DRILLS_CACHE_KEY = 'cached_drills';
 const TESTS_CACHE_KEY = 'cached_tests';
 const SYNC_QUEUE_KEY = 'sync_queue';
+const DEAD_QUEUE_KEY = 'sync_dead';
+const MAX_ATTEMPTS = 5;
+const newUid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 class OfflineSyncManager {
   private syncPromise: Promise<void> | null = null;
@@ -56,8 +65,33 @@ class OfflineSyncManager {
     return value ? JSON.parse(value) : [];
   }
 
+  async getDeadLetters(): Promise<SyncAction[]> {
+    const { value } = await Preferences.get({ key: DEAD_QUEUE_KEY });
+    return value ? JSON.parse(value) : [];
+  }
+
+  private async setDeadLetters(items: SyncAction[]) {
+    await Preferences.set({ key: DEAD_QUEUE_KEY, value: JSON.stringify(items) });
+  }
+
+  /** Put the dead-letter actions back in the queue and try again. */
+  async retryDeadLetters() {
+    const dead = await this.getDeadLetters();
+    if (!dead.length) return;
+    const queue = await this.getQueue();
+    for (const a of dead) queue.push({ ...a, attempts: 0, lastError: undefined });
+    await Preferences.set({ key: SYNC_QUEUE_KEY, value: JSON.stringify(queue) });
+    await this.setDeadLetters([]);
+    await this.sync();
+  }
+
+  async discardDeadLetters() {
+    await this.setDeadLetters([]);
+  }
+
   async queueAction(action: SyncAction) {
     const queue = await this.getQueue();
+    action = { ...action, uid: action.uid || newUid(), attempts: action.attempts || 0 };
 
     // Deduplication / Merging logic
     if (action.type === 'CREATE') {
@@ -137,7 +171,12 @@ class OfflineSyncManager {
       }
 
       console.log(`[Sync] Starting sync for ${queue.length} actions...`);
-      const remainingQueue: SyncAction[] = [];
+      // Actions are identified by uid so that anything queued WHILE this run
+      // is in progress (long uploads) is never lost when we write back.
+      queue = queue.map(a => ({ ...a, uid: a.uid || newUid() }));
+      await Preferences.set({ key: SYNC_QUEUE_KEY, value: JSON.stringify(queue) });
+      const done = new Set<string>();
+      const failed = new Map<string, string>();
 
       for (const action of queue) {
         try {
@@ -146,8 +185,12 @@ class OfflineSyncManager {
             const serverDrill = res.data;
             // Update the local cache with the real ID
             await this.updateLocalDrillId(action.drillId, serverDrill);
-            // Update other actions in queue that refer to this temporary ID
+            // Remap the temporary id everywhere: this run's copy AND the
+            // persisted queue (which may have gained actions meanwhile)
             this.updateQueueDrillId(queue, action.drillId, serverDrill.id);
+            const persisted = await this.getQueue();
+            this.updateQueueDrillId(persisted, action.drillId, serverDrill.id);
+            await Preferences.set({ key: SYNC_QUEUE_KEY, value: JSON.stringify(persisted) });
           } else if (action.type === 'UPDATE') {
             await axios.put(`${API_BASE}/drills/${action.drillId}`, action.payload);
           } else if (action.type === 'UPLOAD_MEDIA') {
@@ -160,16 +203,29 @@ class OfflineSyncManager {
               if (err?.response?.status !== 404) throw err;
             }
           }
-        } catch (err) {
+          done.add(action.uid!);
+        } catch (err: any) {
           console.error('[Sync] Action failed:', action, err);
-          remainingQueue.push(action); // Keep failed actions for next try
+          failed.set(action.uid!, err?.response?.data?.detail || err?.message || 'error');
         }
       }
 
-      await Preferences.set({
-        key: SYNC_QUEUE_KEY,
-        value: JSON.stringify(remainingQueue),
-      });
+      // Write back against the CURRENT persisted queue, not our stale copy.
+      const fresh = await this.getQueue();
+      const dead = await this.getDeadLetters();
+      const remaining: SyncAction[] = [];
+      for (const a of fresh) {
+        if (a.uid && done.has(a.uid)) continue;
+        if (a.uid && failed.has(a.uid)) {
+          const attempts = (a.attempts || 0) + 1;
+          const withErr = { ...a, attempts, lastError: failed.get(a.uid) };
+          if (attempts >= MAX_ATTEMPTS) dead.push(withErr); else remaining.push(withErr);
+          continue;
+        }
+        remaining.push(a); // queued during this run: untouched
+      }
+      await Preferences.set({ key: SYNC_QUEUE_KEY, value: JSON.stringify(remaining) });
+      await this.setDeadLetters(dead);
 
       // Refresh cache after sync
       const [drillsRes, testsRes] = await Promise.all([
@@ -230,14 +286,23 @@ class OfflineSyncManager {
       byteNumbers[i] = byteCharacters.charCodeAt(i);
     }
     const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: this.getMimeType(action.fileName) });
+    const blob = new Blob([byteArray], { type: mimeForFileName(action.fileName) });
 
     const formData = new FormData();
     formData.append('file', blob, action.fileName);
 
-    const res = await axios.post(`${API_BASE}/upload-media/${action.drillId}/${action.mediaType}`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
+    let res;
+    try {
+      res = await axios.post(`${API_BASE}/upload-media/${action.drillId}/${action.mediaType}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+    } catch (err: any) {
+      if (err?.response?.status === 404 || err?.response?.status === 400) {
+        // Permanent: mark as exhausted so it goes straight to the dead list
+        action.attempts = MAX_ATTEMPTS - 1;
+      }
+      throw err;
+    }
 
     if (res.data.url) {
       // Cleanup local file
@@ -246,15 +311,6 @@ class OfflineSyncManager {
         directory: Directory.Data
       });
     }
-  }
-
-  private getMimeType(fileName: string): string {
-    if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')) return 'image/jpeg';
-    if (fileName.endsWith('.mp4')) return 'video/mp4';
-    if (fileName.endsWith('.webm')) return 'video/webm';
-    if (fileName.endsWith('.m4a')) return 'audio/mp4';
-    if (fileName.endsWith('.wav')) return 'audio/wav';
-    return 'application/octet-stream';
   }
 
   async saveMediaLocally(blob: Blob, fileName: string): Promise<string> {
@@ -353,7 +409,7 @@ class OfflineSyncManager {
     // For production web (Vercel), we don't want to try downloading files to a filesystem that doesn't exist
     const isCapacitor = (window as any).Capacitor?.isNativePlatform();
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    
+
     if (!isCapacitor && !isLocalhost) {
       return;
     }
@@ -372,7 +428,7 @@ class OfflineSyncManager {
       const drills = await this.getDrills();
       const includeVideos = options?.includeVideos ?? false; // Don't cache videos by default
       const batchSize = options?.batchSize ?? 3; // Slightly increased batch size since we're being selective
-      
+
       console.log(`[OfflineSync] Syncing media for ${drills.length} drills (includeVideos: ${includeVideos})...`);
 
       // Use smaller batches and sequential processing to avoid "AxiosError: Network Error"

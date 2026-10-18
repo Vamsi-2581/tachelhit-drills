@@ -44,6 +44,31 @@ export interface CorpusStats {
   by_region: Record<string, number>;
 }
 
+export interface CorpusSource {
+  source_url: string;
+  title: string | null;
+  channel: string | null;
+  playlist: string | null;
+  license: string | null;
+  drills: number;
+  with_video: number;
+  with_audio: number;
+  verified: number;
+  varieties: string[];
+  tags: string[];
+  from_s: number | null;
+  to_s: number | null;
+  first_id: number;
+}
+
+export interface CorpusSources {
+  total_drills: number;
+  from_sources: number;
+  without_source: number;
+  channels: number;
+  videos: CorpusSource[];
+}
+
 export interface Me {
   username: string;
   display_name: string;
@@ -110,6 +135,7 @@ export const api = {
 
   // --- corpus ---
   corpusStats: () => request<CorpusStats>('/corpus/stats'),
+  corpusSources: () => request<CorpusSources>('/corpus/sources'),
   corpusSearch: (params: { q?: string; variety?: string; region?: string; limit?: number; offset?: number }) => {
     const sp = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
@@ -147,12 +173,13 @@ export const api = {
     request<{ field: string; suggestion: string }>(`/ai/suggest-translation/${drillId}`, { method: 'POST' }),
 
   // --- autonomous local capture (queue a URL for your local agent) ---
-  captureRequest: (url: string, opts?: { tag?: string; language?: string; audio_only?: boolean; apply_correction?: boolean }) =>
+  captureRequest: (url: string, opts?: { tag?: string; language?: string; audio_only?: boolean; apply_correction?: boolean; variety?: string }) =>
     request<{ request_id: number; status: string }>('/capture/request', {
       method: 'POST',
       body: JSON.stringify({ url, ...(opts || {}) }),
     }),
   captureStatus: (id: number) => request<CaptureStatus>(`/capture/${id}`),
+  captureAgent: () => request<{ online: boolean; last_seen: string | null; version: string | null }>('/capture/agent'),
 
   // --- AI Space health (reliability) ---
   spacesHealth: () => request<SpacesHealth>('/health/spaces'),

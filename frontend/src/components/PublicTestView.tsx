@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config';
 import TestTaking from './TestTaking';
 import DrillPlayer from './DrillPlayer';
+import TestListen from './TestListen';
 
 interface Test {
   id: number;
@@ -12,13 +13,13 @@ interface Test {
   drill_ids: string;
 }
 
-export default function PublicTestView() {
+export default function PublicTestView({ initialView = 'landing' }: { initialView?: 'landing' | 'listening' } = {}) {
   const { testId } = useParams<{ testId: string }>();
   const navigate = useNavigate();
   const [test, setTest] = useState<Test | null>(null);
   const [drills, setDrills] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'landing' | 'taking' | 'playing'>('landing');
+  const [view, setView] = useState<'landing' | 'taking' | 'playing' | 'listening'>(initialView);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -26,11 +27,12 @@ export default function PublicTestView() {
         const testRes = await axios.get(`${API_BASE}/tests/${testId}`);
         setTest(testRes.data);
 
-        const drillIds = testRes.data.drill_ids.split(',').map((id: string) => parseInt(id));
-        const drillsRes = await axios.get(`${API_BASE}/drills/`);
-        const testDrills = drillsRes.data.filter((d: any) => drillIds.includes(d.id));
-        setDrills(testDrills);
-        
+        const drillIds: number[] = String(testRes.data.drill_ids || '').split(',').map((id: string) => parseInt(id)).filter((n: number) => !isNaN(n));
+        const drillsRes = await axios.get(`${API_BASE}/drills/`, { params: { ids: drillIds.join(',') } });
+        const byId = new Map<number, any>((drillsRes.data as any[]).map((d) => [d.id, d]));
+        // Keep the test's own order (the player ignored it before)
+        setDrills(drillIds.map((id) => byId.get(id)).filter(Boolean));
+
         setLoading(false);
       } catch (error) {
         console.error('Error fetching test data:', error);
@@ -40,8 +42,8 @@ export default function PublicTestView() {
     if (testId) fetchData();
   }, [testId]);
 
-  if (loading) return <div style={{ padding: '40px', textAlign: 'center', fontFamily: 'var(--font-sans)', color: 'var(--text-soft)' }}>Loading test...</div>;
-  if (!test) return <div style={{ padding: '40px', textAlign: 'center', fontFamily: 'var(--font-sans)', color: 'var(--text-soft)' }}>Test not found.</div>;
+  if (loading) return <div style={{ padding: '40px', textAlign: 'center', fontFamily: 'var(--font-sans)', color: 'var(--text-soft)' }}>Carregant el test…</div>;
+  if (!test) return <div style={{ padding: '40px', textAlign: 'center', fontFamily: 'var(--font-sans)', color: 'var(--text-soft)' }}>No s'ha trobat aquest test.</div>;
 
   if (view === 'taking') {
     return <TestTaking testId={test.id} onExit={() => setView('landing')} />;
@@ -51,9 +53,13 @@ export default function PublicTestView() {
     return <DrillPlayer drills={drills} onExit={() => setView('landing')} />;
   }
 
+  if (view === 'listening') {
+    return <TestListen drills={drills} title={test.title} onExit={() => setView('landing')} />;
+  }
+
   return (
     <div style={{
-      minHeight: '100vh',
+      minHeight: '100dvh',
       display: 'flex',
       flexDirection: 'column',
       background: 'var(--bg)',
@@ -61,7 +67,7 @@ export default function PublicTestView() {
     }}>
       {/* Header */}
       <div style={{
-        padding: '18px 24px 26px',
+        padding: 'calc(14px + env(safe-area-inset-top, 0px)) 24px 22px',
         background: 'var(--brand-gradient)',
         color: '#fff',
         display: 'flex',
@@ -84,7 +90,7 @@ export default function PublicTestView() {
             fontWeight: 600
           }}
         >
-          ← Home
+          ← Inici
         </button>
         <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#fff' }}>Tachelhit Drills</h1>
       </div>
@@ -148,7 +154,7 @@ export default function PublicTestView() {
               onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
               onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
             >
-              🎯 Take Test
+              🎯 Fes el test
             </button>
 
             <button
@@ -168,12 +174,28 @@ export default function PublicTestView() {
               onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
               onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
             >
-              ▶️ Play Drills
+              ▶️ Reprodueix els drills
+            </button>
+            <button
+              onClick={() => setView('listening')}
+              title="Només àudio, un drill rere l'altre: per escoltar mentre corres o camines"
+              style={{
+                padding: '14px 24px',
+                fontSize: '16px',
+                background: 'var(--surface-2)',
+                color: 'var(--text)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--r-lg)',
+                cursor: 'pointer',
+                fontWeight: 700
+              }}
+            >
+              🎧 Escolta sense mirar
             </button>
           </div>
 
           <div style={{ marginTop: '28px', color: 'var(--text-muted)', fontSize: '14px' }}>
-            {drills.length} exercises in this test
+            {drills.length} preguntes en aquest test
           </div>
         </div>
       </div>

@@ -8,6 +8,9 @@ import { toast } from '../toast';
 // own IP (dodging YouTube's block of Render), then Render makes drills. The
 // user only pastes a URL here — the background agent (tools/capture_agent.py)
 // does the rest.
+const AGENT_WIN = 'https://github.com/runningcostabrava/tachelhit-drills/releases/download/capture-agent/TachelhitCaptureAgent.exe';
+const AGENT_MAC = 'https://github.com/runningcostabrava/tachelhit-drills/releases/download/capture-agent/TachelhitCaptureAgent-macos.zip';
+
 const STAGE: Record<string, string> = {
   pending: 'A la cua — esperant el teu descarregador local…',
   claimed: 'Descarregant al teu ordinador…',
@@ -19,13 +22,27 @@ const STAGE: Record<string, string> = {
 export default function AutoCapturePanel() {
   const [url, setUrl] = useState('');
   const [tag, setTag] = useState('');
-  const [reqId, setReqId] = useState<number | null>(null);
+  const [audioOnly, setAudioOnly] = useState(false); // video clips by default; audio for podcasts
+  const [variety, setVariety] = useState('');
+  const [varieties, setVarieties] = useState<{ code: string; label: string }[]>([]);
+  useEffect(() => { api.varieties().then(setVarieties).catch(() => setVarieties([])); }, []);
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [agent, setAgent] = useState<{ online: boolean; version: string | null } | null>(null);
   const timer = useRef<number | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current); }, []);
+
+  // Is a local agent connected? Checked on mount and every 10 s while the panel is open,
+  // so the user knows before pasting a URL that nobody would download.
+  useEffect(() => {
+    let alive = true;
+    const check = () => api.captureAgent().then((a) => { if (alive) setAgent(a); }).catch(() => { if (alive) setAgent(null); });
+    check();
+    const id = window.setInterval(check, 10000);
+    return () => { alive = false; window.clearInterval(id); };
+  }, []);
 
   const poll = (id: number) => {
     api.captureStatus(id)
@@ -47,13 +64,12 @@ export default function AutoCapturePanel() {
     setBusy(true);
     setStatus(null);
     try {
-      const { request_id } = await api.captureRequest(u, { tag: tag.trim() || undefined, audio_only: true });
-      setReqId(request_id);
+      const { request_id } = await api.captureRequest(u, { tag: tag.trim() || undefined, audio_only: audioOnly, variety: variety || undefined });
       toast.success('A la cua — el teu descarregador ho agafarà');
       poll(request_id);
-    } catch (e: any) {
+    } catch (e) {
       setBusy(false);
-      toast.error(e.message || 'No s\'ha pogut encuar');
+      toast.error((e as Error).message || 'No s\'ha pogut encuar');
     }
   };
 
@@ -81,6 +97,17 @@ export default function AutoCapturePanel() {
           {busy ? 'En marxa…' : 'Captura'}
         </button>
       </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '13px', color: 'var(--text-soft)', cursor: 'pointer' }}>
+        <input type="checkbox" checked={audioOnly} onChange={(e) => setAudioOnly(e.target.checked)} />
+        Només àudio (podcast / veu) — sense marcar, cada drill porta el seu clip de vídeo
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '13px', color: 'var(--text-soft)' }}>
+        Varietat que ensenya el vídeo
+        <select value={variety} onChange={(e) => setVariety(e.target.value)} style={{ padding: '6px 8px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)' }}>
+          <option value="">— com les captures anteriors del canal —</option>
+          {varieties.map((v) => <option key={v.code} value={v.code}>{v.label}</option>)}
+        </select>
+      </label>
 
       {status && (
         <div style={{ marginTop: '14px', padding: '12px 14px', borderRadius: 'var(--r-md)', background: done ? 'var(--emerald-soft)' : failed ? 'var(--rose-soft)' : 'var(--surface-2)', border: `1px solid ${done ? 'var(--emerald)' : failed ? 'var(--rose)' : 'var(--border)'}` }}>
@@ -97,11 +124,19 @@ export default function AutoCapturePanel() {
         </div>
       )}
 
-      {reqId && status && (status.status === 'pending' || status.status === 'claimed') && (
-        <div style={{ marginTop: '8px', fontSize: '11.5px', color: 'var(--text-muted)' }}>
-          Cal que el teu <strong>agent de captura</strong> estigui en marxa a l'ordinador (tools/capture_agent). Si no baixa en un minut, engega'l.
-        </div>
-      )}
+      <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '12.5px', color: 'var(--text-soft)' }}>
+        <span aria-hidden style={{ width: 9, height: 9, borderRadius: '50%', background: agent?.online ? 'var(--emerald)' : 'var(--rose)', flex: 'none' }} />
+        {agent?.online ? (
+          <span>Agent de captura connectat al teu ordinador{agent.version ? ` (v${agent.version})` : ''}.</span>
+        ) : (
+          <span>
+            Cap agent de captura connectat. Instal·la'l un cop al teu ordinador (s'engega sol en iniciar sessió):{' '}
+            <a href={AGENT_WIN} style={{ color: 'var(--brand-1)', fontWeight: 700 }}>Windows</a>
+            {' · '}
+            <a href={AGENT_MAC} style={{ color: 'var(--brand-1)', fontWeight: 700 }}>Mac</a>
+          </span>
+        )}
+      </div>
     </div>
   );
 }

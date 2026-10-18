@@ -1,25 +1,18 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { Network } from '@capacitor/network';
 import { syncManager } from '../services/OfflineSyncManager';
 import TestTaking from './TestTaking';
 import TestEditPanel from './TestEditPanel';
+import TestConfigPanel from './TestConfigPanel';
+import { useIsMobileLayout } from '../utils/layout';
 import DrillPlayer from './DrillPlayer';
 import VideoLoopPlayer from './VideoLoopPlayer';
 import { API_BASE } from '../config';
 import { toast } from '../toast';
-import { FaDumbbell, FaLayerGroup, FaCalendarAlt, FaVideo, FaLink, FaTrash, FaCog, FaChartBar, FaBullseye, FaPen, FaPlay, FaCheck, FaGraduationCap, FaHandPointLeft } from 'react-icons/fa';
+import { FaPlus, FaDumbbell, FaLayerGroup, FaCalendarAlt, FaVideo, FaLink, FaTrash, FaCog, FaChartBar, FaBullseye, FaPen, FaPlay, FaCheck, FaGraduationCap, FaHandPointLeft } from 'react-icons/fa';
 
-// Hook para detectar móvil
-const useIsMobile = () => {
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-  return isMobile;
-};
 
 export interface Test {
   id: number;
@@ -45,7 +38,9 @@ interface TestStats {
 }
 
 export default function TestsDashboard() {
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobileLayout();
+  const navigate = useNavigate();
+  const [showCreate, setShowCreate] = useState(false);
   const [tests, setTests] = useState<Test[]>([]);
   const [selectedTest, setSelectedTest] = useState<Test | null>(null);
   const [stats, setStats] = useState<TestStats | null>(null);
@@ -65,11 +60,11 @@ export default function TestsDashboard() {
   const fetchTests = async (testIdToRefresh?: number) => {
     try {
       const status = await Network.getStatus();
-      
+
       if (testIdToRefresh) {
         if (status.connected) {
           const response = await axios.get(`${API_BASE}/tests/${testIdToRefresh}`);
-          setTests(prevTests => 
+          setTests(prevTests =>
             prevTests.map(test => (test.id === testIdToRefresh ? response.data : test))
           );
           if (selectedTest?.id === testIdToRefresh) {
@@ -132,7 +127,7 @@ export default function TestsDashboard() {
     try {
       const status = await Network.getStatus();
       if (!status.connected) return;
-      
+
       const response = await axios.get(`${API_BASE}/tests/${testId}/stats`);
       setStats(response.data);
     } catch (error) {
@@ -233,8 +228,17 @@ export default function TestsDashboard() {
     return <VideoLoopPlayer videoUrl={viewingVideoUrl} onBack={() => setViewingVideoUrl(null)} />;
   }
 
+  if (showCreate) {
+    return (
+      <TestConfigPanel
+        onClose={() => setShowCreate(false)}
+        onTestCreated={async () => { setShowCreate(false); await fetchTests(); }}
+      />
+    );
+  }
+
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)', fontFamily: 'var(--font-sans)' }}>
+    <div className="app-page-fixed" style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg)', fontFamily: 'var(--font-sans)' }}>
       {/* Header */}
       <div style={{
         padding: '16px 24px',
@@ -261,6 +265,13 @@ export default function TestsDashboard() {
           </span>
         </div>
         <button
+          onClick={() => setShowCreate(true)}
+          aria-label="Nou test"
+          style={{ marginLeft: 'auto', padding: '10px 16px', background: 'var(--brand-1)', color: '#fff', border: 'none', borderRadius: 'var(--r-md)', fontSize: '14px', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', minHeight: '44px' }}
+        >
+          <FaPlus /> {isMobile ? 'Nou' : 'Nou test'}
+        </button>
+        <button
           onClick={async () => {
             try {
               const res = await axios.post(`${API_BASE}/tests/from-weakest`, { count: 10 });
@@ -272,7 +283,7 @@ export default function TestsDashboard() {
           }}
           title="Crea un test automàtic amb les teves targetes més difícils (SRS)"
           style={{
-            marginLeft: 'auto',
+            marginLeft: '8px',
             padding: '8px 16px',
             background: 'var(--saffron-soft)',
             color: 'var(--saffron-strong)',
@@ -299,9 +310,9 @@ export default function TestsDashboard() {
       </div>
 
       {/* Content */}
-      <div style={{ 
-        flex: 1, 
-        display: 'flex', 
+      <div style={{
+        flex: 1,
+        display: 'flex',
         overflow: 'hidden',
         flexDirection: isMobile ? 'column' : 'row'
       }}>
@@ -357,7 +368,7 @@ export default function TestsDashboard() {
                   fontSize: '30px'
                 }}><FaGraduationCap /></div>
                 <p style={{ fontSize: '18px', marginBottom: '8px', fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font-display)' }}>Encara no has creat cap test</p>
-                <p style={{ fontSize: '14px', margin: 0 }}>Torna als drills i selecciona'n uns quants per crear un test</p>
+                <p style={{ fontSize: '14px', margin: 0 }}>Prem «Nou test» i tria els drills que vulguis practicar</p>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -425,6 +436,17 @@ export default function TestsDashboard() {
                         <p style={{ margin: '0 0 10px 0', fontSize: isMobile ? '14px' : '13px', color: 'var(--text-soft)', lineHeight: 1.4 }}>
                           {test.description || 'Sense descripció'}
                         </p>
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
+                          <button onClick={(e) => { e.stopPropagation(); navigate(`/tests/${test.id}`); }}
+                            style={{ padding: '7px 12px', background: 'var(--brand-1)', color: '#fff', border: 'none', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                            🎯 Fes el test
+                          </button>
+                          <button onClick={(e) => { e.stopPropagation(); navigate(`/tests/${test.id}/listen`); }}
+                            title="Només àudio, un drill rere l'altre"
+                            style={{ padding: '7px 12px', background: 'var(--surface-2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                            🎧 Escolta
+                          </button>
+                        </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                           <span style={{
                             display: 'inline-flex',
@@ -702,8 +724,8 @@ export default function TestsDashboard() {
             )}
 
             {/* Action Buttons - Moved to top */}
-            <div style={{ 
-              marginBottom: '20px', 
+            <div style={{
+              marginBottom: '20px',
               display: 'grid',
               gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
               gap: '10px',

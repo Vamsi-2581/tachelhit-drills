@@ -1,0 +1,82 @@
+name: Capture agent builds
+
+# Packages tools/capture_agent.py into a double-click installer for Windows and
+# macOS and attaches both to the GitHub release tagged "capture-agent", so the
+# web app can link to a stable download URL:
+#   https://github.com/runningcostabrava/tachelhit-drills/releases/download/capture-agent/TachelhitCaptureAgent.exe
+#   https://github.com/runningcostabrava/tachelhit-drills/releases/download/capture-agent/TachelhitCaptureAgent-macos.zip
+on:
+  push:
+    branches: [main, 'feature/**']
+    paths: ['tools/capture_agent.py', '.github/workflows/capture-agent.yml', 'frontend/resources/icon-only.png']
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: TachelhitCaptureAgent.exe
+          - os: macos-latest
+            artifact: TachelhitCaptureAgent-macos.zip
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Install build deps
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller pillow pystray requests yt-dlp
+          if [ "$RUNNER_OS" = "macOS" ]; then python -m pip install pyobjc-framework-Cocoa; fi
+      - name: Icon from the app icon
+        shell: bash
+        run: |
+          python -c "from PIL import Image; im=Image.open('frontend/resources/icon-only.png').convert('RGBA'); im.save('agent.ico', sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)]); im.resize((512,512)).save('agent.png')"
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: pyinstaller --onefile --noconsole --name TachelhitCaptureAgent --icon agent.ico --collect-all yt_dlp tools/capture_agent.py
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          pyinstaller --onefile --windowed --name TachelhitCaptureAgent --icon agent.png --collect-all yt_dlp tools/capture_agent.py
+          cd dist && zip -qr TachelhitCaptureAgent-macos.zip TachelhitCaptureAgent.app
+      - name: Smoke test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then dist/TachelhitCaptureAgent.exe --version || true; else dist/TachelhitCaptureAgent --version; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+          if-no-files-found: error
+
+  release:
+    # Only main publishes to the release the app links to; feature branches just build.
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: out, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: capture-agent
+          name: Agent de captura (Windows + macOS)
+          body: |
+            Baixa'l i fes-hi doble clic UN cop: s'instal·la a la teva carpeta d'usuari, s'engega sol en iniciar sessió i viu a la safata del sistema.
+            Després, a la pantalla **Captura** de l'app, enganxa URLs de YouTube: el teu ordinador els baixa i el servidor crea els drills.
+
+            - Windows: `TachelhitCaptureAgent.exe` (el SmartScreen pot demanar "Executa igualment": no està signat).
+            - macOS: `TachelhitCaptureAgent-macos.zip` → descomprimeix → clic dret → Obre (no està notaritzat).
+
+            Font: `tools/capture_agent.py`. Es reconstrueix automàticament a cada canvi a `main`.
+          files: out/*
+          fail_on_unmatched_files: true

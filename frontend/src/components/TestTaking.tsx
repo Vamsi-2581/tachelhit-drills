@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
+import SourceCredit from './SourceCredit';
 import axios from 'axios';
-import { API_BASE, getMediaUrl } from '../config';
+import { API_BASE, getMediaUrl, getUserName } from '../config';
+import { api } from '../api';
+import { toast } from '../toast';
 import { syncManager } from '../services/OfflineSyncManager';
 
 interface Test {
@@ -19,7 +22,12 @@ interface Test {
 
 interface Drill {
   id: number;
+  text_tachelhit_latin?: string;
   text_catalan: string;
+  source_url?: string;
+  source_title?: string;
+  source_channel?: string;
+  video_start_time?: number;
   text_tachelhit: string;
   text_arabic?: string;
   audio_url: string;
@@ -77,13 +85,29 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
       const testResponse = await axios.get(`${API_BASE}/tests/${testId}`);
       setTest(testResponse.data);
 
-      // Load drills
-      const drillIds = testResponse.data.drill_ids.split(',').map((id: string) => parseInt(id));
-      const drillsResponse = await axios.get(`${API_BASE}/drills/`);
-      // Filter drills based on IDs and maintain order
-      const testDrills = drillIds.map((id: number) => drillsResponse.data.find((d: Drill) => d.id === id)).filter((d: Drill | undefined): d is Drill => d !== undefined);
-
-      // Removed shuffling to respect the order from drill_ids
+      // Load only this test's drills (server keeps the given order; older
+      // backends ignore ?ids= and return everything, so we still map by id).
+      const drillIds: number[] = String(testResponse.data.drill_ids || '').split(',').map((id: string) => parseInt(id)).filter((n: number) => !isNaN(n));
+      const drillsResponse = await axios.get(`${API_BASE}/drills/`, { params: { ids: drillIds.join(',') } });
+      const byId = new Map<number, Drill>((drillsResponse.data as Drill[]).map(d => [d.id, d]));
+      const direction = testResponse.data.playback_direction || 'cat-tash';
+      const askable = (d: Drill) => {
+        const q = direction === 'ar-tash' ? d.text_arabic : direction.startsWith('tash') ? d.text_tachelhit : d.text_catalan;
+        const a = direction === 'tash-cat' ? d.text_catalan : direction === 'tash-ar' ? d.text_arabic : d.text_tachelhit;
+        return !!(q && q.trim() && a && a.trim());
+      };
+      const found = drillIds.map(id => byId.get(id)).filter((d): d is Drill => !!d);
+      const testDrills = found.filter(askable);
+      const missing = drillIds.length - found.length;
+      const skipped = found.length - testDrills.length;
+      if (missing > 0 || skipped > 0) {
+        toast.info(`S'han omès ${missing + skipped} preguntes (${missing} drills esborrats, ${skipped} sense text en aquesta direcció).`);
+      }
+      if (testDrills.length === 0) {
+        toast.error('Aquest test no té cap pregunta vàlida.');
+        onExit();
+        return;
+      }
       setDrills(testDrills);
 
       // Initialize timer if needed
@@ -95,7 +119,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
       setQuestionStartTime(Date.now());
     } catch (error) {
       console.error('Error loading test:', error);
-      alert('Failed to load test');
+      toast.error('No s\'ha pogut carregar el test');
       onExit();
     }
   };
@@ -151,9 +175,15 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
       const progressivePercentage = Math.min(basePercentage + (hintsUsed * 15), 80);
       const numLettersToShow = Math.ceil((correctAnswer.length * progressivePercentage) / 100);
 
+      // Deterministic pseudo-random letters so the hint is stable while the
+      // learner types; it only changes when they ask for "more hint".
+      let seed = (currentDrill?.id || 1) * 7919 + hintsUsed * 104729 + correctAnswer.length;
+      const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
       const indices = new Set<number>([0]); // First letter already revealed
-      while (indices.size < numLettersToShow && indices.size < correctAnswer.length) {
-        const randomIndex = Math.floor(Math.random() * correctAnswer.length);
+      const nonSpace = correctAnswer.split('').filter(c => c !== ' ').length;
+      let guard = 0;
+      while (indices.size < numLettersToShow && indices.size < nonSpace && guard++ < 10000) {
+        const randomIndex = Math.floor(rand() * correctAnswer.length);
         if (correctAnswer[randomIndex] !== ' ') {
           indices.add(randomIndex);
         }
@@ -175,17 +205,37 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
     return normalized;
   };
 
-  const checkAnswer = () => {
-    if (!correctAnswer) return false;
+  const stripDiacritics = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[.,;:!?¿¡'"«»]/g, '');
+
+  // Tachelhit answers may be typed in phone-Latin (aghrum, ta7anut) or in
+  // Tifinagh. Accept: exact match, the drill's own Latin form, or the same
+  // phonemic key as computed by the backend transliterator.
+  const checkAnswer = async (): Promise<boolean> => {
+    if (!correctAnswer || !currentDrill) return false;
     const correct = normalizeAnswer(correctAnswer);
     const user = normalizeAnswer(userAnswer);
-    return correct === user;
+    if (!user) return false;
+    if (correct === user) return true;
+    if (stripDiacritics(correct) === stripDiacritics(user)) return true;
+    const answerIsTachelhit = correctAnswer === currentDrill.text_tachelhit;
+    if (!answerIsTachelhit) return false;
+    const latin = normalizeAnswer(currentDrill.text_tachelhit_latin || '');
+    if (latin && (latin === user || stripDiacritics(latin) === stripDiacritics(user))) return true;
+    try {
+      const [a, b] = await Promise.all([api.transliterate(userAnswer), api.transliterate(correctAnswer)]);
+      if (a.key && b.key && a.key === b.key) return true;
+      if (a.tifinagh && normalizeAnswer(a.tifinagh) === correct) return true;
+      if (latin && a.clean_latin && normalizeAnswer(a.clean_latin) === latin) return true;
+    } catch {
+      /* transliteration service down: exact matching only */
+    }
+    return false;
   };
 
   const handleSubmitAnswer = async (timeUp: boolean = false, skipQuestion: boolean = false) => {
     if (!currentDrill || !test || !correctAnswer) return;
 
-    const isCorrect = checkAnswer();
+    const isCorrect = (timeUp || skipQuestion) && !userAnswer.trim() ? false : await checkAnswer();
     const timeSpent = Math.floor((Date.now() - questionStartTime) / 1000);
 
     if (!isCorrect && !timeUp && !skipQuestion) {
@@ -259,7 +309,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
     try {
       await axios.post(`${API_BASE}/test-attempts/`, {
         test_id: test.id,
-        user_name: null,
+        user_name: getUserName() || null,
         score: score,
         time_taken_seconds: totalTime,
         total_questions: results.length,
@@ -270,6 +320,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
       setTestCompleted(true);
     } catch (error) {
       console.error('Error submitting test attempt:', error);
+      toast.error("El resultat no s'ha pogut desar al servidor (es mostra igualment).");
       setTestCompleted(true);
     }
   };
@@ -287,7 +338,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
 
     try {
       const localUrl = await syncManager.getLocalMediaUrl(currentDrill.audio_url);
-      
+
       // Create new audio element each time for reliability
       const audio = new Audio(localUrl);
       audioRef.current = audio;
@@ -301,7 +352,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
       audio.onerror = (e) => {
         console.error('Audio playback error:', e);
         setPlaying(false);
-        alert('Failed to play audio. Please check if the audio file exists.');
+        toast.error("No s'ha pogut reproduir l'àudio.");
       };
 
       await audio.play();
@@ -309,14 +360,14 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
     } catch (error) {
       console.error('Error playing audio:', error);
       setPlaying(false);
-      alert('Failed to play audio');
+      toast.error("No s'ha pogut reproduir l'àudio.");
     }
   };
 
   if (!test || drills.length === 0) {
     return (
       <div style={{ padding: '40px', textAlign: 'center', fontFamily: 'var(--font-sans)', color: 'var(--text-soft)' }}>
-        <p>Loading test...</p>
+        <p>Carregant el test…</p>
       </div>
     );
   }
@@ -330,7 +381,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
       // Review Mode - Show all questions and answers
       return (
         <div style={{
-          height: '100vh',
+          position: 'fixed', inset: 0, zIndex: 5000,
           display: 'flex',
           flexDirection: 'column',
           background: 'var(--bg)',
@@ -338,16 +389,16 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
         }}>
           {/* Header */}
           <div style={{
-            padding: '22px 24px 28px',
+            padding: 'calc(18px + env(safe-area-inset-top, 0px)) 24px 24px',
             background: 'var(--brand-gradient)',
             color: '#fff',
             borderBottomLeftRadius: '26px',
             borderBottomRightRadius: '26px',
             boxShadow: 'var(--shadow-md)'
           }}>
-            <h2 style={{ margin: 0, color: '#fff', fontWeight: 800 }}>Review Your Answers</h2>
+            <h2 style={{ margin: 0, color: '#fff', fontWeight: 800 }}>Revisa les teves respostes</h2>
             <p style={{ margin: '8px 0 0 0', opacity: 0.92 }}>
-              Score: {Math.round(score)}% ({correctAnswers}/{questionResults.length} correct)
+              Puntuació: {Math.round(score)}% ({correctAnswers}/{questionResults.length} correctes)
             </p>
           </div>
 
@@ -399,7 +450,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '16px' }}>
                     <h3 style={{ margin: 0, fontSize: '18px', color: 'var(--text)', fontWeight: 800 }}>
-                      Question {index + 1}
+                      Pregunta {index + 1}
                     </h3>
                     <span style={{
                       padding: '5px 14px',
@@ -409,7 +460,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                       background: result.correct ? 'var(--emerald-soft)' : 'var(--rose-soft)',
                       color: result.correct ? 'var(--emerald)' : 'var(--rose)'
                     }}>
-                      {result.correct ? '✓ Correct' : '✗ Incorrect'}
+                      {result.correct ? '✓ Correcta' : '✗ Incorrecta'}
                     </span>
                   </div>
 
@@ -430,14 +481,14 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                   )}
 
                   <div style={{ marginBottom: '12px' }}>
-                    <strong style={{ color: 'var(--brand-1)' }}>Question:</strong>
+                    <strong style={{ color: 'var(--brand-1)' }}>Pregunta:</strong>
                     <p style={{ margin: '4px 0 0 0', fontSize: '16px', color: 'var(--text)', fontFamily: reviewQuestionIsTashelhit ? 'var(--font-tifinagh)' : 'var(--font-sans)' }}>{reviewQuestionText}</p>
                   </div>
 
                   <div style={{ marginBottom: '12px' }}>
-                    <strong style={{ color: result.correct ? 'var(--emerald)' : 'var(--rose)' }}>Your Answer:</strong>
+                    <strong style={{ color: result.correct ? 'var(--emerald)' : 'var(--rose)' }}>La teva resposta:</strong>
                     <p style={{ margin: '4px 0 0 0', fontSize: '16px', fontWeight: 500, color: 'var(--text)', fontFamily: reviewAnswerIsTashelhit ? 'var(--font-tifinagh)' : 'var(--font-sans)', direction: reviewAnswerIsArabic ? 'rtl' : 'ltr' }}>
-                      {result.user_answer || '(no answer)'}
+                      {result.user_answer || '(sense resposta)'}
                     </p>
                   </div>
 
@@ -449,7 +500,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                       marginBottom: '12px',
                       border: '1px solid var(--emerald)'
                     }}>
-                      <strong style={{ color: 'var(--emerald)' }}>Correct Answer:</strong>
+                      <strong style={{ color: 'var(--emerald)' }}>Resposta correcta:</strong>
                       <p style={{ margin: '4px 0 0 0', fontSize: '16px', fontWeight: 600, color: 'var(--emerald)', fontFamily: reviewAnswerIsTashelhit ? 'var(--font-tifinagh)' : 'var(--font-sans)', direction: reviewAnswerIsArabic ? 'rtl' : 'ltr' }}>
                         {reviewCorrectAnswerText}
                       </p>
@@ -457,7 +508,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                   )}
 
                   <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '12px' }}>
-                    Attempts: {result.attempts} • Time: {result.time_spent}s
+                    Intents: {result.attempts} · Temps: {result.time_spent}s
                   </div>
                 </div>
               );
@@ -487,7 +538,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                 boxShadow: 'var(--shadow-brand)'
               }}
             >
-              Back to Results
+              Torna als resultats
             </button>
             <button
               onClick={onExit}
@@ -503,7 +554,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                 boxShadow: 'var(--shadow-xs)'
               }}
             >
-              Exit
+              Surt
             </button>
           </div>
         </div>
@@ -512,11 +563,11 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
 
     return (
       <div style={{
-        height: '100vh',
+        position: 'fixed', inset: 0, zIndex: 5000, overflowY: 'auto',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '24px',
+        padding: 'calc(24px + env(safe-area-inset-top, 0px)) 24px calc(24px + env(safe-area-inset-bottom, 0px))',
         background: 'var(--brand-gradient)',
         fontFamily: 'var(--font-sans)'
       }}>
@@ -546,7 +597,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
             fontWeight: 800,
             color: passed ? 'var(--emerald)' : 'var(--amber)'
           }}>
-            {passed ? 'Passed!' : 'Keep Practicing'}
+            {passed ? 'Aprovat!' : 'Continua practicant'}
           </h1>
 
           <h2 style={{ fontSize: '64px', margin: '12px 0', color: 'var(--text)', fontWeight: 800 }}>
@@ -554,7 +605,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
           </h2>
 
           <p style={{ fontSize: '18px', color: 'var(--text-soft)', marginBottom: '28px' }}>
-            {correctAnswers} out of {questionResults.length} correct
+            {correctAnswers} de {questionResults.length} correctes
           </p>
 
           <div style={{
@@ -566,10 +617,10 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
             color: 'var(--text-soft)'
           }}>
             <div style={{ marginBottom: '10px' }}>
-              <strong style={{ color: 'var(--text)' }}>Time Taken:</strong> {Math.floor((Date.now() - testStartTime) / 1000)}s
+              <strong style={{ color: 'var(--text)' }}>Temps:</strong> {Math.floor((Date.now() - testStartTime) / 1000)}s
             </div>
             <div>
-              <strong style={{ color: 'var(--text)' }}>Passing Score:</strong> {test.passing_score}%
+              <strong style={{ color: 'var(--text)' }}>Nota per aprovar:</strong> {test.passing_score}%
             </div>
           </div>
 
@@ -588,7 +639,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                 boxShadow: 'var(--shadow-brand)'
               }}
             >
-              📝 Review Answers
+              📝 Revisa les respostes
             </button>
             <button
               onClick={onExit}
@@ -604,7 +655,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                 boxShadow: 'var(--shadow-xs)'
               }}
             >
-              Back to Tests
+              Torna als tests
             </button>
           </div>
         </div>
@@ -613,7 +664,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
   }
 
   if (!currentDrill || !questionText || !correctAnswer) {
-    return <div style={{ padding: '40px', textAlign: 'center', fontFamily: 'var(--font-sans)', color: 'var(--text-soft)' }}>Loading question...</div>;
+    return <div style={{ padding: '40px', textAlign: 'center', fontFamily: 'var(--font-sans)', color: 'var(--text-soft)' }}>Carregant la pregunta…</div>;
   }
 
   const hintText = getHintText();
@@ -653,7 +704,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
 
   return (
     <div style={{
-      height: '100vh',
+      position: 'fixed', inset: 0, zIndex: 5000,
       display: 'flex',
       flexDirection: 'column',
       background: 'var(--bg)',
@@ -661,7 +712,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
     }}>
       {/* Header */}
       <div style={{
-        padding: '20px 24px 26px',
+        padding: 'calc(16px + env(safe-area-inset-top, 0px)) 24px 22px',
         background: 'var(--brand-gradient)',
         color: '#fff',
         display: 'flex',
@@ -674,7 +725,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
         <div>
           <h2 style={{ margin: 0, fontSize: '20px', color: '#fff', fontWeight: 800 }}>{test.title}</h2>
           <p style={{ margin: '6px 0 0 0', fontSize: '14px', opacity: 0.92 }}>
-            Question {currentQuestionIndex + 1} of {drills.length}
+            Pregunta {currentQuestionIndex + 1} de {drills.length}
           </p>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -689,7 +740,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
           )}
           <button
             onClick={() => {
-              if (confirm('Are you sure you want to exit? Your progress will be lost.')) {
+              if (confirm('Segur que vols sortir? Perdràs el progrés.')) {
                 onExit();
               }
             }}
@@ -705,7 +756,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
               fontWeight: 600
             }}
           >
-            Exit Test
+            Surt del test
           </button>
         </div>
       </div>
@@ -723,10 +774,12 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
       {/* Question Area */}
       <div style={{
         flex: 1,
+        minHeight: 0,
+        overflowY: 'auto',
         display: 'flex',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         justifyContent: 'center',
-        padding: '40px'
+        padding: window.innerWidth < 768 ? '16px 12px calc(24px + env(safe-area-inset-bottom, 0px))' : '40px'
       }}>
         <div style={{
           background: 'var(--surface)',
@@ -737,12 +790,14 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
           width: '100%',
           boxShadow: 'var(--shadow-lg)'
         }}>
+          {/* Credit for captured content: author, title, link to the original second */}
+          <div style={{ marginBottom: '10px', textAlign: 'right' }}><SourceCredit drill={currentDrill} compact /></div>
           {/* Image if available */}
           {currentDrill.image_url && (
             <div style={{ marginBottom: '30px', textAlign: 'center' }}>
               <img
                 src={getMediaUrl(currentDrill.image_url)}
-                alt="Visual hint"
+                alt="Pista visual"
                 style={{
                   maxWidth: '100%',
                   maxHeight: '200px',
@@ -818,38 +873,20 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                   }}
                 >
                   <span>{playing ? '🔊' : '🔊'}</span>
-                  <span>{playing ? 'Playing...' : 'Play Audio'}</span>
+                  <span>{playing ? 'Reproduint…' : 'Escolta l\'àudio'}</span>
                 </button>
               )}
 
               {/* Video playback */}
               {currentDrill.video_url && (test.question_type === 'video' || test.question_type === 'combined') && (
-                <button
-                  onClick={() => {
-                    const videoUrl = getMediaUrl(currentDrill.video_url);
-                    window.open(videoUrl, '_blank');
-                  }}
-                  style={{
-                    padding: window.innerWidth < 768 ? '10px 16px' : '12px 24px',
-                    fontSize: window.innerWidth < 768 ? '14px' : '16px',
-                    background: 'var(--sky)',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: 'var(--r-md)',
-                    cursor: 'pointer',
-                    fontWeight: 700,
-                    flex: window.innerWidth < 768 ? '1' : 'none',
-                    width: window.innerWidth < 768 ? '100%' : 'auto',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px',
-                    boxShadow: 'var(--shadow-sm)'
-                  }}
-                >
-                  <span>🎥</span>
-                  <span>Open Video</span>
-                </button>
+                <video
+                  key={currentDrill.id}
+                  src={getMediaUrl(currentDrill.video_url)}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  style={{ width: '100%', maxWidth: '420px', maxHeight: '240px', borderRadius: 'var(--r-md)', background: '#000' }}
+                />
               )}
 
               {/* Fallback message if no media available in combined mode */}
@@ -864,7 +901,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                   fontWeight: 600,
                   width: '100%'
                 }}>
-                  💡 No audio/video available
+                  💡 Aquest drill no té àudio ni vídeo
                 </div>
               )}
             </div>
@@ -884,7 +921,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                 color: 'var(--text-soft)',
                 direction: (test.playback_direction === 'ar-tash' || test.playback_direction === 'tash-ar') ? 'rtl' : 'ltr' // Apply direction to label
               }}>
-                Your answer in {correctAnswer === currentDrill.text_tachelhit ? 'Tachelhit' : correctAnswer === currentDrill.text_catalan ? 'Catalan' : 'Arabic'}:
+                La teva resposta en {correctAnswer === currentDrill.text_tachelhit ? 'tachelhit' : correctAnswer === currentDrill.text_catalan ? 'català' : 'àrab'}:
               </label>
               {timeRemaining !== null && (
                 <div style={{
@@ -908,8 +945,14 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                   handleSubmitAnswer();
                 }
               }}
-              placeholder='Type here...'
+              placeholder={answerIsTashelhit ? 'Escriu en llatí (aghrum) o en tifinagh…' : 'Escriu aquí…'}
               autoFocus
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoComplete="off"
+              spellCheck={false}
+              enterKeyHint="done"
+              lang={answerIsTashelhit ? 'shi' : correctAnswer === currentDrill.text_arabic ? 'ar' : 'ca'}
               style={{
                 width: '100%',
                 padding: window.innerWidth < 768 ? '12px 14px' : '15px 16px',
@@ -939,7 +982,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
               fontSize: window.innerWidth < 768 ? '14px' : '15px',
               color: 'var(--text)'
             }}>
-              <strong style={{ color: 'var(--amber-strong)' }}>💡 Hint:</strong>{' '}
+              <strong style={{ color: 'var(--amber-strong)' }}>💡 Pista:</strong>{' '}
               <span style={{ fontFamily: answerIsTashelhit ? 'var(--font-tifinagh)' : 'var(--font-sans)' }}>{hintText}</span>
             </div>
           )}
@@ -959,7 +1002,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                 color: 'var(--emerald)',
                 marginBottom: '6px'
               }}>
-                ✓ Correct Answer:
+                ✓ Resposta correcta:
               </div>
               <div style={{
                 fontSize: window.innerWidth < 768 ? '16px' : '18px',
@@ -988,7 +1031,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                 fontWeight: 700,
                 marginBottom: '8px'
               }}>
-                ✗ Not quite right. Attempts: {attempts}
+                ✗ No és ben bé això. Intents: {attempts}
               </div>
               <div style={{
                 display: 'flex',
@@ -1009,7 +1052,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                     fontWeight: 700,
                   }}
                 >
-                  👁 Show Answer
+                  👁 Mostra la resposta
                 </button>
                 <button
                   onClick={handleNextQuestion}
@@ -1025,7 +1068,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                     fontWeight: 700,
                   }}
                 >
-                  Next →
+                  Següent →
                 </button>
               </div>
             </div>
@@ -1056,7 +1099,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                     minWidth: window.innerWidth < 768 ? '100%' : 'auto'
                   }}
                 >
-                  ✓ Submit Answer
+                  ✓ Envia la resposta
                 </button>
 
                 {test.hint_level !== 'none' && !showHint && attempts === 0 && (
@@ -1075,7 +1118,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                       minWidth: window.innerWidth < 768 ? 'calc(50% - 4px)' : 'auto'
                     }}
                   >
-                    💡 Hint
+                    💡 Pista
                   </button>
                 )}
 
@@ -1095,7 +1138,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                       minWidth: window.innerWidth < 768 ? 'calc(50% - 4px)' : 'auto'
                     }}
                   >
-                    💡 More Hint
+                    💡 Més pista
                   </button>
                 )}
 
@@ -1116,7 +1159,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                       minWidth: window.innerWidth < 768 ? 'calc(50% - 4px)' : 'auto'
                     }}
                   >
-                    👁 Show Answer
+                    👁 Mostra la resposta
                   </button>
                 )}
 
@@ -1136,7 +1179,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                       fontWeight: 700,
                     }}
                   >
-                    Skip →
+                    Salta →
                   </button>
                 )}
               </>
@@ -1157,7 +1200,7 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                   minWidth: window.innerWidth < 768 ? '100%' : 'auto'
                 }}
               >
-                Continue to Next Question →
+                Següent pregunta →
               </button>
             )}
           </div>

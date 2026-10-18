@@ -1,0 +1,80 @@
+name: Mobile builds
+
+# Builds the Capacitor apps so iOS can be compiled without a Mac at hand:
+#  - android: debug APK (installable on any device with "unknown sources")
+#  - ios: Simulator build on GitHub's macOS runner (free: the repo is public).
+#    Device/TestFlight builds still need signing — see frontend/IOS_SETUP.md §6.
+on:
+  push:
+    branches: [main, 'feature/**']
+    paths: ['frontend/**', '.github/workflows/mobile.yml']
+  pull_request:
+    paths: ['frontend/**', '.github/workflows/mobile.yml']
+  workflow_dispatch: {}
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: frontend
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: android-actions/setup-android@v3
+        with: { packages: "platform-tools platforms;android-36 build-tools;36.0.0" }
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npx cap sync android
+      # Same debug signature on every build, so the APK updates in place on a phone
+      # instead of failing with INSTALL_FAILED_UPDATE_INCOMPATIBLE (each runner would
+      # otherwise mint its own debug key). The secret is the owner's ~/.android/debug.keystore.
+      - name: Restore the shared debug keystore
+        if: ${{ env.KS != '' }}
+        env:
+          KS: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
+        run: mkdir -p ~/.android && echo "$KS" | base64 -d > ~/.android/debug.keystore
+      - run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+        working-directory: frontend/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tachelhit-drills-android-debug
+          path: frontend/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: latest-stable }
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      # cap sync runs `pod install` itself when ios/App/Podfile exists
+      - run: npx cap sync ios
+      - name: Build for the Simulator (no signing)
+        run: |
+          xcodebuild -workspace App/App.xcworkspace -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO \
+            build | xcpretty && exit ${PIPESTATUS[0]}
+        working-directory: frontend/ios
+      - name: Zip the .app
+        run: cd ios/build/Build/Products/Debug-iphonesimulator && zip -qr "$GITHUB_WORKSPACE/App-simulator.zip" App.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tachelhit-drills-ios-simulator
+          path: App-simulator.zip
+          if-no-files-found: error

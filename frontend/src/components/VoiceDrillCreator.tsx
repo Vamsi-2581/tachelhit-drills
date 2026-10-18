@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { FaMicrophone, FaCamera, FaVideo, FaFolderOpen, FaSave } from 'react-icons/fa';
 import axios from 'axios';
 import { API_BASE } from '../config';
+import { preferredRecorderMime } from '../utils/media';
 
 interface VoiceDrillCreatorProps {
     onClose: () => void;
@@ -107,11 +108,12 @@ export default function VoiceDrillCreator({ onClose, onDrillCreated }: VoiceDril
 
     const startVideoRecording = () => {
         if (!streamRef.current) return;
-        mediaRecorderRef.current = new MediaRecorder(streamRef.current);
+        const mime = preferredRecorderMime('video');
+        mediaRecorderRef.current = mime ? new MediaRecorder(streamRef.current, { mimeType: mime }) : new MediaRecorder(streamRef.current);
         chunksRef.current = [];
         mediaRecorderRef.current.ondataavailable = (e) => chunksRef.current.push(e.data);
         mediaRecorderRef.current.onstop = async () => {
-            const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+            const blob = new Blob(chunksRef.current, { type: mediaRecorderRef.current?.mimeType || mime || 'video/webm' });
             const videoUrl = URL.createObjectURL(blob);
             setCapturedVideo(videoUrl);
             stopCamera();

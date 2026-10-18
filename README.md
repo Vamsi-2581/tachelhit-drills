@@ -45,7 +45,7 @@ language, with Arabic and Latin romanization alongside Tifinagh (ⵜⵉⴼⵉⵏ
 
 | Part | Stack | Where |
 |---|---|---|
-| Frontend | React 19 + Vite + TypeScript + Capacitor | Vercel (web) / Android |
+| Frontend | React 19 + Vite + TypeScript + Capacitor | Vercel (web) / Android / iOS (Capacitor, see `frontend/IOS_SETUP.md`) |
 | Backend | FastAPI + SQLAlchemy | Render (Postgres) · local SQLite |
 | ASR | Whisper (Docker FastAPI Space) | `huggingface-asr-space/` |
 | Translation | Fine-tuned NLLB (Gradio Space) | `huggingface-translation-space/` |
