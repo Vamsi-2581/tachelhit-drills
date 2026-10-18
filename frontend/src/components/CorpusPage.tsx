@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getMediaUrl, getUserToken } from '../config';
 import { api, type CorpusStats, type CorpusSources } from '../api';
 import { toast } from '../toast';
@@ -18,6 +19,8 @@ export default function CorpusPage() {
   const [showCoverage, setShowCoverage] = useState(false);
   const [sources, setSources] = useState<CorpusSources | null>(null);
   const [showSources, setShowSources] = useState(false);
+  const [toVerify, setToVerify] = useState<number | null>(null);
+  const navigate = useNavigate();
 
   const PAGE = 50;
   const [offset, setOffset] = useState(0);
@@ -46,6 +49,7 @@ export default function CorpusPage() {
     api.corpusStats().then(setStats).catch(() => {});
     api.corpusGapsSummary().then(r => setGaps(r.gaps)).catch(() => {});
     api.corpusSources().then(setSources).catch(() => {});
+    api.verifyQueue(undefined, 0).then(r => setToVerify(r.total)).catch(() => {});
   }, []);
 
   // Search only drives results when no gap filter is active
@@ -127,6 +131,15 @@ export default function CorpusPage() {
               >
                 {showCoverage ? 'Amaga cobertura' : 'Cobertura'}
               </button>
+              {toVerify !== null && toVerify > 0 && (
+                <button
+                  onClick={() => navigate('/verify')}
+                  title="Gravacions que un parlant encara ha de confirmar d'oïda"
+                  style={{ padding: '5px 12px', background: 'var(--saffron)', color: '#fff', border: 'none', borderRadius: 'var(--r-pill)', cursor: 'pointer', fontWeight: 700, fontSize: '13px' }}
+                >
+                  🎧 Per verificar ({toVerify})
+                </button>
+              )}
               {sources && sources.videos.length > 0 && (
                 <button
                   onClick={() => setShowSources(v => !v)}

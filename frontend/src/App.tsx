@@ -23,6 +23,7 @@ const SrtImport = lazy(() => import('./components/SrtImport'));
 const VideoLibraryPage = lazy(() => import('./components/VideoLibraryPage'));
 const ProfilePage = lazy(() => import('./components/ProfilePage'));
 const CorpusPage = lazy(() => import('./components/CorpusPage'));
+const VerifyQueue = lazy(() => import('./components/VerifyQueue'));
 
 const RouteLoader = () => (
   <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -182,6 +183,7 @@ function App() {
         <Route path="/library" element={<VideoLibraryPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/corpus" element={<CorpusPage />} />
+        <Route path="/verify" element={<VerifyQueue />} />
       </Routes>
       </Suspense>
       </main>

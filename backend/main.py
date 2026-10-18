@@ -4987,6 +4987,122 @@ def corpus_gaps(kind: Optional[str] = None, limit: int = 100, offset: int = 0,
     )
     return {"kind": kind, "drills": [Drill.model_validate(r, from_attributes=True) for r in rows]}
 
+# ===================== SPEAKER VERIFICATION QUEUE =====================
+# The listening review (tools/review_heard.py) writes what the machine listeners heard in
+# front of text_tachelhit_suggested: "[heard]" when two listeners agree, "[? a | b]" when
+# they disagree. Nothing there is gold. The queue hands every doubtful recording to a
+# speaker, one at a time, and `resolve` records the speaker's decision.
+
+_HEARD_RE = re.compile(r"^\s*\[(\?)?\s*([^\]]*)\]")
+
+VERIFY_REASONS = {
+    "differs":   "El que se sent no coincideix amb el text",
+    "contested": "Les dues escoltes no coincideixen",
+    "empty":     "Gravació sense text",
+    "subtitle":  "Només la lectura del subtítol, sense confirmar",
+}
+
+
+def parse_heard(suggested: Optional[str]):
+    """-> (options, contested, rest): the bracketed readings, whether the listeners
+    disagreed, and whatever other suggestion follows the bracket."""
+    s = (suggested or "").strip()
+    m = _HEARD_RE.match(s)
+    if not m:
+        return [], False, s
+    opts = list(dict.fromkeys(o.strip() for o in m.group(2).split("|") if o.strip()))
+    return opts, bool(m.group(1)), s[m.end():].strip(" ·")
+
+
+def reading_similarity(a: str, b: str) -> float:
+    """Script-independent closeness of two Tachelhit readings (phonemic keys)."""
+    import difflib
+    from transliteration import phonemic_key
+    ka, kb = phonemic_key(a or ""), phonemic_key(b or "")
+    if not ka or not kb:
+        return 0.0
+    return difflib.SequenceMatcher(None, ka, kb).ratio()
+
+
+def verify_queue_reason(d) -> Optional[tuple]:
+    """(reason, options) when a speaker should listen to this drill, else None."""
+    if d.verified:
+        return None
+    if not ((d.audio_url or "").strip() or (d.video_url or "").strip()):
+        return None  # nothing to listen to
+    stored = (d.text_tachelhit or "").strip()
+    latin = (d.text_tachelhit_latin or "").strip()
+    opts, contested, rest = parse_heard(d.text_tachelhit_suggested)
+    if not stored:
+        if rest or latin:
+            return "subtitle", list(dict.fromkeys([x for x in [rest, latin] if x] + opts))
+        return "empty", opts
+    if not opts:
+        return None
+    if contested:
+        return "contested", opts
+    if max(reading_similarity(o, stored) for o in opts) < 0.6:
+        return "differs", opts
+    return None  # the listeners agree with the stored text
+
+
+@app.get("/corpus/verify-queue")
+def corpus_verify_queue(reason: Optional[str] = None, limit: int = 100, offset: int = 0,
+                        db: Session = Depends(get_db)):
+    """Recorded drills a speaker still has to confirm by ear, most doubtful first.
+    `limit=0` returns only the counts."""
+    from sqlalchemy import or_
+    if reason is not None and reason not in VERIFY_REASONS:
+        raise HTTPException(status_code=400, detail=f"Unknown reason. Options: {list(VERIFY_REASONS)}")
+    order = list(VERIFY_REASONS)
+    items = []
+    for d in db.query(DrillModel).filter(or_(DrillModel.verified.is_(None), DrillModel.verified.is_(False))).all():
+        hit = verify_queue_reason(d)
+        if hit:
+            items.append((d, hit[0], hit[1]))
+    counts = {k: sum(1 for _, r, _ in items if r == k) for k in order}
+    if reason:
+        items = [it for it in items if it[1] == reason]
+    items.sort(key=lambda it: (order.index(it[1]), it[0].id))
+    page = items[max(0, offset): max(0, offset) + min(limit, 500)] if limit > 0 else []
+    return {
+        "total": len(items), "counts": counts, "labels": VERIFY_REASONS,
+        "drills": [dict(Drill.model_validate(d, from_attributes=True).model_dump(), reason=r, heard=opts)
+                   for d, r, opts in page],
+    }
+
+
+class ResolveBody(BaseModel):
+    text_tachelhit: Optional[str] = None  # the reading the speaker confirms; None keeps the stored text
+
+
+@app.post("/drills/{drill_id}/resolve", response_model=Drill)
+def resolve_drill(drill_id: int, body: ResolveBody, db: Session = Depends(get_db),
+                  user: Optional[UserModel] = Depends(get_current_user)):
+    """A speaker's verdict from the verification queue: set the text they confirm (or keep
+    what is stored), drop the machine bracket from the suggestion, mark the drill verified."""
+    if not user:
+        raise HTTPException(status_code=401, detail="Verification requires a registered user (X-User-Token)")
+    drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
+    if not drill:
+        raise HTTPException(status_code=404, detail="Drill not found")
+    text = (body.text_tachelhit or "").strip()
+    if text:
+        drill.text_tachelhit = text
+        if not (drill.text_tachelhit_latin or "").strip() and not re.search(r"[\u2d30-\u2d7f]", text):
+            drill.text_tachelhit_latin = text
+    elif not (drill.text_tachelhit or "").strip():
+        raise HTTPException(status_code=400, detail="This drill has no text yet: send the text the speaker confirms")
+    _, _, rest = parse_heard(drill.text_tachelhit_suggested)
+    drill.text_tachelhit_suggested = rest if rest and rest != (drill.text_tachelhit or "").strip() else None
+    drill.verified = True
+    drill.verified_by_user_id = user.id
+    _set_drill_key(drill)
+    db.commit()
+    db.refresh(drill)
+    return drill
+
+
 # ===================== PRONUNCIATION CHECK =====================
 
 def _normalize_for_comparison(text: str) -> str:

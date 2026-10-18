@@ -687,3 +687,48 @@ def test_merge_subtitle_frames():
     # the repeated chorus line at 80 s collapses into the first occurrence; the title card (no translation) is dropped
     assert [(c["start"], c["end"], c["text"]) for c in cues] == [(60.0, 62.0, "ifurskln nnsn kturn s wakal"), (63.0, 65.0, "ar ttaddun s uzmz")]
     assert cues[0]["gloss_lang"] == "en" and cues[0]["lines"]["ar"].startswith("حتى") and cues[0]["kind"] == "subtitle"
+
+
+# ---------- speaker verification queue ----------
+
+def test_verify_queue_reasons_and_resolve():
+    au = "https://x/clip.mp3"
+    mk = lambda **kw: client.post("/drills/", json=kw).json()["id"]
+    agreed = mk(text_catalan="q agreed", text_tachelhit="azul fellawn", text_tachelhit_suggested="[azul fellawn]", audio_url=au)
+    contested = mk(text_catalan="q contested", text_tachelhit="tanmmirt", text_tachelhit_suggested="[? tanmmirt bahra | ar timlilit]", audio_url=au)
+    differs = mk(text_catalan="q differs", text_tachelhit="tanmmirt", text_tachelhit_suggested="[azul fellawn] · nota", audio_url=au)
+    empty = mk(text_catalan="q empty", text_tachelhit="", text_tachelhit_suggested="[awal]", audio_url=au)
+    subtitle = mk(text_catalan="q subtitle", text_tachelhit="", text_tachelhit_latin="kad lgudinu", text_tachelhit_suggested="ⴽⴰⴷ ⵍⴳⵓⴷⵉⵏⵓ", video_url="https://x/v.mp4")
+    silent = mk(text_catalan="q no recording", text_tachelhit="", text_tachelhit_suggested="[? a | b]")
+
+    r = client.get("/corpus/verify-queue", params={"limit": 500}).json()
+    by = {d["id"]: d for d in r["drills"]}
+    assert agreed not in by and silent not in by
+    assert by[contested]["reason"] == "contested" and by[contested]["heard"] == ["tanmmirt bahra", "ar timlilit"]
+    assert by[differs]["reason"] == "differs" and by[differs]["heard"] == ["azul fellawn"]
+    assert by[empty]["reason"] == "empty" and by[empty]["heard"] == ["awal"]
+    assert by[subtitle]["reason"] == "subtitle" and by[subtitle]["heard"] == ["ⴽⴰⴷ ⵍⴳⵓⴷⵉⵏⵓ", "kad lgudinu"]
+    ids = [d["id"] for d in r["drills"]]
+    assert ids.index(differs) < ids.index(contested) < ids.index(empty) < ids.index(subtitle)  # most doubtful first
+    assert all(r["counts"][k] >= 1 for k in ("differs", "contested", "empty", "subtitle"))
+    only = client.get("/corpus/verify-queue", params={"limit": 0}).json()
+    assert only["drills"] == [] and only["total"] == r["total"]
+    assert client.get("/corpus/verify-queue", params={"reason": "nope"}).status_code == 400
+
+    # resolving needs a registered user
+    assert client.post(f"/drills/{contested}/resolve", json={"text_tachelhit": "ar timlilit"}).status_code == 401
+    token = register("verifier")
+    h = {"X-User-Token": token}
+    # accept one of the heard readings: text set, Latin filled, bracket dropped, verified
+    d = client.post(f"/drills/{contested}/resolve", json={"text_tachelhit": "ar timlilit"}, headers=h).json()
+    assert (d["text_tachelhit"], d["text_tachelhit_latin"], d["text_tachelhit_suggested"], d["verified"]) == ("ar timlilit", "ar timlilit", None, True)
+    # keep the stored text: only the bracket goes, the rest of the suggestion stays
+    d = client.post(f"/drills/{differs}/resolve", json={}, headers=h).json()
+    assert (d["text_tachelhit"], d["text_tachelhit_suggested"], d["verified"]) == ("tanmmirt", "nota", True)
+    # a drill without text cannot be "kept"
+    assert client.post(f"/drills/{empty}/resolve", json={}, headers=h).status_code == 400
+    # Tifinagh accepted on a subtitle drill keeps the existing Latin
+    d = client.post(f"/drills/{subtitle}/resolve", json={"text_tachelhit": "ⴽⴰⴷ ⵍⴳⵓⴷⵉⵏⵓ"}, headers=h).json()
+    assert (d["text_tachelhit"], d["text_tachelhit_latin"], d["text_tachelhit_suggested"]) == ("ⴽⴰⴷ ⵍⴳⵓⴷⵉⵏⵓ", "kad lgudinu", None)
+    left = {x["id"] for x in client.get("/corpus/verify-queue", params={"limit": 500}).json()["drills"]}
+    assert not ({contested, differs, subtitle} & left) and empty in left
