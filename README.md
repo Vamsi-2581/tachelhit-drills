@@ -41,7 +41,15 @@ language, with Arabic and Latin romanization alongside Tifinagh (ⵜⵉⴼⵉⵏ
 - **👤 Accounts** (personal token, hashed at rest): isolated SRS schedules
   and contributor attribution.
 - **📖 Corpus page**: search across all scripts, filter by variety, listen,
-  and **verify** contributions (the review queue).
+  and **verify** contributions (the review queue). A **catalog of sources**
+  groups every captured video by channel and playlist (title, license,
+  drills, time span, varieties).
+- **🎧 Verification queue** (`/verify`, phone-first): every recording whose
+  text is still in doubt, most doubtful first — the machine listening
+  readings (`[heard]` / `[? a | b]` in the suggestion field) are offered as
+  one-tap answers; the speaker accepts one, keeps the stored text, edits or
+  skips. Nothing a machine heard is ever written to the spoken text without
+  a speaker's tap.
 - **Export**: `/corpus/export` (JSON/CSV with full provenance) and
   `/corpus/flywheel?verified_only=true` — verified (audio, text) pairs ready
   to fine-tune the ASR/translation models. Per-recording consent is captured
@@ -92,9 +100,25 @@ target the Render API.
 - `/reviews/*` — SRS: `due`, `{id}/grade`, `stats` (per user)
 - `/pronunciation/check` — ASR-scored pronunciation feedback
 - `/users/*` — `register`, `me` (send `X-User-Token`)
-- `/corpus/*` — `search`, `export`, `flywheel`, `stats`
-- `/drills/{id}/verify` — contribution review
-- `/generate-image/{id}` (`use_ai`, optional `search_query` hint), `/images/fill-missing` — drill pictures
+- `/corpus/*` — `search`, `export`, `flywheel`, `stats`, `sources` (catalog),
+  `gaps`, `verify-queue`
+- `/drills/{id}/verify`, `/drills/{id}/resolve` — contribution review and the
+  speaker's verdict from the verification queue
+- `/capture/*` — queue a URL for the local capture agent (`tools/capture_agent.py`)
+
+Operator tools (run from `backend/` with its venv):
+- `tools/sync_drills_to_prod.py --tags a,b [--apply]` — copy locally captured
+  drills to production (idempotent, keyed by source + time + text);
+  `--catalog --apply` backfills source metadata.
+- `tools/review_heard.py run|report|apply` — corpus-wide listening review
+  (two Gemini listeners per clip) written to the suggestion field as brackets.
+- `tools/find_junk_drills.py --api URL` — read-only junk scan.
+
+CI (`.github/workflows/mobile.yml`) builds the Android debug APK (signed with
+the shared debug keystore so `adb install -r` updates in place) and the iOS
+app, then boots an iPhone Simulator, launches the app, fails if it is not
+running 45 s later and uploads screenshots. A device build still needs a Mac
+(`frontend/IOS_SETUP.md`).
 
 Optional API-key gate: set `API_KEY` (backend) + `VITE_API_KEY` (frontend)
 to require `X-API-Key` on all mutating requests.
