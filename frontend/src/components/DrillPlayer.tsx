@@ -16,6 +16,15 @@ declare global {
 
 import type { Drill } from '../types';
 
+/** The unconfirmed reading to show when a drill has no speaker-confirmed text: the
+ *  subtitle/AI draft in the suggestion field unless it is a machine listening bracket. */
+const draftText = (d?: Drill | null): string => {
+  if (!d) return '';
+  const sug = (d.text_tachelhit_suggested || '').trim();
+  if (sug && !sug.startsWith('[')) return sug;
+  return (d.text_tachelhit_latin || '').trim();
+};
+
 interface DrillPlayerProps {
   drills: Drill[];
   onExit: () => void;
@@ -828,8 +837,17 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
           }}>
             {hideAnswer ? (
               <span style={{ letterSpacing: '8px', opacity: 0.35 }}>· · ·</span>
+            ) : currentDrill?.text_tachelhit ? (
+              currentDrill.text_tachelhit
+            ) : draftText(currentDrill) ? (
+              // Captured from subtitles / drafted by a machine and not yet confirmed by a speaker:
+              // still worth seeing while learning, but visibly not gold
+              <span style={{ color: 'var(--text-soft)', fontWeight: 600 }} title="Esborrany no verificat per cap parlant">
+                {draftText(currentDrill)}
+                <span style={{ display: 'block', fontSize: '11px', fontFamily: 'inherit', letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.7, marginTop: '4px' }}>esborrany · no verificat</span>
+              </span>
             ) : (
-              currentDrill?.text_tachelhit || 'Sense text tachelhit'
+              'Sense text tachelhit'
             )}
           </div>
 
