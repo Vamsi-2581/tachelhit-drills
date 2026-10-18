@@ -69,6 +69,18 @@ export interface CorpusSources {
   videos: CorpusSource[];
 }
 
+// Speaker verification queue (recorded drills whose text a speaker still has to confirm)
+export interface VerifyItem extends Drill {
+  reason: 'differs' | 'contested' | 'empty' | 'subtitle' | string;
+  heard: string[]; // machine readings offered as one-tap answers (never gold)
+}
+export interface VerifyQueue {
+  total: number;
+  counts: Record<string, number>;
+  labels: Record<string, string>;
+  drills: VerifyItem[];
+}
+
 export interface Me {
   username: string;
   display_name: string;
@@ -147,6 +159,13 @@ export const api = {
     request<{ verified: boolean }>(`/drills/${drillId}/verify`, {
       method: 'POST',
       body: JSON.stringify({ verified }),
+    }),
+  verifyQueue: (reason?: string, limit = 100, offset = 0) =>
+    request<VerifyQueue>(`/corpus/verify-queue?limit=${limit}&offset=${offset}${reason ? `&reason=${encodeURIComponent(reason)}` : ''}`),
+  resolveDrill: (drillId: number, text_tachelhit?: string) =>
+    request<Drill>(`/drills/${drillId}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ text_tachelhit: text_tachelhit ?? null }),
     }),
   corpusGapsSummary: () =>
     request<{ total: number; gaps: { kind: string; label: string; count: number }[] }>('/corpus/gaps'),
