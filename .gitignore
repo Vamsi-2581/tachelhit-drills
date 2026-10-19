@@ -66,3 +66,5 @@ backend/knowledge/amazigh_grammar.md
 # ASR bake-off working files (clips + results); curated results live in docs/asr_bakeoff/
 backend/bakeoff/
 backend/bakeoff2/
+# Third-party lexicon (Oulhaj dictionary, IRCAM conjugations) fetched from HuggingFace at runtime
+backend/knowledge/lexicon/

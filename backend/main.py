@@ -22,6 +22,7 @@ import re
 import secrets
 from illustrate import generate_illustration, illustration_available
 from draft_check import check_draft_meaning, draft_status
+import lexicon
 from gemini_client import gemini_generate, gemini_available, gemini_agent
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -1186,6 +1187,8 @@ from contextlib import asynccontextmanager
 async def lifespan(app: FastAPI):
     # This runs ON STARTUP
     print("[INIT] Startup lifespan events...")
+    if os.getenv("LEXICON_WARMUP", "1") == "1" and not os.getenv("PYTEST_CURRENT_TEST"):
+        lexicon.warm_up_async()  # dictionary + conjugation tables for the tutor (background download)
 
     # Optionally check and fix schema before creating tables
     # Set CHECK_SCHEMA environment variable to "1" to enable
@@ -4593,6 +4596,7 @@ El teu paper:
 - Et bases SEMPRE en el "Compendi de Gramàtica Amaziga" que tens a continuació com a font principal. Cita la secció (p. ex. "§5. Morfosintaxi verbal") quan sigui rellevant.
 - Si la pregunta va sobre un drill concret de l'usuari, fes servir el seu contingut (català, taixelhit en tifinag i llatí, àrab) per explicar-lo.
 - Si el compendi no cobreix una cosa, digues-ho clarament i aporta el teu millor coneixement lingüístic, marcant-ho com a complement.
+- Quan el context d'un drill porta línies marcades [Oulhaj] (diccionari anglès–taixelhit de Lahcen Oulhaj) o [IRCAM] (taules de conjugació de l'IRCAM), són dades de referència: per a una paraula amb la mateixa grafia tenen prioritat sobre el que recordis, i les cites amb aquesta marca. Les línies marcades «coincidència aproximada de grafia» només són pistes (el diccionari és del taixelhit del Sus; en Atles Central la mateixa grafia pot ser una altra paraula): descarta-les quan no quadrin amb el significat català.
 - Respon en la llengua de la pregunta (per defecte català). Sigues clar, concret i pedagògic. Fes servir exemples.
 
 PRINCIPI DE VARIETAT (molt important): qui aprèn documenta una varietat regional concreta (sovint tamazight de l'Atles central, zona Azilal–Kalaat Mgouna), que NO és idèntica al taixelhit del Sus ni al tamazight estàndard de l'IRCAM. Quan la forma ATTESTADA (recollida per l'usuari d'un parlant real) difereixi de l'estàndard o del compendi, la forma attestada és la correcta per a aquella varietat: explica la diferència, no la "corregeixis" cap a l'estàndard. Tracta les formes recollides per l'usuari com a dades de camp valuoses.
@@ -4653,9 +4657,29 @@ def _drill_context(drill) -> str:
     if not (drill.text_tachelhit or "").strip() and not sug:
         lines.append("- Taixelhit: encara no hi ha transcripció d'aquest drill")
     lines.append("La FRASE del drill és la del camp Taixelhit (o, si no n'hi ha, l'esborrany); el català n'és el significat.")
+    phrase = (drill.text_tachelhit or "").strip() or (drill.text_tachelhit_latin or "").strip() or sug
+    ground = lexicon.grounding_lines(phrase) if phrase else []
+    if ground:
+        lines.append("DICCIONARI I CONJUGACIONS per a les paraules d'aquesta frase (fes-los servir abans que la teva memòria; "
+                     "cita [Oulhaj] o [IRCAM]):")
+        lines.extend(ground)
     lines.append("REGLA: explica només el text que hi ha. Si només hi ha l'esborrany, treballa sobre l'esborrany i digues que és "
                  "un esborrany. MAI inventis ni proposis una frase en taixelhit com si fos la del drill.")
     return "DRILL SELECCIONAT:\n" + "\n".join(lines) if lines else ""
+
+@app.get("/lexicon/status")
+def lexicon_status():
+    """Dictionary + conjugation tables used to ground the tutor (loaded on first use)."""
+    return lexicon.status()
+
+
+@app.get("/lexicon/lookup")
+def lexicon_lookup(q: str = ""):
+    """Dictionary entries and conjugation hits for the words of `q` (Latin or Tifinagh)."""
+    if not lexicon.status()["loaded"]:
+        lexicon.load()
+    return {"query": q, "hits": lexicon.lookup(q), "attribution": lexicon.ATTRIBUTION}
+
 
 @app.get("/ai/status")
 def ai_status():
@@ -4791,7 +4815,9 @@ def ai_explain_drill(drill_id: int, db: Session = Depends(get_db)):
     prompt = (
         _drill_context(drill) + ("\n- Esborrany automàtic: " + draft if not text and draft else "") + "\n\n"
         + source_note + "\n\n"
-        "Explica aquesta frase a un aprenent de taixelhit que parla català. Format, en català, sense preàmbuls:\n"
+        "Explica aquesta frase a un aprenent de taixelhit que parla català. Si el context porta entrades de DICCIONARI I "
+        "CONJUGACIONS, basa-t'hi: són la font fiable per al significat de cada paraula i per al temps verbal (les «coincidències aproximades» només si quadren amb el significat); digues entre "
+        "parèntesis [Oulhaj] o [IRCAM] quan les facis servir. Format, en català, sense preàmbuls:\n"
         "1. **Paraula per paraula**: una línia per cada paraula taixelhit, així: `paraula` — significat — a quina paraula catalana respon "
         "(o «no hi és literalment»). Si una paraula catalana de la traducció no té paraula pròpia en taixelhit, digues com s'expressa.\n"
         "2. **Com està construïda**: dues o tres frases (verb i aspecte, pronoms o afixos, ordre).\n"
