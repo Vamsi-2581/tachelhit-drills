@@ -7,6 +7,7 @@ import { getMediaWithOfflineFallback } from '../utils/offlineCache';
 import { getYouTubeVideoId, loadYouTubeApi } from '../utils/youtubeUtils';
 import { FaVideo, FaVolumeUp, FaPlay, FaPause, FaSync, FaTimes, FaStepBackward, FaStepForward, FaBullseye, FaThumbsUp, FaRedo, FaExclamationTriangle, FaEye, FaStop, FaMicrophone, FaStar } from 'react-icons/fa';
 import DrillVoices from './DrillVoices';
+import AiAssistant from './AiAssistant';
 
 declare global {
   interface Window {
@@ -110,6 +111,7 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
   const [answerRevealed, setAnswerRevealed] = useState(false);
   const answerRevealedRef = useRef(false);
   const hideAnswer = !!reviewMode && !answerRevealed;
+  const [explainOpen, setExplainOpen] = useState(false);
 
   // Session-finished state (review mode): shown once the last due card is graded
   const [finished, setFinished] = useState(false);
@@ -886,6 +888,14 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
 
           {/* Different speakers' takes, each with its variety — hear the phrase across varieties */}
           {!hideAnswer && currentDrill && <DrillVoices drillId={currentDrill.id} />}
+          {!hideAnswer && currentDrill && (currentDrill.text_tachelhit || currentDrill.text_tachelhit_suggested || currentDrill.text_tachelhit_latin) && (
+            <div style={{ textAlign: 'center', padding: '4px 24px 16px' }}>
+              <button onClick={() => setExplainOpen(true)} style={{ padding: '9px 16px', borderRadius: 'var(--r-pill)', border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
+                💡 Explica'm la frase
+              </button>
+            </div>
+          )}
+          {explainOpen && currentDrill && <AiAssistant drillId={currentDrill.id} drillLabel={currentDrill.text_catalan || currentDrill.text_tachelhit || `#${currentDrill.id}`} autoAction="explain" onClose={() => setExplainOpen(false)} />}
 
           {/* Synthetic-voice scaffold marker: learners must know sketch from gold */}
           {(synthesizingVoice || usingSyntheticVoice) && (

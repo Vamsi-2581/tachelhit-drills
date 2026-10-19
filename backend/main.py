@@ -4565,6 +4565,75 @@ def ai_analyze_drill(drill_id: int, db: Session = Depends(get_db)):
         print(f"[AI] analyze-drill failed: {e}")
         raise HTTPException(status_code=502, detail=f"AI assistant error: {str(e)[:200]}")
 
+_WORD_RE = re.compile(r"[^\W\d_]{3,}", re.UNICODE)
+_EXPLAIN_STOP = {"the", "and", "que", "per", "amb", "una", "els", "les", "del", "dels", "est", "ara"}
+
+
+def _drill_words(d) -> set:
+    """Content words of a drill's Tachelhit (speaker text, Latin reading, or the machine
+    draft without its [? ...] bracket), lowercased, for the 'drills with the same words' list."""
+    text = " ".join(x for x in (d.text_tachelhit, d.text_tachelhit_latin, d.text_tachelhit_suggested) if x)
+    text = text.replace("[?", " ").replace("[", " ").replace("]", " ").replace("|", " ")
+    return {w.lower() for w in _WORD_RE.findall(text)} - _EXPLAIN_STOP
+
+
+def _related_drills(drill, db, limit: int = 8) -> list:
+    words = _drill_words(drill)
+    if not words:
+        return []
+    out = []
+    for d in db.query(DrillModel).filter(DrillModel.id != drill.id).all():
+        shared = words & _drill_words(d)
+        if shared:
+            out.append((len(shared), d, sorted(shared)))
+    out.sort(key=lambda x: (-x[0], x[1].id))
+    return [{"id": d.id, "text_catalan": d.text_catalan,
+             "text": d.text_tachelhit or d.text_tachelhit_latin or d.text_tachelhit_suggested,
+             "words": shared} for _, d, shared in out[:limit]]
+
+
+@app.post("/ai/explain/{drill_id}")
+def ai_explain_drill(drill_id: int, db: Session = Depends(get_db)):
+    """
+    Learner's explanation of a drill: the Tachelhit phrase word by word, which Catalan
+    word each one answers to, what is not said literally — plus the other drills in the
+    corpus that use the same words. Works on the speaker's text or, failing that, on the
+    machine draft (said so to the learner).
+    """
+    if not gemini_available():
+        raise HTTPException(status_code=503, detail="AI assistant not configured (GEMINI_API_KEY missing)")
+    drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
+    if not drill:
+        raise HTTPException(status_code=404, detail="Drill not found")
+    text = (drill.text_tachelhit or "").strip()
+    draft = (drill.text_tachelhit_suggested or drill.text_tachelhit_latin or "").strip()
+    # the machine draft carries a "[? ... | alt]" uncertainty bracket: not part of the sentence
+    draft = re.sub(r"\s+", " ", draft.replace("[?", " ").replace("[", " ").replace("]", " ").replace("|", " / ")).strip()
+    if not text and not draft:
+        raise HTTPException(status_code=400, detail="Aquest drill encara no té cap lectura en taixelhit per explicar")
+    source_note = ("" if text else
+                   "ATENCIÓ: no hi ha text confirmat pel parlant; la lectura és un ESBORRANY automàtic "
+                   f"(«{draft}»). Explica'l igualment però digues-ho a l'aprenent en una línia i no afirmis res que no quadri amb el català.")
+    prompt = (
+        _drill_context(drill) + ("\n- Esborrany automàtic: " + draft if not text and draft else "") + "\n\n"
+        + source_note + "\n\n"
+        "Explica aquesta frase a un aprenent de taixelhit que parla català. Format, en català, sense preàmbuls:\n"
+        "1. **Paraula per paraula**: una línia per cada paraula taixelhit, així: `paraula` — significat — a quina paraula catalana respon "
+        "(o «no hi és literalment»). Si una paraula catalana de la traducció no té paraula pròpia en taixelhit, digues com s'expressa.\n"
+        "2. **Com està construïda**: dues o tres frases (verb i aspecte, pronoms o afixos, ordre).\n"
+        "3. **Per recordar-la**: una pista breu (una paraula arrel que surt en altres frases, un paral·lel).\n"
+        "Cita el compendi (§) només si cal. Màxim 220 paraules."
+    )
+    try:
+        explanation = gemini_generate(_build_system_instruction(db),
+                                      [{"role": "user", "text": prompt}], max_output_tokens=1200)
+    except Exception as e:
+        print(f"[AI] explain failed: {e}")
+        raise HTTPException(status_code=502, detail=f"AI assistant error: {str(e)[:200]}")
+    return {"drill_id": drill_id, "explanation": explanation, "draft": not text,
+            "related": _related_drills(drill, db)}
+
+
 @app.post("/ai/suggest-translation/{drill_id}")
 def ai_suggest_translation(drill_id: int, db: Session = Depends(get_db)):
     """

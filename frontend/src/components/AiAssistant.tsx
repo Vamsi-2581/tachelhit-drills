@@ -8,12 +8,13 @@ interface Msg { role: 'user' | 'model'; text: string; }
 export default function AiAssistant({ drillId, drillLabel, autoAction, onClose }: {
   drillId?: number;
   drillLabel?: string;
-  autoAction?: 'analyze' | 'review';  // on open, auto-run this on the drill
+  autoAction?: 'analyze' | 'review' | 'explain';  // on open, auto-run this on the drill
   onClose: () => void;
 }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [related, setRelated] = useState<{ id: number; text_catalan?: string; text?: string; words: string[] }[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const didAuto = useRef(false);
 
@@ -26,9 +27,12 @@ export default function AiAssistant({ drillId, drillLabel, autoAction, onClose }
     if (autoAction && drillId && !didAuto.current) {
       didAuto.current = true;
       const isReview = autoAction === 'review';
-      setMessages([{ role: 'user', text: isReview ? '🔎 Revisa aquest drill' : '🔍 Analitza la forma taixelhit d\'aquest drill' }]);
+      const isExplain = autoAction === 'explain';
+      setMessages([{ role: 'user', text: isExplain ? '💡 Explica\'m la frase paraula per paraula' : isReview ? '🔎 Revisa aquest drill' : '🔍 Analitza la forma taixelhit d\'aquest drill' }]);
       setBusy(true);
-      const call = isReview ? api.aiReviewDrill(drillId).then(r => r.review) : api.aiAnalyzeDrill(drillId).then(r => r.analysis);
+      const call = isExplain
+        ? api.aiExplainDrill(drillId).then(r => { setRelated(r.related || []); return (r.draft ? '✍️ Lectura automàtica, encara no confirmada pel parlant.\n\n' : '') + r.explanation; })
+        : isReview ? api.aiReviewDrill(drillId).then(r => r.review) : api.aiAnalyzeDrill(drillId).then(r => r.analysis);
       call
         .then(text => setMessages(m => [...m, { role: 'model', text }]))
         .catch(e => setMessages(m => [...m, { role: 'model', text: `⚠️ ${e.message || 'Error'}` }]))
@@ -37,7 +41,7 @@ export default function AiAssistant({ drillId, drillLabel, autoAction, onClose }
   }, [autoAction, drillId]);
 
   const suggestions = drillId
-    ? ["Explica la gramàtica d'aquesta frase", 'Com es pronuncia?', 'Analitza el verb o els pronoms']
+    ? ["Explica'm la frase paraula per paraula", 'Com es pronuncia?', 'Analitza el verb o els pronoms']
     : ['Com es forma el plural dels noms?', 'Explica els pronoms personals en amazic', "Com funciona l'estat d'annexió (construït)?"];
 
   const send = async (text: string) => {
@@ -66,7 +70,7 @@ export default function AiAssistant({ drillId, drillLabel, autoAction, onClose }
         {/* Header */}
         <div style={{ background: 'var(--brand-gradient)', color: '#fff', padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontWeight: 800, fontSize: '17px' }}>🤖 Assistent de gramàtica</div>
+            <div style={{ fontWeight: 800, fontSize: '17px' }}>{autoAction === 'explain' ? '💡 Explica\'m la frase' : '🤖 Assistent de gramàtica'}</div>
             <div style={{ fontSize: '12px', opacity: 0.85 }}>
               {drillLabel ? `Sobre: ${drillLabel}` : 'Amazic · taixelhit · font: amazic.cat'}
             </div>
@@ -103,6 +107,20 @@ export default function AiAssistant({ drillId, drillLabel, autoAction, onClose }
           {busy && (
             <div style={{ alignSelf: 'flex-start', padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', color: 'var(--text-muted)', fontSize: '14px' }}>
               pensant…
+            </div>
+          )}
+          {related.length > 0 && !busy && (
+            <div style={{ alignSelf: 'stretch', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', padding: '12px 14px' }}>
+              <div style={{ fontWeight: 800, fontSize: '13px', color: 'var(--text-soft)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>Altres drills amb les mateixes paraules</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {related.map(r => (
+                  <a key={r.id} href={`/?q=${encodeURIComponent(r.text_catalan || String(r.id))}`} style={{ textDecoration: 'none', color: 'var(--text)', fontSize: '13px', lineHeight: 1.4, padding: '8px 10px', borderRadius: 'var(--r-md)', background: 'var(--surface-2)' }}>
+                    <span style={{ fontWeight: 700 }}>{r.text_catalan || `Drill #${r.id}`}</span>
+                    {r.text && <span style={{ display: 'block', color: 'var(--text-soft)' }}>{r.text}</span>}
+                    <span style={{ display: 'block', marginTop: '3px', fontSize: '12px', color: 'var(--brand-1)', fontWeight: 700 }}>{r.words.join(' · ')}</span>
+                  </a>
+                ))}
+              </div>
             </div>
           )}
         </div>

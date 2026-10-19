@@ -36,6 +36,7 @@ import 'ag-grid-community/styles/ag-theme-alpine.css';
 import type { Drill } from '../types';
 import { toast } from '../toast';
 import { isMobileLayout } from '../utils/layout';
+import AiAssistant from './AiAssistant';
 
 interface DrillsGridProps {
     rowData: Drill[];
@@ -50,6 +51,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
     const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
     // Inline media preview (video/audio) opened from the grid or the cards.
     const [preview, setPreview] = useState<{ url: string; kind: 'video' | 'audio'; title?: string; drillId?: number } | null>(null);
+    const [explainDrill, setExplainDrill] = useState<Drill | null>(null);
     // Phone list: render the cards in slices of 40 as the learner scrolls. A thousand cards
     // with a picture each made the page crawl.
     const MOBILE_PAGE = 40;
@@ -501,6 +503,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
     if (isMobile) {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '4px' }}>
+                {explainDrill && <AiAssistant drillId={explainDrill.id} drillLabel={explainDrill.text_catalan || explainDrill.text_tachelhit || `#${explainDrill.id}`} autoAction="explain" onClose={() => setExplainDrill(null)} />}
                 {rowData.length > 0 && rowData.length <= 60 && (
                     <button onClick={() => { setMobileTestIds(rowData.map((d) => d.id)); setShowTestConfig(true); }}
                         style={{ alignSelf: 'flex-start', padding: '9px 14px', background: 'var(--brand-gradient-soft)', color: 'var(--brand-1)', border: '1px solid var(--border)', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: '13px', cursor: 'pointer' }}>
@@ -630,6 +633,15 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                                     }}
                                 >
                                     <FaVolumeUp />{actionLoadingId === `tts-${drill.id}` ? '...' : 'TTS'}
+                                </button>
+                            )}
+                            {(drill.text_tachelhit || drill.text_tachelhit_suggested || drill.text_tachelhit_latin) && (
+                                <button
+                                    onClick={() => setExplainDrill(drill)}
+                                    title="Explica'm la frase paraula per paraula"
+                                    style={{ flex: 1, padding: '11px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontSize: '14px', fontWeight: 700, color: 'var(--text)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                                >
+                                    💡 Explica'm
                                 </button>
                             )}
                             {drill.video_url && (
