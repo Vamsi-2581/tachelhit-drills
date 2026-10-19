@@ -1,5 +1,5 @@
 ---
-title: Tachelhit ASR Correction Service
+title: Tachelhit ASR + Alignment Service
 emoji: 🎤
 colorFrom: green
 colorTo: blue
@@ -8,10 +8,20 @@ app_port: 7860
 pinned: false
 ---
 
-# Tachelhit ASR + Segmentation Service
+# Tachelhit ASR + forced-alignment service
 
-This space provides a Whisper-based ASR service optimized for Tachelhit.
-- **Models:** `openai/whisper-base` (default), `SoufianeDahimi/whisper-small-tamazight`
-- **Output:** JSON segments with timestamps, with DeepSeek correction.
-- **Usage:** Pass `model_id` in the API call to select the model.
-- **Port:** 7860
+- **Model:** `ayymen/stt_zgh_fastconformer_ctc_small` (NeMo FastConformer CTC trained on
+  Common Voice Standard Moroccan Tamazight, CC BY 4.0, 51 MB). Writes **Tifinagh**.
+- **`POST /transcribe`** (`audio_file`) → `{"text", "segments": [{start, end, text}]}`. Segments
+  come from forced alignment of the model's own transcript, split at pauses.
+- **`POST /align`** (`audio_file`, `text`, `split_on_newline`) → `{"text", "segments": [{start,
+  end, text, words}], "words"}`. Give it the known text (lyrics, lesson lines, subtitles) and
+  it returns when each line and each word is spoken. Lines separated by newlines (or `|`).
+- Gradio API (`gradio_client`): `api_name="/predict"` (audio → text), `api_name="/align"`.
+- **Port:** 7860. One request at a time (CPU).
+
+Alignment code: `align.py` + `utils/` are NVIDIA NeMo's `tools/nemo_forced_aligner`
+(Apache 2.0), as used by the `Tamazight-NLP/NeMo-Forced-Aligner` Space.
+
+History: until 2026-10-19 this Space ran `SoufianeDahimi/whisper-small-tamazight`, a
+speech→Arabic-script model (CER 0.7 on our clips, hallucinated other languages).

@@ -96,3 +96,26 @@ Failures to record: the `hbouqssi/MMS_Tachelhit` Space (old Gradio protocol), th
 `ctc-forced-aligner` package (needs a C compiler on Windows; torchaudio's bundled MMS_FA
 does the same job), and torchaudio 2.14's `load` (needs `torchcodec`; read with
 `soundfile` instead).
+
+## Round 3 (2026-10-19 evening): Meta Omnilingual ASR on this PC's CPU
+
+Models: `csukuangfj/sherpa-onnx-omnilingual-asr-1600-languages-{300M,1B}-ctc-int8-2025-11-12`
+(sherpa-onnx 1.13.8, int8, CPU), same 12 Central Atlas gold clips. Script and per-clip output:
+scratchpad `omni_test.py`, `omni_300M.json`, `omni_1B.json`.
+
+| model | output script | CER on the Latin key | CER on consonant skeletons* | exact skeletons | s / clip |
+|---|---|---|---|---|---|
+| Omnilingual CTC 300M int8 | Arabic, no short vowels | 1.0 (wrong script) | 0.62 | 2 / 12 | 3.0 |
+| Omnilingual CTC 1B int8 | Arabic, no short vowels | 1.0 (wrong script) | 0.46 | 4 / 12 | 7.1 |
+
+\* rough Arabic→Latin letter map, vowels stripped from both sides, first repeated chunk only.
+
+- The CTC models choose **Arabic script** for Tachelhit and drop the vowels, like MMS: «توكت» for
+  `tawkt`, «أبغور» for `abgur`, «تلست» for `tafullust`. Consonants are mostly right on the seven
+  word clips, so as a *second listener on consonants* the 1B model is comparable to MMS-`shi`.
+- On the five lesson clips (English voice, then the Tamazight word) they return nothing or English
+  («abgen abgen black black» for ⴰⴱⵖⴰⵏ); the model has no language conditioning in the CTC
+  variant (the LLM variant that MTNRA scored at 0.27 is not available as a CPU build).
+- Verdict: not a replacement for Gemini Flash (0.18) nor a step up from MMS; not worth adding.
+  The Tifinagh-writing NeMo model (`ayymen/stt_zgh_fastconformer_ctc_small`, Common Voice zgh,
+  51 MB, CC BY 4.0) is the one going into the production Space, with forced alignment.
