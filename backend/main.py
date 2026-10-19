@@ -612,12 +612,15 @@ def lesson_audio_vocabulary(video_path: str, tmp_dir: str) -> Dict[str, Any]:
               "\"words\": [{\"latin\": \"ibba\", \"meaning_en\": \"my father\", \"chunk\": 1}]}.")
     payload = {"systemInstruction": {"parts": [{"text": "You transcribe language lessons precisely."}]},
                "contents": [{"role": "user", "parts": parts + [{"text": prompt}]}],
-               "generationConfig": {"maxOutputTokens": 3000, "temperature": 0.1, "thinkingConfig": {"thinkingBudget": 0}}}
+               "generationConfig": {"maxOutputTokens": 12000, "temperature": 0.1, "thinkingConfig": {"thinkingBudget": 0}}}
     try:
         vocab = None
         for attempt in range(2):
-            out = _generate_content(payload, 240)
+            out = _generate_content(payload, 300)
             text = "".join(pp.get("text", "") for pp in out["candidates"][0]["content"]["parts"])
+            finish = (out.get("candidates") or [{}])[0].get("finishReason")
+            if finish and finish != "STOP":
+                print(f"[LESSON] audio vocabulary answer finished with {finish} ({len(text)} chars): a long lesson may be cut short")
             vocab = _parse_json_object(text)
             if vocab is not None:
                 break
