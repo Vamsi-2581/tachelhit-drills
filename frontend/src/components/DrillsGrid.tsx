@@ -54,6 +54,20 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
     // Inline media preview (video/audio) opened from the grid or the cards.
     const [preview, setPreview] = useState<{ url: string; kind: 'video' | 'audio'; title?: string; drillId?: number } | null>(null);
     const [explainDrill, setExplainDrill] = useState<Drill | null>(null);
+    // Card: Tifinagh face of a Latin-only reading (machine transliteration, labelled)
+    const [cardTifinagh, setCardTifinagh] = useState<{ id: number; text: string } | null>(null);
+    useEffect(() => {
+        const d = preview?.drillId != null ? rowData.find((x) => x.id === preview.drillId) : undefined;
+        if (!d) { setCardTifinagh(null); return; }
+        const hasTifinagh = /[ⴰ-⵿]/.test(d.text_tachelhit || '');
+        const source = hasTifinagh ? '' : (d.text_tachelhit_latin || d.text_tachelhit || d.text_tachelhit_suggested || '');
+        if (!source.trim()) { setCardTifinagh(null); return; }
+        let alive = true;
+        axios.get(`${API_BASE}/transliterate`, { params: { text: source } })
+            .then((r) => { if (alive && r.data?.tifinagh) setCardTifinagh({ id: d.id, text: r.data.tifinagh }); })
+            .catch(() => { if (alive) setCardTifinagh(null); });
+        return () => { alive = false; };
+    }, [preview?.drillId, rowData]);
     const [askDrill, setAskDrill] = useState<Drill | null>(null);
     // Phone list: render the cards in slices of 40 as the learner scrolls. A thousand cards
     // with a picture each made the page crawl.
@@ -432,6 +446,11 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                     {latin || (draft ? <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>{draft} <span style={{ fontSize: '11px' }}>(esborrany IA)</span></span> : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>sense transcripció</span>)}
                 </div>
                 {tifinagh && <div style={{ fontSize: '15px', color: 'var(--text-soft)', marginTop: '2px' }}>{tifinagh}</div>}
+                {!tifinagh && cardTifinagh?.id === d.id && (
+                    <div style={{ fontSize: '15px', color: 'var(--text-soft)', marginTop: '2px', fontFamily: 'var(--font-tifinagh)' }}>
+                        {cardTifinagh.text} <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-body)' }}>(transliteració automàtica)</span>
+                    </div>
+                )}
                 {shown ? (
                     <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                         {d.text_catalan && <div style={{ fontSize: '15px', color: 'var(--text)' }}>{d.text_catalan}</div>}

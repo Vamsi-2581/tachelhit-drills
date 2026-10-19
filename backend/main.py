@@ -4489,6 +4489,13 @@ def _drill_context(drill) -> str:
         ("Regió", drill.region),
     ]
     lines = [f"- {label}: {val}" for label, val in fields if val]
+    sug = (getattr(drill, "text_tachelhit_suggested", None) or "").strip()
+    if sug and not (drill.text_tachelhit or "").strip():
+        lines.append(f"- Esborrany automàtic (lectura de màquina, NO confirmada per cap parlant; «[? a | b]» = insegur): {sug}")
+    if not (drill.text_tachelhit or "").strip() and not sug:
+        lines.append("- Taixelhit: encara no hi ha transcripció d'aquest drill")
+    lines.append("REGLA: explica només el text que hi ha. Si només hi ha l'esborrany, treballa sobre l'esborrany i digues que és "
+                 "un esborrany. MAI inventis ni proposis una frase en taixelhit com si fos la del drill.")
     return "DRILL SELECCIONAT:\n" + "\n".join(lines) if lines else ""
 
 @app.get("/ai/status")

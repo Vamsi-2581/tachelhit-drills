@@ -5,6 +5,8 @@ import { API_BASE, getMediaUrl } from '../config';
 
 interface Msg { role: 'user' | 'model'; text: string; }
 
+const DOCK_WIDTH = 420;
+
 // Grammar-tutor chat panel. Optionally scoped to a selected drill.
 export default function AiAssistant({ drillId, drillLabel, autoAction, onClose }: {
   drillId?: number;
@@ -81,11 +83,27 @@ export default function AiAssistant({ drillId, drillLabel, autoAction, onClose }
     }
   };
 
+  // Desktop: a dock snapped to the right edge that pushes the page (no overlay, the
+  // list stays usable); phones: a full-height sheet over the page.
+  const docked = typeof window !== 'undefined' && window.innerWidth >= 900;
+  useEffect(() => {
+    if (!docked) return;
+    const prev = document.body.style.paddingRight;
+    document.body.style.paddingRight = `${DOCK_WIDTH}px`;
+    window.dispatchEvent(new Event('resize'));
+    return () => { document.body.style.paddingRight = prev; window.dispatchEvent(new Event('resize')); };
+  }, [docked]);
+
   return createPortal(
-    <div style={{ position: 'fixed', inset: 0, zIndex: 100000, display: 'flex', justifyContent: 'flex-end', background: 'rgba(15,23,42,0.4)' }} onClick={onClose}>
+    <div
+      style={docked
+        ? { position: 'fixed', top: 0, right: 0, bottom: 0, width: `${DOCK_WIDTH}px`, zIndex: 100000, display: 'flex' }
+        : { position: 'fixed', inset: 0, zIndex: 100000, display: 'flex', justifyContent: 'flex-end', background: 'rgba(15,23,42,0.4)' }}
+      onClick={docked ? undefined : onClose}
+    >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(480px, 100vw)', height: '100%', background: 'var(--bg)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}
+        style={{ width: docked ? '100%' : 'min(480px, 100vw)', height: '100%', background: 'var(--bg)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', borderLeft: docked ? '1px solid var(--border)' : 'none' }}
       >
         {/* Header */}
         <div style={{ background: 'var(--brand-gradient)', color: '#fff', padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
