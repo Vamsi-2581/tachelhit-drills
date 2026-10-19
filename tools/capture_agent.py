@@ -22,6 +22,8 @@ Command line
   --poll SECONDS   queue check interval (default 8)
   --console        no tray icon; log to the terminal (what the .py defaults to)
   --install        copy to the per-user folder + start at login, then exit
+  --process-at URL do the heavy work on a backend on this PC and copy the drills to the
+                   backend the request came from (step 1 of local capture)
   --uninstall      remove the start-at-login entry
   --once           process whatever is queued now, then exit (for tests)
   --version
@@ -55,9 +57,16 @@ try:
 except ImportError:  # the frozen build always has it
     sys.exit("Missing dependency. Run:  pip install requests yt-dlp")
 
-__version__ = "2.5.2"
+__version__ = "2.6.0"
 APP_NAME = "TachelhitCapture"
 DEFAULT_API = "https://tachelhit-drills-api.onrender.com"
+# Fields copied when a drill made by the local backend is created on the remote one
+# (same list as backend/tools/sync_drills_to_prod.py; media URLs point at Cloudinary).
+DRILL_FIELDS = ["tag", "author", "text_catalan", "text_tachelhit", "text_arabic", "audio_url", "audio_tts_url",
+                "audio_tts_shi_url", "video_url", "image_url", "is_correction_dataset", "video_start_time",
+                "video_end_time", "text_tachelhit_latin", "text_tachelhit_suggested", "text_catalan_suggested",
+                "draft_check", "variety", "region", "speaker", "source_url", "source_title", "source_channel",
+                "source_playlist", "license", "verified"]
 WEB_APP = "https://tachelhit-drills.vercel.app/video-creator"
 YTDLP_RELEASE = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/"
 DENO_RELEASE = "https://github.com/denoland/deno/releases/latest/download/"
@@ -403,6 +412,10 @@ class Agent:
         self.api = self.apis[0]
         self.poll = poll
         self.cfg = cfg
+        # Where the heavy work runs. When set, a request claimed from another backend is
+        # uploaded HERE (a backend on this PC: no memory limit, no shared instance), and
+        # the drills it makes are copied to the backend the request came from.
+        self.process_at = (cfg.get("process_at") or "").rstrip("/") or None
         self.hdrs = {"X-Agent-Version": __version__}
         if api_key:
             self.hdrs["X-API-Key"] = api_key
@@ -441,9 +454,10 @@ class Agent:
                     files["subtitles"] = (os.path.basename(subs), open(subs, "rb"), "text/vtt")
                     data["captions_lang"] = sub_lang or ""
                     data["captions_kind"] = sub_kind or ""
+                target = self._processing_backend(api)
                 try:
                     r = requests.post(
-                        f"{api}/video-analysis/auto-drills-upload",
+                        f"{target}/video-analysis/auto-drills-upload",
                         files=files, data=data, headers=self.hdrs, timeout=900,
                     )
                 finally:
@@ -451,10 +465,26 @@ class Agent:
                         fh.close()
                 r.raise_for_status()
                 job_id = r.json().get("job_id")
-                requests.post(f"{api}/capture/{rid}/done", json={"job_id": job_id}, headers=self.hdrs, timeout=60)
-                self.done_count += 1
-                log(f"  uploaded -> pipeline job {job_id}. The server is making drills.")
-                set_status("idle", f"Fet #{rid} · el servidor crea els drills")
+                if target == api:
+                    requests.post(f"{api}/capture/{rid}/done", json={"job_id": job_id}, headers=self.hdrs, timeout=60)
+                    self.done_count += 1
+                    log(f"  uploaded -> pipeline job {job_id}. The server is making drills.")
+                    set_status("idle", f"Fet #{rid} · el servidor crea els drills")
+                else:
+                    log(f"  uploaded to {target} -> local job {job_id}; processing on this PC...")
+                    set_status("busy", f"Processant #{rid} en aquest PC…")
+                    job = self._wait_job(target, job_id)
+                    if job.get("status") != "COMPLETED":
+                        raise RuntimeError(f"local job {job_id} {job.get('status')}: {job.get('error_message') or ''}"[:300])
+                    created = job.get("drills_created") or []
+                    n_new, n_dup = self._copy_drills(target, api, created)
+                    requests.post(f"{api}/capture/{rid}/done", json={"job_id": job_id, "drills_created": n_new},
+                                  headers=self.hdrs, timeout=60)
+                    self.done_count += 1
+                    skipped = len(job.get("media_errors") or [])
+                    log(f"  done: {len(created)} drills made here, {n_new} copied to {api}" + (f", {n_dup} already there" if n_dup else "")
+                        + (f"; {skipped} lines without a clip" if skipped else ""))
+                    set_status("idle", f"Fet #{rid} · {n_new} drills pujats")
             except subprocess.CalledProcessError as e:
                 err = (e.stderr or b"").decode("utf-8", "replace").strip().splitlines()
                 msg = err[-1] if err else f"yt-dlp exit {e.returncode}"
@@ -470,6 +500,66 @@ class Agent:
             requests.post(f"{api}/capture/{rid}/fail", json={"error": msg[:400]}, headers=self.hdrs, timeout=60)
         except Exception:
             pass
+
+    def _processing_backend(self, api: str) -> str:
+        """The local backend when configured and awake; otherwise the backend the request came from."""
+        if not self.process_at or self.process_at == api:
+            return api
+        try:
+            r = requests.get(f"{self.process_at}/health", timeout=10)
+            if r.status_code == 200:
+                return self.process_at
+            log(f"  (local backend {self.process_at} answered {r.status_code}; processing on {api})")
+        except Exception as e:
+            log(f"  (local backend {self.process_at} not reachable: {e}; processing on {api})")
+        return api
+
+    def _wait_job(self, api: str, job_id: int, max_minutes: int = 45) -> dict:
+        """Poll the pipeline job until it ends. On this PC a job cannot be killed by a deploy."""
+        t0 = time.time()
+        last = ""
+        while time.time() - t0 < max_minutes * 60 and not self.stop.is_set():
+            try:
+                job = requests.get(f"{api}/video-analysis/job/{job_id}", headers=self.hdrs, timeout=60).json()
+            except Exception as e:
+                log(f"  (job poll error: {e})"); time.sleep(15); continue
+            st = job.get("status") or ""
+            if st != last:
+                log(f"  job {job_id}: {st}"); last = st
+            if st in ("COMPLETED", "FAILED"):
+                return job
+            time.sleep(10)
+        return {"status": "TIMEOUT", "error_message": f"no result after {max_minutes} min"}
+
+    def _copy_drills(self, src_api: str, dst_api: str, ids: list) -> tuple:
+        """Create on dst the drills src made (rows only; media is on Cloudinary). A drill that
+        dst already has (same source + second + Tachelhit text) is skipped."""
+        if not ids:
+            return 0, 0
+        rows = requests.get(f"{src_api}/drills/", params={"ids": ",".join(str(i) for i in ids)}, headers=self.hdrs, timeout=120).json()
+        rows = [d for d in rows if d.get("id") in set(ids)]
+        existing = {}
+        try:
+            for d in requests.get(f"{dst_api}/drills/", headers=self.hdrs, timeout=180).json():
+                existing[self._drill_key(d)] = d["id"]
+        except Exception as e:
+            log(f"  (could not list {dst_api} drills for duplicate check: {e})")
+        n_new = n_dup = 0
+        for d in sorted(rows, key=lambda x: (float(x.get("video_start_time") or 0), x["id"])):
+            if self._drill_key(d) in existing:
+                n_dup += 1
+                continue
+            body = {k: d.get(k) for k in DRILL_FIELDS if d.get(k) is not None}
+            r = requests.post(f"{dst_api}/drills/", json=body, headers=self.hdrs, timeout=120)
+            r.raise_for_status()
+            n_new += 1
+        return n_new, n_dup
+
+    @staticmethod
+    def _drill_key(d: dict) -> tuple:
+        if d.get("source_url"):
+            return ("src", d["source_url"], round(float(d.get("video_start_time") or 0), 1), (d.get("text_tachelhit") or "").strip())
+        return ("txt", d.get("tag") or "", (d.get("text_catalan") or "").strip(), (d.get("text_tachelhit") or "").strip())
 
     def run(self, once: bool = False) -> None:
         purge_old_downloads()
@@ -680,6 +770,9 @@ def main(argv=None) -> int:
     ap.add_argument("--api", help=f"backend URL (default {DEFAULT_API})")
     ap.add_argument("--key", help="X-API-Key if the backend enforces one")
     ap.add_argument("--poll", type=int, help="seconds between queue checks (default 8)")
+    ap.add_argument("--process-at", dest="process_at",
+                    help="backend on this PC that does the heavy work (e.g. http://127.0.0.1:8000); "
+                         "drills it makes are copied to the backend the request came from. '' to disable")
     ap.add_argument("--console", action="store_true", help="no tray icon, log to the terminal")
     ap.add_argument("--install", action="store_true")
     ap.add_argument("--uninstall", action="store_true")
@@ -693,8 +786,10 @@ def main(argv=None) -> int:
     api = args.api or os.getenv("TACHELHIT_API") or cfg.get("api") or DEFAULT_API
     key = args.key or os.getenv("TACHELHIT_API_KEY") or cfg.get("api_key", "")
     poll = args.poll or int(os.getenv("CAPTURE_POLL_SECS") or cfg.get("poll") or 8)
-    if args.api or args.key or args.poll:
+    if args.api or args.key or args.poll or args.process_at is not None:
         cfg.update({k: v for k, v in (("api", args.api), ("api_key", args.key), ("poll", args.poll)) if v})
+        if args.process_at is not None:
+            cfg["process_at"] = args.process_at.strip()
         save_config(cfg)
 
     if args.uninstall:
