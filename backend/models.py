@@ -210,6 +210,7 @@ class CaptureRequest(Base):
     audio_only = Column(Boolean, default=True, nullable=False)
     apply_correction = Column(Boolean, default=True, nullable=False)
     variety = Column(String, nullable=True)  # which variety the source teaches (shi/tzm/rif/zgh/kab/other)
+    drills_created = Column(Integer, nullable=True)  # set when the agent processed it on another backend
     # pending -> claimed -> processing -> done | failed
     status = Column(String, default="pending", nullable=False, index=True)
     job_id = Column(Integer, nullable=True)      # the resulting VideoProcessingJob

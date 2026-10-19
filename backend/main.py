@@ -3975,13 +3975,22 @@ def capture_pending(request: Request, db: Session = Depends(get_db)):
 
 
 @app.post("/capture/{request_id}/done")
-def capture_done(request_id: int, job_id: int = Body(..., embed=True), db: Session = Depends(get_db)):
-    """Agent reports it uploaded the file; links the resulting pipeline job."""
+def capture_done(request_id: int, job_id: Optional[int] = Body(None, embed=True),
+                 drills_created: Optional[int] = Body(None, embed=True), db: Session = Depends(get_db)):
+    """Agent reports it uploaded the file; links the resulting pipeline job. When the agent
+    processed the request on ANOTHER backend (--process-at, agent 2.6) it sends drills_created
+    instead: the job id belongs to that backend's DB, so it is not stored here and the request
+    is done."""
     req = db.query(CaptureRequestModel).filter(CaptureRequestModel.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Capture request not found")
-    req.status = "processing"
-    req.job_id = job_id
+    if drills_created is not None:
+        req.status = "done"
+        req.job_id = None
+        req.drills_created = int(drills_created)
+    else:
+        req.status = "processing"
+        req.job_id = job_id
     db.commit()
     return {"ok": True}
 
@@ -4003,7 +4012,7 @@ def capture_status(request_id: int, db: Session = Depends(get_db)):
     req = db.query(CaptureRequestModel).filter(CaptureRequestModel.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Capture request not found")
-    drills_created = None
+    drills_created = getattr(req, "drills_created", None)
     job_status = None
     if req.job_id:
         job = db.query(VideoProcessingJobModel).filter(VideoProcessingJobModel.id == req.job_id).first()
