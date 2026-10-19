@@ -4013,9 +4013,19 @@ def _align_lyrics_lines(segments: List[Dict], lyrics: str) -> List[Dict]:
     """
     import difflib
 
-    lines = [l.strip() for l in (lyrics or "").splitlines() if l.strip()]
-    if not lines or not segments:
+    raw = [l.strip() for l in (lyrics or "").splitlines() if l.strip()]
+    if not raw or not segments:
         return segments
+    # "line | meaning": the meaning (Catalan) rides along as a gloss so the pipeline
+    # translates the gloss, never the Tamazight line (NLLB invents sentences for a
+    # machine-heard line). "line" alone keeps the old behaviour.
+    lines, glosses = [], []
+    for l in raw:
+        if " | " in l:
+            a, b = l.split(" | ", 1)
+            lines.append(a.strip()); glosses.append(b.strip() or None)
+        else:
+            lines.append(l); glosses.append(None)
 
     n_seg, n_lines = len(segments), len(lines)
     used = set()
@@ -4033,6 +4043,9 @@ def _align_lyrics_lines(segments: List[Dict], lyrics: str) -> List[Dict]:
         used.add(best_idx)
         seg["text_asr"] = seg.get("text")
         seg["text"] = lines[best_idx]
+        if glosses[best_idx]:
+            seg["gloss"] = glosses[best_idx]
+            seg["gloss_lang"] = "ca"
     return segments
 
 @app.post("/video-analysis/align-lyrics")
