@@ -878,13 +878,21 @@ def lesson_items_by_choice(frames: List[Tuple[float, str]], vocab: Dict[str, Any
         mid = (best["start"] + best["end"]) / 2.0
         frame = min(frames, key=lambda fr: abs(fr[0] - mid))[1] if frames else None
         screen = read_sign_text(frame, o["latin"]) if frame else None
+        screen_disagrees = None
         if screen:
-            if screen != o["tifinagh"]:
-                print(f"[LESSON] screen says {screen!r}, heard {o['tifinagh']!r} ({o['latin']}): keeping the screen")
-            tifinagh = screen
-            latin = to_forms(screen)["clean_latin"]
+            import difflib
+            same_word = difflib.SequenceMatcher(None, to_forms(screen)["key"], to_forms(o["tifinagh"])["key"]).ratio() >= 0.7
+            if same_word:
+                # Same word: the board's letters are the authority (ⵥ vs ⵣ, ⴳⴳⵯ, doubled letters).
+                tifinagh = screen
+                latin = to_forms(screen)["clean_latin"]
+            else:
+                # A different reading: Gemini misreads stylised Tifinagh signs too often to
+                # overrule a heard word that fits the meaning; keep it as a review hint.
+                screen_disagrees = screen
+                print(f"[LESSON] screen reads {screen!r} but the lesson says {o['tifinagh']!r} ({o['latin']}): keeping the heard word, flagged")
         out.append({"start": best["start"], "end": best["end"], "text": tifinagh, "tifinagh": tifinagh,
-                    "latin": latin, "latin_heard": o["latin"],
+                    "latin": latin, "latin_heard": o["latin"], "screen_read": screen_disagrees,
                     "gloss": (o["meaning"] if o["kind"] == "word" else f"letter {o['name']} ({o['latin']})" if o["name"] else None),
                     "gloss_lang": "en", "kind": o["kind"]})
     return sorted(out, key=lambda x: x["start"] if x["start"] is not None else x["order"])

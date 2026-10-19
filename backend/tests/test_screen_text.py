@@ -12,10 +12,13 @@ def test_screen_text_wins_over_heard_spelling(monkeypatch, tmp_path):
     monkeypatch.setattr(gemini_client, "_generate_content", lambda payload, timeout: {"candidates": [{"content": {"parts": [{"text": "ⴰⴱⴰⵖⵓⵖ\n"}]}}]})
     items = main.lesson_items_by_choice(frames, vocab, every=2.0)
     assert items[0]["tifinagh"] == "ⴰⴱⴰⵖⵓⵖ" and items[0]["text"] == "ⴰⴱⴰⵖⵓⵖ" and items[0]["latin_heard"] == "abaɣuɣ"
-    # a different word on the screen replaces the heard one
-    monkeypatch.setattr(gemini_client, "_generate_content", lambda payload, timeout: {"candidates": [{"content": {"parts": [{"text": "ⵉⴷⵉⴷ"}]}}]})
+    # the same word with the board's letters (ⵖ written ⵖⵖ) wins; a different word is only a review hint
+    monkeypatch.setattr(gemini_client, "_generate_content", lambda payload, timeout: {"candidates": [{"content": {"parts": [{"text": "ⴰⴱⴰⵖⵓⵖⵖ"}]}}]})
     items = main.lesson_items_by_choice(frames, vocab, every=2.0)
-    assert items[0]["tifinagh"] == "ⵉⴷⵉⴷ" and items[0]["latin"] == "idid"
+    assert items[0]["tifinagh"] == "ⴰⴱⴰⵖⵓⵖⵖ" and items[0]["screen_read"] is None
+    monkeypatch.setattr(gemini_client, "_generate_content", lambda payload, timeout: {"candidates": [{"content": {"parts": [{"text": "ⵜⵙⵅⵓⵙⵓⵙⵉ"}]}}]})
+    items = main.lesson_items_by_choice(frames, vocab, every=2.0)
+    assert items[0]["tifinagh"] == "ⴰⴱⴰⵖⵓⵖ" and items[0]["screen_read"] == "ⵜⵙⵅⵓⵙⵓⵙⵉ"
 
 
 def test_unreadable_screen_keeps_heard_spelling(monkeypatch, tmp_path):
