@@ -939,6 +939,52 @@ def merge_frame_items(items: List[Dict[str, Any]], every: float = 2.0, min_len: 
     return out
 
 
+def keep_amazigh_lines(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Drop on-screen lines that are not Amazigh. A Darija-narrated lesson shows Arabic
+    headings («الفرق بين حروف الجر»); the frame reader writes them in Tifinagh letters and
+    they would become drills (batch 1 of Tamazight For All, 2026-10-19). Gemini judges the
+    language of each distinct line; on any failure everything is kept (fail-open)."""
+    texts = []
+    for it in items:
+        t = (it.get("text") or it.get("tifinagh") or it.get("latin") or "").strip()
+        if t and t not in texts:
+            texts.append(t)
+    if not texts or not gemini_available():
+        return items
+    verdict: Dict[str, str] = {}
+    try:
+        from gemini_client import gemini_generate
+        for i in range(0, len(texts), 60):
+            part = texts[i:i + 60]
+            prompt = ("For each line, say whether it is AMAZIGH (Tamazight/Tachelhit/Standard Moroccan Amazigh, in Tifinagh "
+                      "or Latin letters; single letters and letter names count as amazigh) or ARABIC (Arabic or Moroccan "
+                      "Darija, even when written in Tifinagh or Latin letters, e.g. «ⵍⴼⵔⵇ ⴱⵉⵏ ⵃⵔⵓⴼ ⵍⵊⵔ» = الفرق بين حروف الجر) "
+                      "or OTHER (English, French…). Answer ONLY with a JSON object mapping the line number to "
+                      "\"amazigh\" | \"arabic\" | \"other\".\n\n"
+                      + "\n".join(f"{n}. {t}" for n, t in enumerate(part, 1)))
+            ans = gemini_generate("You are a careful linguist of North African languages.",
+                                  [{"role": "user", "text": prompt}], max_output_tokens=2000, temperature=0.0, timeout=90)
+            m = re.search(r"\{.*\}", ans or "", re.S)
+            data = json.loads(m.group(0)) if m else {}
+            for n, t in enumerate(part, 1):
+                v = str(data.get(str(n), "")).strip().lower()
+                if v in ("amazigh", "arabic", "other"):
+                    verdict[t] = v
+    except Exception as e:
+        print(f"[LESSON] language guard skipped ({e})")
+        return items
+    kept, dropped = [], []
+    for it in items:
+        t = (it.get("text") or it.get("tifinagh") or it.get("latin") or "").strip()
+        if verdict.get(t) in ("arabic", "other"):
+            dropped.append(t)
+        else:
+            kept.append(it)
+    if dropped:
+        print(f"[LESSON] language guard dropped {len(dropped)} non-Amazigh line(s): " + " | ".join(dropped[:5])[:300])
+    return kept
+
+
 def read_onscreen_vocabulary(video_path: str, tmp_dir: str, every: float = 2.0, batch: int = 12,
                              ignore: Optional[str] = None) -> List[Dict[str, Any]]:
     """Frame reading end to end: frames -> Gemini (batched) -> merged spans.
@@ -3414,6 +3460,8 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                                                               2.0, 12, meta.get("channel"))
             except Exception as e:
                 print(f"[LESSON] frame reading failed: {e}")
+            if lesson_segments:
+                lesson_segments = await asyncio.to_thread(keep_amazigh_lines, lesson_segments)
             if lesson_segments and not any(seg.get("start") is not None for seg in lesson_segments):
                 # A narrated lesson (a presenter on camera, words flashed now and then): the
                 # lines are known from the audio but the frames gave no times. Speech
