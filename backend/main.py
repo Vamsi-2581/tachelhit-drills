@@ -1035,7 +1035,11 @@ def _transcribe_short_clip_with_gemini(audio_url: str) -> Optional[Dict[str, str
             if not dur or float(dur) > max_secs:
                 return None
             wav = os.path.join(d, "clip.wav")
-            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", src, "-vn", "-ac", "1", "-ar", "16000", wav],
+            # Slowed speech is heard better (bake-off round 2, docs/ASR_BAKEOFF_2026-10-19.md:
+            # Gemini Flash CER 0.177 at tempo 0.85 vs 0.20 as is). ASR_GEMINI_TEMPO=1 disables.
+            tempo = float(os.getenv("ASR_GEMINI_TEMPO", "0.85"))
+            afilter = ["-filter:a", f"atempo={tempo}"] if 0.5 <= tempo < 1.0 else []
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", src, "-vn", "-ac", "1", "-ar", "16000", *afilter, wav],
                            check=True, capture_output=True, timeout=120)
             with open(wav, "rb") as fh:
                 data = base64.b64encode(fh.read()).decode()
