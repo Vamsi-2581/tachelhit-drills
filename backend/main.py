@@ -3388,7 +3388,34 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                 job.status = "COMPLETED"
                 db.commit()
                 has_segments = True
-        if not has_segments:
+        aligned_segments: List[Dict] = []
+        if not has_segments and lyrics and lyrics.strip():
+            # Known lines: forced alignment gives their times directly (no machine
+            # listening, no fuzzy match). Falls back to the transcribe path below.
+            pairs = []
+            for l in (x.strip() for x in lyrics.splitlines() if x.strip()):
+                a, b = (l.split(" | ", 1) + [None])[:2] if " | " in l else (l, None)
+                pairs.append((a.strip(), (b or "").strip() or None))
+            timed = await asyncio.to_thread(_align_known_lines, video_path, [a for a, _ in pairs])
+            if timed:
+                for seg, (_, gloss) in zip(timed, pairs):
+                    if gloss:
+                        seg["gloss"], seg["gloss_lang"] = gloss, "ca"
+                aligned_segments = timed
+                print(f"[ALIGN] {len(timed)} lyric lines timed by forced alignment")
+        elif not has_segments and lesson_lines_untimed:
+            timed = await asyncio.to_thread(_align_known_lines, video_path,
+                                            [it.get("tifinagh") or it.get("text") or "" for it in lesson_lines_untimed])
+            if timed:
+                items = [it for it in lesson_lines_untimed if (it.get("tifinagh") or it.get("text") or "").strip()]
+                for seg, it in zip(timed, items):
+                    for k in ("latin", "tifinagh", "gloss", "gloss_lang", "kind"):
+                        if it.get(k):
+                            seg[k] = it[k]
+                aligned_segments = timed
+                lesson_lines_untimed = []
+                print(f"[ALIGN] {len(timed)} lesson lines timed by forced alignment")
+        if not has_segments and not aligned_segments:
             job.status = "TRANSCRIBING"
             db.commit()
             await asyncio.to_thread(process_video_analysis_task, job_id, video_path, tmp_dir, language)
@@ -3401,6 +3428,8 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         if lesson_segments:
             segments = lesson_segments
             effective_source = "shi" if language in (None, "", "auto") else language
+        elif aligned_segments:
+            segments = aligned_segments
         else:
             db.expire_all()
             job = db.query(VideoProcessingJobModel).filter(VideoProcessingJobModel.id == job_id).first()
@@ -3429,7 +3458,8 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         # Song mode: replace ASR guesses with the provided lyric lines while
         # keeping the ASR timestamps; skip dataset correction (lyrics are truth)
         if lyrics and lyrics.strip():
-            segments = _align_lyrics_lines(segments, lyrics)
+            if not aligned_segments:
+                segments = _align_lyrics_lines(segments, lyrics)
             apply_correction = False
 
         # Junk guard on the RAW transcript. It must run before correction: the
@@ -4093,6 +4123,49 @@ def _attach_lesson_lines(segments: List[Dict], lines: List[Dict]) -> List[Dict]:
     for it in leftovers:
         it["start"], it["end"] = None, None
     return segments + leftovers
+
+
+def _align_known_lines(media_path: str, lines: List[str]) -> Optional[List[Dict]]:
+    """Time KNOWN lines (lyrics, lesson lines, subtitles) with the ASR Space's /align
+    (NeMo forced alignment): one segment per line, in order, with word times. Returns
+    None when the Space has no /align yet, fails, or answers a different number of
+    lines — the caller then falls back to transcribe-and-fuzzy-match."""
+    lines = [(l or "").strip() for l in lines]
+    if os.getenv("ALIGN_KNOWN_TEXT", "1") != "1" or not any(lines) or not media_path:
+        return None
+    space = os.getenv("HUGGINGFACE_ASR_SPACE_URL", "https://huggingface.co/spaces/Tamazight-NLP/ASR")
+    url = resolve_hf_space_host(space) + "/align"
+    hf_token = os.getenv("HUGGINGFACE_API_KEY")
+    headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
+    try:
+        with open(media_path, "rb") as f:
+            resp = requests.post(url, files={"audio_file": (os.path.basename(media_path), f, "application/octet-stream")},
+                                 data={"text": "\n".join(l for l in lines if l), "split_on_newline": "true"},
+                                 headers=headers, timeout=900)
+        if resp.status_code != 200:
+            print(f"[ALIGN] /align answered {resp.status_code}: {resp.text[:160]}")
+            return None
+        segs = resp.json().get("segments") or []
+    except Exception as e:
+        print(f"[ALIGN] /align failed: {e}")
+        return None
+    kept = [l for l in lines if l]
+    if len(segs) != len(kept):
+        print(f"[ALIGN] {len(kept)} lines but {len(segs)} aligned segments; falling back")
+        return None
+    out = []
+    for line, sg in zip(kept, segs):
+        try:
+            start, end = float(sg.get("start")), float(sg.get("end"))
+        except (TypeError, ValueError):
+            return None
+        if end <= start:
+            end = start + 0.5
+        out.append({"start": round(start, 2), "end": round(end, 2), "text": line, "words": sg.get("words") or []})
+    short = sum(1 for o in out if o["end"] - o["start"] < 0.25)
+    if short:
+        print(f"[ALIGN] {short}/{len(out)} lines shorter than 0.25 s (check the text matches the audio)")
+    return out
 
 
 def _align_lyrics_lines(segments: List[Dict], lyrics: str) -> List[Dict]:
