@@ -783,6 +783,41 @@ def _frame_choices_from_gemini(frames: List[Tuple[float, str]], options: List[Di
     return [i for i in items if isinstance(i, dict)]
 
 
+_TIF_RE = re.compile(r"[\u2D30-\u2D7F]")
+
+
+def read_sign_text(frame_path: str, expected_latin: str = "") -> Optional[str]:
+    """The Tifinagh written on ONE frame (the lesson item on the board/sign), exactly as
+    written. None when nothing is readable. Used to make the screen, not the listening,
+    the drill's text (owner, 2026-10-19: «why not with the letters on the screen»)."""
+    if not gemini_available():
+        return None
+    import base64
+    from gemini_client import _generate_content
+    try:
+        with open(frame_path, "rb") as fh:
+            img = base64.b64encode(fh.read()).decode()
+        hint = f" The teacher is saying something like «{expected_latin}»." if expected_latin else ""
+        payload = {"systemInstruction": {"parts": [{"text": "You read Tifinagh letters exactly as written."}]},
+                   "contents": [{"role": "user", "parts": [
+                       {"inline_data": {"mime_type": "image/jpeg", "data": img}},
+                       {"text": "Transcribe EXACTLY the Tifinagh text of the lesson item shown large on this frame (a word, a short "
+                                "phrase or a single letter), letter by letter, keeping every letter as written. Ignore logos, "
+                                "channel names, watermarks and any Latin, Arabic or English line. Answer with the Tifinagh "
+                                "text only, or an empty line if there is no Tifinagh lesson item." + hint}]}],
+                   "generationConfig": {"maxOutputTokens": 60, "temperature": 0.0, "thinkingConfig": {"thinkingBudget": 0}}}
+        data = _generate_content(payload, 90)
+        text = "".join(pp.get("text", "") for pp in data["candidates"][0]["content"]["parts"]).strip().strip("«»\"'")
+        text = text.splitlines()[0].strip() if text else ""
+        tif = len(_TIF_RE.findall(text))
+        if not text or tif == 0 or len(text) > 80 or tif < 0.6 * len(text.replace(" ", "")):
+            return None
+        return text
+    except Exception as e:
+        print(f"[LESSON] sign reading failed: {e}")
+        return None
+
+
 def lesson_items_by_choice(frames: List[Tuple[float, str]], vocab: Dict[str, Any], every: float = 2.0,
                            batch: int = 12) -> List[Dict[str, Any]]:
     """Frames -> multiple-choice labels -> one span per lesson item (the longest run
@@ -838,8 +873,27 @@ def lesson_items_by_choice(frames: List[Tuple[float, str]], vocab: Dict[str, Any
                         "kind": o["kind"], "no_media": True})
             continue
         best = max(mine, key=lambda r: r["end"] - r["start"])
-        out.append({"start": best["start"], "end": best["end"], "text": o["tifinagh"], "tifinagh": o["tifinagh"],
-                    "latin": o["latin"], "gloss": (o["meaning"] if o["kind"] == "word" else f"letter {o['name']} ({o['latin']})" if o["name"] else None),
+        # The letters on the screen are the text; the heard word only chose the frames.
+        tifinagh, latin = o["tifinagh"], o["latin"]
+        mid = (best["start"] + best["end"]) / 2.0
+        frame = min(frames, key=lambda fr: abs(fr[0] - mid))[1] if frames else None
+        screen = read_sign_text(frame, o["latin"]) if frame else None
+        screen_disagrees = None
+        if screen:
+            import difflib
+            same_word = difflib.SequenceMatcher(None, to_forms(screen)["key"], to_forms(o["tifinagh"])["key"]).ratio() >= 0.7
+            if same_word:
+                # Same word: the board's letters are the authority (ⵥ vs ⵣ, ⴳⴳⵯ, doubled letters).
+                tifinagh = screen
+                latin = to_forms(screen)["clean_latin"]
+            else:
+                # A different reading: Gemini misreads stylised Tifinagh signs too often to
+                # overrule a heard word that fits the meaning; keep it as a review hint.
+                screen_disagrees = screen
+                print(f"[LESSON] screen reads {screen!r} but the lesson says {o['tifinagh']!r} ({o['latin']}): keeping the heard word, flagged")
+        out.append({"start": best["start"], "end": best["end"], "text": tifinagh, "tifinagh": tifinagh,
+                    "latin": latin, "latin_heard": o["latin"], "screen_read": screen_disagrees,
+                    "gloss": (o["meaning"] if o["kind"] == "word" else f"letter {o['name']} ({o['latin']})" if o["name"] else None),
                     "gloss_lang": "en", "kind": o["kind"]})
     return sorted(out, key=lambda x: x["start"] if x["start"] is not None else x["order"])
 
