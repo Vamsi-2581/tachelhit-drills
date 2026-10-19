@@ -548,6 +548,31 @@ def extract_frames(video_path: str, out_dir: str, every: float = 2.0, width: int
     return [(i * every, f) for i, f in enumerate(files)]
 
 
+def _parse_json_object(text: str) -> Optional[dict]:
+    """The first JSON object in a model answer, repairing the usual damage (code fences,
+    trailing commas, an answer cut off mid-list). None when nothing parses."""
+    m = re.search(r"\{.*\}", text or "", re.S)
+    raw = m.group(0) if m else (text or "").strip()
+    if not raw:
+        return None
+    candidates = [raw, re.sub(r",\s*([}\]])", r"\1", raw)]
+    # cut off mid-list: close what is open after the last complete item
+    cut = raw.rfind("}")
+    if cut > 0:
+        trimmed = raw[:cut + 1]
+        opens = trimmed.count("[") - trimmed.count("]")
+        braces = trimmed.count("{") - trimmed.count("}")
+        candidates.append(re.sub(r",\s*([}\]])", r"\1", trimmed + "]" * max(0, opens) + "}" * max(0, braces)))
+    for c in candidates:
+        try:
+            obj = json.loads(c)
+            if isinstance(obj, dict):
+                return obj
+        except ValueError:
+            continue
+    return None
+
+
 def lesson_audio_vocabulary(video_path: str, tmp_dir: str) -> Dict[str, Any]:
     """What the teacher SAYS: the letters taught and every example word with its
     meaning. Frame OCR confuses ⵖ/ⵅ and ⵏ/ⵍ; the spoken lesson is unambiguous.
@@ -589,10 +614,17 @@ def lesson_audio_vocabulary(video_path: str, tmp_dir: str) -> Dict[str, Any]:
                "contents": [{"role": "user", "parts": parts + [{"text": prompt}]}],
                "generationConfig": {"maxOutputTokens": 3000, "temperature": 0.1, "thinkingConfig": {"thinkingBudget": 0}}}
     try:
-        out = _generate_content(payload, 240)
-        text = "".join(pp.get("text", "") for pp in out["candidates"][0]["content"]["parts"])
-        m = re.search(r"\{.*\}", text, re.S)
-        vocab = json.loads(m.group(0)) if m else {}
+        vocab = None
+        for attempt in range(2):
+            out = _generate_content(payload, 240)
+            text = "".join(pp.get("text", "") for pp in out["candidates"][0]["content"]["parts"])
+            vocab = _parse_json_object(text)
+            if vocab is not None:
+                break
+            print(f"[LESSON] audio vocabulary answer was not valid JSON (attempt {attempt + 1}); asking again")
+            payload["contents"][0]["parts"][-1] = {"text": prompt + " Reply with STRICTLY valid JSON: no comments, no trailing commas, no text outside the object."}
+        if vocab is None:
+            raise ValueError("no valid JSON after 2 attempts")
         vocab["words"] = [w for w in (vocab.get("words") or []) if isinstance(w, dict) and (w.get("latin") or "").strip()]
         vocab["letters"] = [l for l in (vocab.get("letters") or []) if isinstance(l, dict) and (l.get("latin") or "").strip()]
         for item in vocab["words"] + vocab["letters"]:
