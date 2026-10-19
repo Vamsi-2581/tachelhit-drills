@@ -11,6 +11,7 @@ import { syncManager } from '../services/OfflineSyncManager';
 import { Network } from '@capacitor/network';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { API_BASE, getMediaUrl } from '../config';
+import { answerSafeFilter } from '../utils/media';
 import { setSelectedDrillIds } from '../selection';
 import SourceCredit from './SourceCredit';
 import {
@@ -535,7 +536,14 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                 {preview.kind === 'video' ? (
                     <video key={preview.url} src={preview.url} controls autoPlay playsInline onEnded={onClipEnded} style={{ display: 'block', width: '100%', maxHeight: '75vh', background: '#000' }} />
                 ) : (
-                    <audio key={preview.url} src={preview.url} controls autoPlay onEnded={onClipEnded} style={{ display: 'block', width: '100%', padding: '16px', background: 'var(--surface)' }} />
+                    <>
+                        {previewDrill?.image_url && (
+                            <img src={getMediaUrl(previewDrill.image_url)} alt="" draggable={false}
+                                style={{ display: 'block', width: '100%', maxHeight: '260px', objectFit: 'contain', background: '#000',
+                                         filter: answerSafeFilter(previewDrill.image_url, !(reveal || alwaysReveal)), transition: 'filter 0.3s' }} />
+                        )}
+                        <audio key={preview.url} src={preview.url} controls autoPlay onEnded={onClipEnded} style={{ display: 'block', width: '100%', padding: '16px', background: 'var(--surface)' }} />
+                    </>
                 )}
                 {previewCard}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--surface)', flexWrap: 'wrap' }}>

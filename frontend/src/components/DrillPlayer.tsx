@@ -126,6 +126,9 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
   const speechSynthRef = useRef<SpeechSynthesisUtterance | null>(null);
   const progressIntervalRef = useRef<number | null>(null);
   const videoIframeRef = useRef<HTMLIFrameElement | null>(null);
+  // Captured drills carry a Cloudinary clip (mp4), not a YouTube id: those play in a plain <video>.
+  const clipVideoRef = useRef<HTMLVideoElement | null>(null);
+  const isClipUrl = (u?: string | null) => !!u && !getYouTubeVideoId(u);
   const playerRef = useRef<any>(null); // YouTube Player instance
   const [playerReady, setPlayerReady] = useState(false);
   // Refs read inside long-lived callbacks (YT event handlers, audio promise
@@ -353,8 +356,7 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
 
     const videoId = getYouTubeVideoId(currentDrill.video_url);
     if (!videoId) {
-      console.error("Invalid YouTube URL or video ID not found:", currentDrill.video_url);
-      return;
+      return; // a direct clip URL: rendered by the <video> element in the modal
     }
 
     if (playerRef.current) {
@@ -662,11 +664,18 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
     if (playerRef.current) {
       playerRef.current.setPlaybackRate(rate);
     }
+    if (clipVideoRef.current) {
+      clipVideoRef.current.playbackRate = rate;
+    }
   };
 
   const handleToggleLoop = () => {
-    setVideoControls(prev => ({ ...prev, isLooping: !prev.isLooping }));
-    // Looping logic is handled in the onStateChange event and a time interval check
+    setVideoControls(prev => {
+      const isLooping = !prev.isLooping;
+      if (clipVideoRef.current) clipVideoRef.current.loop = isLooping;
+      return { ...prev, isLooping };
+    });
+    // YouTube looping is handled in the onStateChange event and a time interval check
   };
 
   const seekToSubtitle = (index: number) => {
@@ -676,6 +685,10 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
       if (playerRef.current) {
         playerRef.current.seekTo(targetSection.start, true);
         playerRef.current.playVideo();
+      } else if (clipVideoRef.current) {
+        // a clip starts at the drill's own start time
+        clipVideoRef.current.currentTime = Math.max(0, targetSection.start - (Number(currentDrill?.video_start_time) || 0));
+        clipVideoRef.current.play().catch(() => {});
       }
     }
   };
@@ -1243,6 +1256,20 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
 
             {/* Video Player */}
             <div style={{ position: 'relative', width: '100%', aspectRatio: '16/9' }}>
+              {isClipUrl(currentDrill.video_url) && (
+                <video
+                  ref={clipVideoRef}
+                  key={currentDrill.id}
+                  src={getMediaUrl(currentDrill.video_url)}
+                  controls
+                  autoPlay
+                  playsInline
+                  loop={videoControls.isLooping}
+                  onLoadedMetadata={(e) => { e.currentTarget.playbackRate = videoControls.playbackRate; }}
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: '#000' }}
+                />
+              )}
+              {!isClipUrl(currentDrill.video_url) && (<>
               <div
                 id="youtube-player"
                 style={{
@@ -1271,6 +1298,7 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
               />
+              </>)}
 
               {/* Subtitle Overlay */}
               <div style={{
