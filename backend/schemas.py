@@ -76,6 +76,8 @@ class DrillBase(BaseModel):
     text_tachelhit_latin: Optional[str] = None
     text_tachelhit_suggested: Optional[str] = None  # machine/AI draft (not gold)
     draft_check: Optional[str] = None  # JSON verdict of the draft's meaning check (draft_check.py)
+    topics: Optional[str] = None         # subject catalogue: comma-separated slugs (topics.py)
+    topics_source: Optional[str] = None  # 'auto' | 'owner'
     text_catalan_suggested: Optional[str] = None
     variety: Optional[str] = None
     region: Optional[str] = None

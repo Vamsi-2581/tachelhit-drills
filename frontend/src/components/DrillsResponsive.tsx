@@ -10,6 +10,7 @@ import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import MobileDrillEditor from './MobileDrillEditor';
 import DrillsGrid from './DrillsGrid';
+import { parseTopics, topicLabel, topicsSearchText, topicsMatch } from '../utils/topics';
 import VoiceDrillCreator from './VoiceDrillCreator';
 import MobileDrillCreator from './MobileDrillCreator';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -139,7 +140,8 @@ export default function DrillsResponsive() {
             drill.text_tachelhit?.toLowerCase() || '',
             drill.text_arabic?.toLowerCase() || '',
             drill.tag?.toLowerCase() || '',
-            drill.author?.toLowerCase() || ''
+            drill.author?.toLowerCase() || '',
+            topicsSearchText(drill.topics)
           ];
           return fieldsToSearch.some(field => field.includes(searchTerm));
         } else {
@@ -152,6 +154,8 @@ export default function DrillsResponsive() {
               return (drill.text_arabic?.toLowerCase() || '').includes(searchTerm);
             case 'tag':
               return (drill.tag?.toLowerCase() || '').includes(searchTerm);
+            case 'topic':
+              return topicsMatch(drill.topics, searchTerm);
             case 'author':
               return (drill.author?.toLowerCase() || '').includes(searchTerm);
             default:
@@ -185,6 +189,12 @@ export default function DrillsResponsive() {
       if (t) counts.set(t, (counts.get(t) || 0) + 1);
     }
     return [...counts.entries()].map(([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  }, [drills]);
+  // Subjects: what the drills are about (verbs, greetings, food…), from the catalogue in `topics`.
+  const subjects = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const d of drills) for (const t of parseTopics(d.topics)) counts.set(t, (counts.get(t) || 0) + 1);
+    return [...counts.entries()].map(([slug, count]) => ({ slug, count })).sort((a, b) => b.count - a.count || topicLabel(a.slug).localeCompare(topicLabel(b.slug)));
   }, [drills]);
 
   useEffect(() => {
@@ -386,6 +396,7 @@ export default function DrillsResponsive() {
               <option value="tachelhit">Tamazight</option>
               <option value="arabic">Àrab</option>
               <option value="tag">Etiqueta</option>
+              <option value="topic">Tema</option>
               <option value="author">Autor</option>
             </select>
             <select
@@ -419,6 +430,30 @@ export default function DrillsResponsive() {
                     border: `1px solid ${active ? 'var(--brand-1)' : 'var(--border)'}`, background: active ? 'var(--brand-gradient-soft)' : 'var(--surface)', color: active ? 'var(--brand-1)' : 'var(--text-soft)' }}
                 >
                   {tag || 'Tots'} <span style={{ opacity: 0.7, fontWeight: 600 }}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {/* Subjects: one chip per topic of the catalogue (what the drill teaches), by size. */}
+        {subjects.length > 0 && (
+          <div role="group" aria-label="Temes" style={{ display: 'flex', gap: '6px', overflowX: 'auto', scrollbarWidth: 'none', padding: isMobile ? '2px 8px 6px' : '2px 0 6px', flexShrink: 0, alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Temes</span>
+            {subjects.map(({ slug, count }) => {
+              const active = searchCategory === 'topic' && searchQuery === slug;
+              return (
+                <button
+                  key={slug}
+                  onClick={() => {
+                    if (active) { setSearchQuery(''); setSearchCategory('all'); }
+                    else { setSearchCategory('topic'); setSearchQuery(slug); }
+                  }}
+                  aria-pressed={active}
+                  title={topicLabel(slug)}
+                  style={{ flexShrink: 0, padding: '5px 10px', borderRadius: 'var(--r-pill)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+                    border: `1px solid ${active ? 'var(--saffron)' : 'var(--border)'}`, background: active ? 'var(--saffron-soft, var(--surface-2))' : 'var(--surface)', color: active ? 'var(--saffron-strong)' : 'var(--text-soft)' }}
+                >
+                  {topicLabel(slug)} <span style={{ opacity: 0.7, fontWeight: 600 }}>{count}</span>
                 </button>
               );
             })}

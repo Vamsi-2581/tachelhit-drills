@@ -21,6 +21,8 @@ export interface Drill {
   text_tachelhit_latin?: string;
   text_tachelhit_suggested?: string; // machine/AI draft (not gold)
   draft_check?: string; // JSON verdict of the draft's meaning check (yes/roughly/no)
+  topics?: string;        // subject catalogue: comma-separated slugs (see utils/topics.ts)
+  topics_source?: string; // 'auto' | 'owner'
   text_catalan_suggested?: string;
   variety?: string;
   region?: string;

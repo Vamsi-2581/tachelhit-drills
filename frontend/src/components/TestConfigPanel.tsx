@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../config';
 import { toast } from '../toast';
+import { TOPIC_LABELS, parseTopics, topicLabel, topicsSearchText } from '../utils/topics';
 
 interface Drill {
   id: number;
@@ -9,6 +10,7 @@ interface Drill {
   text_tachelhit: string;
   text_arabic?: string;
   tag?: string;
+  topics?: string; // subject catalogue slugs (utils/topics.ts)
   // Add other fields from Drill model if needed for display/search
 }
 
@@ -115,14 +117,30 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
     setDrillSearchTerm(''); // Clear search after adding
   };
 
+  // Subject filter: a test is usually about ONE subject (verbs, greetings…), so the picker
+  // can show every drill of a subject and add them all at once.
+  const [topicFilter, setTopicFilter] = useState('');
+  const subjectCounts = (() => {
+    const c = new Map<string, number>();
+    for (const d of allDrills) for (const t of parseTopics(d.topics)) c.set(t, (c.get(t) || 0) + 1);
+    return [...c.entries()].sort((a, b) => b[1] - a[1]);
+  })();
   const filteredAvailableDrills = allDrills.filter(drill =>
     !selectedDrills.some(sd => sd.id === drill.id) &&
+    (!topicFilter || parseTopics(drill.topics).includes(topicFilter)) &&
     ((drill.text_catalan?.toLowerCase() || '').includes(drillSearchTerm.toLowerCase()) ||
       (drill.text_tachelhit?.toLowerCase() || '').includes(drillSearchTerm.toLowerCase()) ||
       (drill.text_arabic?.toLowerCase() || '').includes(drillSearchTerm.toLowerCase()) ||
       (drill.tag?.toLowerCase() || '').includes(drillSearchTerm.toLowerCase()) ||
+      topicsSearchText(drill.topics).includes(drillSearchTerm.toLowerCase()) ||
       drill.id.toString().includes(drillSearchTerm)))
     ;
+  const addAllShown = () => {
+    const shown = filteredAvailableDrills.slice(0, 200);
+    if (!shown.length) return;
+    setSelectedDrills(prev => [...prev, ...shown.filter(d => !prev.some(p => p.id === d.id))]);
+    if (!config.title && topicFilter) setConfig({ ...config, title: topicLabel(topicFilter) });
+  };
 
   return (
     <div style={{
@@ -216,9 +234,21 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
           {/* Add new drills search */}
           <div style={{ paddingTop: '14px', borderTop: '1px solid var(--border)' }}>
             <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 600, color: 'var(--text-soft)' }}>Drills disponibles</h4>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap' }}>
+              <select value={topicFilter} onChange={(e) => setTopicFilter(e.target.value)} aria-label="Tema"
+                style={{ ...inputStyle, width: 'auto', flex: 1, minWidth: '160px', margin: 0 }}>
+                <option value="">Tots els temes</option>
+                {subjectCounts.map(([slug, n]) => <option key={slug} value={slug}>{TOPIC_LABELS[slug] || slug} ({n})</option>)}
+              </select>
+              <button type="button" onClick={addAllShown} disabled={!filteredAvailableDrills.length}
+                title="Afegeix al test tots els drills que es mostren (màxim 200)"
+                style={{ padding: '8px 12px', background: 'var(--brand-gradient)', color: 'white', border: 'none', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer', fontSize: '13px', opacity: filteredAvailableDrills.length ? 1 : 0.5 }}>
+                Afegeix-los tots ({Math.min(filteredAvailableDrills.length, 200)})
+              </button>
+            </div>
             <input
               type='text'
-              placeholder='Cerca per text, etiqueta o ID…'
+              placeholder='Cerca per text, tema, etiqueta o ID…'
               value={drillSearchTerm}
               onChange={(e) => setDrillSearchTerm(e.target.value)}
               style={inputStyle}
