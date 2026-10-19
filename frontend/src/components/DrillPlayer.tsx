@@ -845,8 +845,16 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
           }}>
             {hideAnswer ? (
               <span style={{ letterSpacing: '8px', opacity: 0.35 }}>· · ·</span>
+            ) : currentDrill?.text_tachelhit ? (
+              currentDrill.text_tachelhit
+            ) : currentDrill?.text_tachelhit_suggested ? (
+              // Automatic draft (never the speaker's text): muted, labelled, same as the grid
+              <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: '22px', fontWeight: 500, fontStyle: 'italic', color: 'var(--text-muted)' }}>{currentDrill.text_tachelhit_suggested}</span>
+                <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: 'var(--font-body)' }}>esborrany automàtic</span>
+              </span>
             ) : (
-              currentDrill?.text_tachelhit || 'Sense text tachelhit'
+              <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-muted)', fontFamily: 'var(--font-body)' }}>Encara sense transcripció</span>
             )}
           </div>
 
