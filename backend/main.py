@@ -416,15 +416,28 @@ def split_bilingual_cue(text: Optional[str]) -> Tuple[str, Optional[str], Option
     the first line is the target language (the convention in these videos)."""
     t = (text or "").strip()
     lines = [l.strip() for l in t.split("\n") if l.strip()]
-    if len(lines) != 2:
-        return t, None, None
-    a, b = lines
 
     def tmz(x: str) -> int:
         return 3 * len(_TMZ_LETTERS.findall(x))
 
     def en(x: str) -> int:
         return len(_EN_LETTERS.findall(x)) + 3 * len(_EN_SMALL.findall(x))
+
+    if len(lines) == 1:
+        # "I ya-ha ya-wa ! tinew a tinew da (Oh, my story ...)": the band's own line with
+        # the English meaning in parentheses (Tasuta N-Imal's track is written this way).
+        m = re.match(r"^(.*\S)\s*\(([^()]{3,})\)\s*$", lines[0])
+        if m:
+            outside, inside = m.group(1).strip(" -–—!?.,"), m.group(2).strip()
+            # the parenthesis reads as English (a small English word inside) and the line
+            # outside does not ('a' / 'i' are also Tachelhit, so they do not count)
+            inside_en = len(_EN_SMALL.findall(inside))
+            outside_en = len([w for w in _EN_SMALL.findall(outside) if w.lower() not in ("a", "i")])
+            if outside and inside_en >= 1 and outside_en == 0:
+                return outside, inside, "en"
+    if len(lines) != 2:
+        return t, None, None
+    a, b = lines
 
     score_a = tmz(a) - en(a)   # >0 looks Tamazight, <0 looks English
     score_b = tmz(b) - en(b)
