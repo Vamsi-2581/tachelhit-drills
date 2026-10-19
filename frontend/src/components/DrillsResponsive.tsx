@@ -1,5 +1,5 @@
 import '../agGridSetup';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { VARIETIES } from '../varieties';
 import { FaMicrophone, FaPlus, FaTimes, FaLink, FaChevronDown, FaSearch, FaBook, FaTrash, FaFileImport, FaFilm } from 'react-icons/fa';
 import axios from 'axios';
@@ -177,6 +177,15 @@ export default function DrillsResponsive() {
 
     setFilteredDrills(result);
   }, [drills, searchQuery, searchCategory, varietyFilter, location.search]);
+
+  const collections = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const d of drills) {
+      const t = (d.tag || '').trim();
+      if (t) counts.set(t, (counts.get(t) || 0) + 1);
+    }
+    return [...counts.entries()].map(([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  }, [drills]);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(isMobileLayout());
@@ -392,6 +401,29 @@ export default function DrillsResponsive() {
             {searchQuery && <button onClick={() => setSearchQuery('')} aria-label="Esborra la cerca" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '16px', cursor: 'pointer', padding: '0 6px', flexShrink: 0 }}>✕</button>}
           </div>
         </div>
+        {/* Collections: one chip per tag (a captured song, story or lesson), by size.
+            A tap filters the list to that collection; the same chip again clears it. */}
+        {collections.length > 1 && (
+          <div role="group" aria-label="Col·leccions" style={{ display: 'flex', gap: '6px', overflowX: 'auto', scrollbarWidth: 'none', padding: isMobile ? '8px 8px 2px' : '8px 0 2px', flexShrink: 0 }}>
+            {[{ tag: '', count: drills.length }, ...collections].map(({ tag, count }) => {
+              const active = tag ? (searchCategory === 'tag' && searchQuery === tag) : (!searchQuery && !varietyFilter);
+              return (
+                <button
+                  key={tag || '__all'}
+                  onClick={() => {
+                    if (!tag || active) { setSearchQuery(''); setSearchCategory('all'); setVarietyFilter(''); }
+                    else { setSearchCategory('tag'); setSearchQuery(tag); }
+                  }}
+                  aria-pressed={active}
+                  style={{ flexShrink: 0, padding: '6px 11px', borderRadius: 'var(--r-pill)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+                    border: `1px solid ${active ? 'var(--brand-1)' : 'var(--border)'}`, background: active ? 'var(--brand-gradient-soft)' : 'var(--surface)', color: active ? 'var(--brand-1)' : 'var(--text-soft)' }}
+                >
+                  {tag || 'Tots'} <span style={{ opacity: 0.7, fontWeight: 600 }}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div style={{ flex: 1, width: '100%', overflowX: 'hidden', overflowY: 'auto', padding: isMobile ? '12px 4px' : '0', position: 'relative', boxSizing: 'border-box' }}>
           <DrillsGrid rowData={filteredDrills} refreshData={fetchDrills} onEditDrill={(drill) => setEditingDrill(drill)} loadError={loadError} />
         </div>
