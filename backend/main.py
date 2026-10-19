@@ -3268,7 +3268,11 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         # (letters / words burned into the picture); only if the frames carry no
         # lesson text do we fall back to speech recognition.
         lesson_segments: List[Dict[str, Any]] = []
-        if not has_segments and not is_audio_file(video_path):
+        # With lyrics given, the lines are known and only their TIMES are needed: those
+        # come from speech recognition. The frame reader would return the lesson text
+        # with no times for clips that show no text (a speaker on camera), and the
+        # drills would end up text-only.
+        if not has_segments and not is_audio_file(video_path) and not (lyrics and lyrics.strip()):
             job.status = "READING_FRAMES"
             db.commit()
             try:
