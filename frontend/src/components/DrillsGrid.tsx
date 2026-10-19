@@ -11,6 +11,7 @@ import { syncManager } from '../services/OfflineSyncManager';
 import { Network } from '@capacitor/network';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { API_BASE, getMediaUrl } from '../config';
+import { parseTopics, topicLabel } from '../utils/topics';
 import { setSelectedDrillIds } from '../selection';
 import SourceCredit from './SourceCredit';
 import {
@@ -505,6 +506,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                     {d.variety && <span>{varietyShort(d.variety)}</span>}
                     {timeSpan && <span>{timeSpan}</span>}
                     {d.tag && <span>{d.tag}</span>}
+                    {parseTopics(d.topics).map((t) => <span key={t} style={{ padding: '1px 7px', borderRadius: 'var(--r-pill)', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>{topicLabel(t)}</span>)}
                     <SourceCredit drill={d} compact />
                 </div>
             </div>

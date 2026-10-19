@@ -24,6 +24,7 @@ from illustrate import generate_illustration, illustration_available
 from draft_check import check_draft_meaning, draft_status
 import lexicon
 from tts_text import tts_text, VOICE_VERSION
+import topics as topics_catalog
 from gemini_client import gemini_generate, gemini_available, gemini_agent
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -1897,6 +1898,12 @@ def update_drill(drill_id: int, update_data: DrillUpdate, db: Session = Depends(
         raise HTTPException(status_code=404, detail="Drill not found")
 
     update_dict = update_data.model_dump(exclude_unset=True)
+
+    # Subjects set by hand win over the automatic catalogue and are never re-classified
+    if "topics" in update_dict and "topics_source" not in update_dict:
+        cleaned = topics_catalog.parse(update_dict["topics"])
+        update_dict["topics"] = ", ".join(cleaned) if cleaned else None
+        update_dict["topics_source"] = "owner"
 
     # Handle tag updates: if tag is provided, process according to prefix
     if "tag" in update_dict and update_dict["tag"] is not None:
@@ -4763,6 +4770,27 @@ def _drill_context(drill) -> str:
     lines.append("REGLA: explica només el text que hi ha. Si només hi ha l'esborrany, treballa sobre l'esborrany i digues que és "
                  "un esborrany. MAI inventis ni proposis una frase en taixelhit com si fos la del drill.")
     return "DRILL SELECCIONAT:\n" + "\n".join(lines) if lines else ""
+
+@app.get("/catalog/topics")
+def catalog_topics():
+    """The subject vocabulary with, per subject, how many drills carry it."""
+    return {"topics": topics_catalog.TOPICS, "counts": topics_catalog.counts(SessionLocal), "status": topics_catalog.status()}
+
+
+@app.post("/catalog/topics/run")
+def catalog_topics_run(force: bool = False, limit: int = 2000, ids: Optional[str] = None):
+    """Classify drills without subjects (all auto-classified ones with force) in the background."""
+    only = [int(x) for x in ids.split(",") if x.strip().isdigit()] if ids else None
+    if topics_catalog.status()["running"]:
+        return {"started": False, "reason": "already running", **topics_catalog.status()}
+    threading.Thread(target=topics_catalog.run, args=(SessionLocal, force, limit, only), daemon=True).start()
+    return {"started": True}
+
+
+@app.get("/catalog/topics/status")
+def catalog_topics_status():
+    return topics_catalog.status()
+
 
 @app.get("/lexicon/status")
 def lexicon_status():
