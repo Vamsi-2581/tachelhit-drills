@@ -1120,6 +1120,11 @@ def merge_subtitle_frames(items: List[Dict[str, Any]], every: float = 1.0, min_l
     out = []
     import difflib
     seen_keys: List[str] = []
+    # Multilingual subtitles (songs): a line with no translation under it is a title, a name
+    # or credits. Amazigh-only subtitles (a text or a tale read aloud, Tifinagh alone on screen,
+    # Tamazight For All): no line has a translation, and every line is the text itself — keep
+    # them; the pipeline translates them afterwards.
+    translated_anywhere = any(c["lines"].get(k) for c in cues for k in ("en", "fr", "ar", "es", "ca"))
     for c in cues:
         if c["end"] - c["start"] < min_len:
             continue  # a single misread frame
@@ -1129,7 +1134,7 @@ def merge_subtitle_frames(items: List[Dict[str, Any]], every: float = 1.0, min_l
             continue
         seen_keys.append(c["_key"])
         gloss_lang = next((k for k in ("en", "fr", "ar", "es", "ca") if c["lines"].get(k)), None)
-        if not gloss_lang:
+        if not gloss_lang and translated_anywhere:
             continue  # a line with no translation under it is a title, a name or credits, not a lyric
         out.append({"start": round(c["start"], 2), "end": round(c["end"], 2),
                     "text": c["lines"].get("shi") or c["lines"].get("tzm") or c["lines"].get("zgh"),
