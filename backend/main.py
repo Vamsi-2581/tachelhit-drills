@@ -3268,6 +3268,7 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         # (letters / words burned into the picture); only if the frames carry no
         # lesson text do we fall back to speech recognition.
         lesson_segments: List[Dict[str, Any]] = []
+        lesson_lines_untimed: List[Dict[str, Any]] = []
         # With lyrics given, the lines are known and only their TIMES are needed: those
         # come from speech recognition. The frame reader would return the lesson text
         # with no times for clips that show no text (a speaker on camera), and the
@@ -3286,6 +3287,13 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                                                               2.0, 12, meta.get("channel"))
             except Exception as e:
                 print(f"[LESSON] frame reading failed: {e}")
+            if lesson_segments and not any(seg.get("start") is not None for seg in lesson_segments):
+                # A narrated lesson (a presenter on camera, words flashed now and then): the
+                # lines are known from the audio but the frames gave no times. Speech
+                # recognition gives the times; the lesson lines are laid on them below.
+                print(f"[LESSON] {len(lesson_segments)} lines heard, none timed on screen -> times from ASR")
+                lesson_lines_untimed = lesson_segments
+                lesson_segments = []
             if lesson_segments:
                 for seg in lesson_segments:
                     if seg.get("start") is None:
@@ -3320,6 +3328,9 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                     "gloss": gloss_,            # e.g. "horse" — translated instead of the Tamazight
                     "gloss_lang": gloss_lang_,  # "en"
                 })
+
+        if lesson_lines_untimed and segments:
+            segments = _attach_lesson_lines(segments, lesson_lines_untimed)
 
         if not segments:
             job.status = "FAILED"
@@ -3443,13 +3454,9 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         # not place: it would become a drill with no clip at all (lessons 04/05/06/12 on
         # 2026-10-18 each produced one, sometimes with the wrong letter). Drop those; a
         # pure audio transcript (nothing timed) keeps its text-only drills as before.
-        _any_timed = any(s.get("start") is not None for s in segments)
         for seg in segments:
             original_text = seg.get("text")
-            if _any_timed and (seg.get("no_media") or seg.get("start") is None):
-                print(f"[AutoDrills] skipping untimed segment (no clip): {str(seg.get('latin') or original_text)[:60]!r}")
-                media_errors.append(f"{seg.get('latin') or original_text}: spoken but not shown on screen (no clip, skipped)")
-                continue
+            # (untimed segments are kept: a text drill with a synthetic voice, see below)
             drill_tachelhit = seg.get("text_tachelhit") or (original_text if effective_source in ("shi", "ber") else None)
             drill_arabic = seg.get("text_arabic") or (original_text if effective_source == "ar" else None)
 
@@ -3500,6 +3507,13 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
             try:
                 if seg.get("no_media") or seg.get("start") is None:
                     media_errors.append(f"{seg.get('latin') or seg.get('text')}: spoken but not shown on screen (no clip)")
+                    # No section of the source to cut: give the text a synthetic Tamazight
+                    # voice so the drill is still playable (marked synthetic in the player).
+                    if drill_tachelhit:
+                        try:
+                            db_drill.audio_tts_shi_url = await asyncio.to_thread(generate_tachelhit_tts_hf, drill_tachelhit, db_drill.id)
+                        except Exception as tts_err:
+                            print(f"[AUTO] synthetic voice failed for drill {db_drill.id}: {tts_err}")
                     db.commit()
                     continue
                 if audio_src:
@@ -3956,6 +3970,39 @@ def ocr_video_segments(
         clip.close()
 
     return segments
+
+def _attach_lesson_lines(segments: List[Dict], lines: List[Dict]) -> List[Dict]:
+    """Lay lesson items (text/tifinagh/latin/gloss, no times) on ASR segments (times, a
+    rough Latin guess): same positional + fuzzy matching as the lyrics alignment, on the
+    Latin reading. Each matched segment takes the item's text and gloss; items that no
+    segment claims are kept untimed (a text drill with a synthetic voice)."""
+    import difflib
+    if not lines or not segments:
+        return segments
+    n_seg, n_lines = len(segments), len(lines)
+    used = set()
+    for i, seg in enumerate(segments):
+        expected = round(i * (n_lines - 1) / max(1, n_seg - 1)) if n_seg > 1 else 0
+        window = range(max(0, expected - 2), min(n_lines, expected + 3))
+        asr_text = (seg.get("text") or "").lower()
+        best_idx, best_score = expected, -1.0
+        for j in window:
+            cand = (lines[j].get("latin") or lines[j].get("text") or "").lower()
+            score = difflib.SequenceMatcher(None, asr_text, cand).ratio() - (0.15 if j in used else 0.0)
+            if score > best_score:
+                best_idx, best_score = j, score
+        used.add(best_idx)
+        item = lines[best_idx]
+        seg["text_asr"] = seg.get("text")
+        seg["text"] = item.get("tifinagh") or item.get("text") or seg.get("text")
+        for k in ("latin", "tifinagh", "gloss", "gloss_lang", "kind"):
+            if item.get(k):
+                seg[k] = item[k]
+    leftovers = [dict(lines[j]) for j in range(n_lines) if j not in used]
+    for it in leftovers:
+        it["start"], it["end"] = None, None
+    return segments + leftovers
+
 
 def _align_lyrics_lines(segments: List[Dict], lyrics: str) -> List[Dict]:
     """
