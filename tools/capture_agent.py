@@ -55,7 +55,7 @@ try:
 except ImportError:  # the frozen build always has it
     sys.exit("Missing dependency. Run:  pip install requests yt-dlp")
 
-__version__ = "2.5.1"
+__version__ = "2.5.2"
 APP_NAME = "TachelhitCapture"
 DEFAULT_API = "https://tachelhit-drills-api.onrender.com"
 WEB_APP = "https://tachelhit-drills.vercel.app/video-creator"
