@@ -35,6 +35,9 @@ class Drill(Base):
     # what a real speaker collected.
     text_tachelhit_suggested = Column(String, nullable=True)
     text_catalan_suggested = Column(String, nullable=True)
+    # Meaning check of text_tachelhit_suggested (draft_check.py): JSON with the draft
+    # checked, its blind back-translation, verdict yes/roughly/no, confidence, note.
+    draft_check = Column(String, nullable=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # contributor attribution
     variety = Column(String, nullable=True)   # e.g. "tashelhit", "central-atlas", "tarifit"
     region = Column(String, nullable=True)    # e.g. "Souss", "Tafraout", "diaspora-BCN"
