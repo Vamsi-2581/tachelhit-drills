@@ -307,7 +307,18 @@ def hf_predict(space_id: str, *args, api_name: str = "/predict", token: str = No
                 client = Client(space_id, token=token,
                                 httpx_kwargs={"timeout": httpx.Timeout(timeout, connect=30.0)})
                 _hf_clients[space_id] = client
-            return client.predict(*args, api_name=api_name, **kwargs)
+            # predict() streams the Space's queue over SSE, so a stuck queue keeps the
+            # connection alive and the read timeout never fires. submit() + result(timeout)
+            # is a wall-clock bound: on expiry the attempt fails instead of waiting forever.
+            job = client.submit(*args, api_name=api_name, **kwargs)
+            try:
+                return job.result(timeout=timeout)
+            except Exception:
+                try:
+                    job.cancel()
+                except Exception:
+                    pass
+                raise
         except Exception as e:
             last_err = e
             _hf_clients.pop(space_id, None)  # a stale client after a cold restart: rebuild next time
