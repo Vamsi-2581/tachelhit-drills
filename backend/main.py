@@ -3747,6 +3747,9 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                 except Exception as e:
                     print(f"[AUTO] Translation ({tgt}) failed for a segment: {e}")
 
+        # A chorus repeats: one drill per distinct line (the first occurrence keeps its clip).
+        segments = dedupe_repeated_lines(segments)
+
         # Phase 4: create drills with clipped media
         job.status = "CREATING_DRILLS"
         db.commit()
@@ -4322,6 +4325,28 @@ def _attach_lesson_lines(segments: List[Dict], lines: List[Dict]) -> List[Dict]:
     for it in leftovers:
         it["start"], it["end"] = None, None
     return segments + leftovers
+
+
+def dedupe_repeated_lines(segments: List[Dict]) -> List[Dict]:
+    """One drill per distinct Tamazight line: when the same line (same transliteration key)
+    appears again later — a chorus, a repeated verse — the later copies are dropped and the
+    first keeps its clip. Lines without text are untouched. Pure."""
+    from transliteration import to_forms
+    seen = set()
+    out = []
+    dropped = 0
+    for seg in segments:
+        text = (seg.get("text_tachelhit") or seg.get("text") or "").strip()
+        key = to_forms(text)["key"] if text else ""
+        if key and key in seen:
+            dropped += 1
+            continue
+        if key:
+            seen.add(key)
+        out.append(seg)
+    if dropped:
+        print(f"[AUTO] {dropped} repeated line(s) dropped (chorus): one drill per distinct line")
+    return out
 
 
 def _align_known_lines(media_path: str, lines: List[str]) -> Optional[List[Dict]]:
