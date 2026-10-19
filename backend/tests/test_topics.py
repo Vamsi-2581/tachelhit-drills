@@ -33,3 +33,15 @@ def test_run_fills_missing_topics_and_respects_owner(monkeypatch):
     assert by[b]["topics"] == "salutacions" and by[b]["topics_source"] == "owner"
     cat = client.get("/catalog/topics").json()
     assert cat["counts"]["verbs"] >= 1 and any(t["slug"] == "verbs" for t in cat["topics"])
+
+
+def test_run_endpoint_starts_a_background_run(monkeypatch):
+    import gemini_client
+    monkeypatch.setattr(gemini_client, "gemini_generate", lambda *a, **k: "{}")
+    r = client.post("/catalog/topics/run", params={"limit": 1})
+    assert r.status_code == 200 and "started" in r.json()
+    import time
+    for _ in range(50):
+        if not client.get("/catalog/topics/status").json()["running"]:
+            break
+        time.sleep(0.1)
