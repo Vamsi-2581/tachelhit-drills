@@ -50,6 +50,21 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
     const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
     // Inline media preview (video/audio) opened from the grid or the cards.
     const [preview, setPreview] = useState<{ url: string; kind: 'video' | 'audio'; title?: string; drillId?: number } | null>(null);
+    // Phone list: render the cards in slices of 40 as the learner scrolls. A thousand cards
+    // with a picture each made the page crawl.
+    const MOBILE_PAGE = 40;
+    const [mobileLimit, setMobileLimit] = useState(MOBILE_PAGE);
+    const moreRef = useRef<HTMLDivElement>(null);
+    useEffect(() => { setMobileLimit(MOBILE_PAGE); }, [rowData]);
+    useEffect(() => {
+        const el = moreRef.current;
+        if (!el || typeof IntersectionObserver === 'undefined') return;
+        const io = new IntersectionObserver((entries) => {
+            if (entries.some((e) => e.isIntersecting)) setMobileLimit((n) => Math.min(n + MOBILE_PAGE, rowData.length));
+        }, { rootMargin: '600px 0px' });
+        io.observe(el);
+        return () => io.disconnect();
+    }, [rowData.length, mobileLimit]);
     const [autoNext, setAutoNext] = useState(true); // keep playing the next clip when one ends
     const [reveal, setReveal] = useState(false); // meaning shown for the current clip (study mode hides it first)
     const [alwaysReveal, setAlwaysReveal] = useState(() => { try { return localStorage.getItem('preview.alwaysReveal') === '1'; } catch { return false; } });
@@ -510,7 +525,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                         {loadError === 'error' && <button onClick={() => refreshData()} style={{ marginTop: '14px', padding: '10px 18px', borderRadius: 'var(--r-pill)', border: 'none', background: 'var(--brand-gradient)', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Torna-ho a provar</button>}
                     </div>
                 )}
-                {rowData.map((drill) => (
+                {rowData.slice(0, mobileLimit).map((drill) => (
                     <div
                         key={drill.id}
                         style={{
@@ -559,6 +574,8 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                                 <img
                                     src={pendingMedia[drill.id]?.image || getMediaUrl(drill.image_url)}
                                     alt="Imatge del drill"
+                                    loading="lazy"
+                                    decoding="async"
                                     style={{ width: '100%', height: '180px', objectFit: 'contain', background: 'var(--surface-2)', borderRadius: 'var(--r-lg)', border: '1px solid var(--border)' }}
                                 />
                             </div>
@@ -696,6 +713,13 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                         </div>
                     </div>
                 ))}
+                {mobileLimit < rowData.length && (
+                    <div ref={moreRef} style={{ textAlign: 'center', padding: '12px', color: 'var(--text-muted)', fontSize: '13px' }}>
+                        <button onClick={() => setMobileLimit((n) => Math.min(n + MOBILE_PAGE, rowData.length))} style={{ padding: '10px 18px', borderRadius: 'var(--r-pill)', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontWeight: 700, cursor: 'pointer' }}>
+                            Mostra'n més · {rowData.length - mobileLimit} restants
+                        </button>
+                    </div>
+                )}
 
                 {/* Password confirmation pop-up */}
                 {deleteDialog && createPortal(deleteDialog, document.body)}
