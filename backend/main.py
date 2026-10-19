@@ -23,6 +23,7 @@ import secrets
 from illustrate import generate_illustration, illustration_available
 from draft_check import check_draft_meaning, draft_status
 import lexicon
+from tts_text import tts_text, VOICE_VERSION
 from gemini_client import gemini_generate, gemini_available, gemini_agent
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -349,7 +350,7 @@ def generate_tachelhit_tts_hf(text: str, drill_id: int) -> str:
         )
         
         timestamp = int(datetime.utcnow().timestamp())
-        filename = f"tachelhit_tts_{drill_id}_{timestamp}.wav"
+        filename = f"tachelhit_tts_{VOICE_VERSION}_{drill_id}_{timestamp}.wav"
         
         use_cloudinary = bool(os.getenv("CLOUDINARY_CLOUD_NAME"))
         
@@ -357,7 +358,7 @@ def generate_tachelhit_tts_hf(text: str, drill_id: int) -> str:
             result = cloudinary.uploader.upload(
                 result_path,
                 folder="tachelhit/tts",
-                public_id=f"tachelhit_tts_{drill_id}_{timestamp}",
+                public_id=f"tachelhit_tts_{VOICE_VERSION}_{drill_id}_{timestamp}",
                 resource_type="video"
             )
             url = result['secure_url']
@@ -1675,6 +1676,7 @@ def _local_day(naive_utc: datetime, zone):
 class TtsRequest(BaseModel):
     text: str
     drill_id: Optional[int] = 0
+    meaning: Optional[str] = None  # Catalan meaning: lets the spelling be normalised for the voice
 
 @app.post("/tts/tachelhit")
 @app.post("/tts/tachelhit/")
@@ -1685,16 +1687,25 @@ async def tachelhit_tts_endpoint(request: TtsRequest, db: Session = Depends(get_
     player can voice text-only cards without re-synthesizing — synthetic
     audio is scaffolding for cards that lack a native recording.
     """
-    if not request.text:
+    if not request.text or not request.text.strip():
         raise HTTPException(status_code=400, detail="Text is required")
     try:
-        url = await asyncio.to_thread(generate_tachelhit_tts_hf, request.text, request.drill_id or 0)
-        if request.drill_id:
-            drill = db.query(DrillModel).filter(DrillModel.id == request.drill_id).first()
-            if drill:
-                drill.audio_tts_shi_url = url
-                db.commit()
-        return {"url": url}
+        drill = db.query(DrillModel).filter(DrillModel.id == request.drill_id).first() if request.drill_id else None
+        same = drill is not None and (drill.text_tachelhit or "").strip() == request.text.strip()
+        stored = (drill.audio_tts_shi_url or "") if drill else ""
+        if same and f"tts_{VOICE_VERSION}_" in stored:
+            return {"url": stored, "cached": True}  # voices made before v2 were read from Latin: remade
+        meaning = request.meaning or (drill.text_catalan if drill else None)
+        spoken, how = await asyncio.to_thread(tts_text, request.text, meaning)
+        if not spoken:
+            raise HTTPException(status_code=400, detail="Nothing to read")
+        url = await asyncio.to_thread(generate_tachelhit_tts_hf, spoken, request.drill_id or 0)
+        if drill is not None:
+            drill.audio_tts_shi_url = url
+            db.commit()
+        return {"url": url, "spoken_text": spoken, "how": how}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

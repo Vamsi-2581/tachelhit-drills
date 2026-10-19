@@ -65,12 +65,12 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
         if (!t || speaking) return;
         setSpeaking(true);
         try {
-            const stored = drill && drill.text_tachelhit === t ? drill.audio_tts_shi_url : null;
-            let url = stored || '';
-            if (!url) {
-                const r = await axios.post(`${API_BASE}/tts/tachelhit`, { text: t, drill_id: drill && drill.text_tachelhit === t ? drill.id : null });
-                url = r.data?.url || '';
-            }
+            // The backend keeps the voice on the drill and returns it when it is current
+            // (voices made before v2 were read from Latin letters: it remakes those).
+            const r = await axios.post(`${API_BASE}/tts/tachelhit`, {
+                text: t, drill_id: drill && drill.text_tachelhit === t ? drill.id : null, meaning: drill?.text_catalan || null,
+            });
+            const url = r.data?.url || '';
             if (!url) throw new Error('sense veu');
             await new Audio(getMediaUrl(url)).play();
         } catch {

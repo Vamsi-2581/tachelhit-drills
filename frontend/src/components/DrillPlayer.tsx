@@ -466,7 +466,10 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
     // (scaffold) -> synthesize on demand for text-only cards (the backend
     // stores the result so this only happens once per drill)
     // A captured video clip IS the native voice: play its sound track before any synthetic voice.
-    let sourceUrl = currentDrill?.audio_url || currentDrill?.video_url || currentDrill?.audio_tts_shi_url || '';
+    // A stored synthetic voice counts only when it is current (v2: read from standard Tifinagh;
+    // earlier voices were read from Latin letters and are near silence).
+    const storedVoice = /tts_v2_/.test(currentDrill?.audio_tts_shi_url || '') ? currentDrill?.audio_tts_shi_url || '' : '';
+    let sourceUrl = currentDrill?.audio_url || currentDrill?.video_url || storedVoice || '';
     let synthetic = !currentDrill?.audio_url && !currentDrill?.video_url && !!sourceUrl;
 
     if (!sourceUrl && currentDrill?.text_tachelhit) {
@@ -475,7 +478,7 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
         const res = await fetch(`${API_BASE}/tts/tachelhit`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: currentDrill.text_tachelhit, drill_id: currentDrill.id }),
+          body: JSON.stringify({ text: currentDrill.text_tachelhit, drill_id: currentDrill.id, meaning: currentDrill.text_catalan || null }),
         });
         if (res.ok) {
           sourceUrl = (await res.json()).url || '';
