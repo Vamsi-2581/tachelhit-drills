@@ -5010,6 +5010,7 @@ VERIFY_REASONS = {
     "contested": "Les dues escoltes no coincideixen",
     "empty":     "Gravació sense text",
     "subtitle":  "Només la lectura del subtítol, sense confirmar",
+    "confirm":   "La màquina hi està d'acord: només cal confirmar-ho",
 }
 
 
@@ -5053,7 +5054,7 @@ def verify_queue_reason(d) -> Optional[tuple]:
         return "contested", opts
     if max(reading_similarity(o, stored) for o in opts) < 0.6:
         return "differs", opts
-    return None  # the listeners agree with the stored text
+    return "confirm", opts  # the listeners agree with the stored text: one tap to verify
 
 
 @app.get("/corpus/verify-queue")

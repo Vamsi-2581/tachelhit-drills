@@ -86,7 +86,7 @@ export default function VerifyQueue() {
   const stored = (current?.text_tachelhit || '').trim();
   const latin = (current?.text_tachelhit_latin || '').trim();
   const label = current ? (data?.labels[current.reason] || current.reason) : '';
-  const heardTitle = current?.reason === 'subtitle' ? 'Lectura del subtítol (sense confirmar)' : 'El que la màquina ha sentit (no verificat)';
+  const heardTitle = current?.reason === 'subtitle' ? 'Lectura del subtítol (sense confirmar)' : current?.reason === 'confirm' ? 'La màquina ha sentit el mateix' : 'El que la màquina ha sentit (no verificat)';
   const totalAll = data ? Object.values(data.counts).reduce((a, b) => a + b, 0) : 0;
 
   const chip = (active: boolean): React.CSSProperties => ({
@@ -212,4 +212,5 @@ const SHORT: Record<string, string> = {
   contested: 'Dues escoltes',
   empty: 'Sense text',
   subtitle: 'Subtítol',
+  confirm: 'Confirma',
 };

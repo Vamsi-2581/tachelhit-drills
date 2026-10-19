@@ -703,13 +703,14 @@ def test_verify_queue_reasons_and_resolve():
 
     r = client.get("/corpus/verify-queue", params={"limit": 500}).json()
     by = {d["id"]: d for d in r["drills"]}
-    assert agreed not in by and silent not in by
+    assert silent not in by
+    assert by[agreed]["reason"] == "confirm" and by[agreed]["heard"] == ["azul fellawn"]
     assert by[contested]["reason"] == "contested" and by[contested]["heard"] == ["tanmmirt bahra", "ar timlilit"]
     assert by[differs]["reason"] == "differs" and by[differs]["heard"] == ["azul fellawn"]
     assert by[empty]["reason"] == "empty" and by[empty]["heard"] == ["awal"]
     assert by[subtitle]["reason"] == "subtitle" and by[subtitle]["heard"] == ["ⴽⴰⴷ ⵍⴳⵓⴷⵉⵏⵓ", "kad lgudinu"]
     ids = [d["id"] for d in r["drills"]]
-    assert ids.index(differs) < ids.index(contested) < ids.index(empty) < ids.index(subtitle)  # most doubtful first
+    assert ids.index(differs) < ids.index(contested) < ids.index(empty) < ids.index(subtitle) < ids.index(agreed)  # most doubtful first
     assert all(r["counts"][k] >= 1 for k in ("differs", "contested", "empty", "subtitle"))
     only = client.get("/corpus/verify-queue", params={"limit": 0}).json()
     assert only["drills"] == [] and only["total"] == r["total"]
