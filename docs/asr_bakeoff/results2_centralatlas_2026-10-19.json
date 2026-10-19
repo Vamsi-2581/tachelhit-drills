@@ -1,0 +1,812 @@
+{
+ "gemini-2.5-flash": {
+  "mean_cer": 0.197,
+  "rows": [
+   {
+    "id": 3078,
+    "ref": "amawal n tamaziɣt",
+    "hyp": "ṭṭbel",
+    "cer": 0.941,
+    "secs": 2.9
+   },
+   {
+    "id": 3079,
+    "ref": "imudar",
+    "hyp": "imudar",
+    "cer": 0.0,
+    "secs": 2.3
+   },
+   {
+    "id": 3080,
+    "ref": "agmar",
+    "hyp": "Agnar",
+    "cer": 0.2,
+    "secs": 2.3
+   },
+   {
+    "id": 3081,
+    "ref": "tafullust",
+    "hyp": "tafllust",
+    "cer": 0.125,
+    "secs": 2.8
+   },
+   {
+    "id": 3082,
+    "ref": "agḍiḍ",
+    "hyp": "agdid",
+    "cer": 0.4,
+    "secs": 2.0
+   },
+   {
+    "id": 3083,
+    "ref": "tawkt",
+    "hyp": "tawkt",
+    "cer": 0.0,
+    "secs": 2.2
+   },
+   {
+    "id": 3084,
+    "ref": "abgur",
+    "hyp": "Abgour",
+    "cer": 0.0,
+    "secs": 2.1
+   },
+   {
+    "id": 3278,
+    "ref": "ⴱ",
+    "hyp": "yebb",
+    "cer": 0.5,
+    "secs": 2.2
+   },
+   {
+    "id": 3279,
+    "ref": "ⵉⴱⴱⴰ",
+    "hyp": "ibba",
+    "cer": 0.0,
+    "secs": 2.3
+   },
+   {
+    "id": 3280,
+    "ref": "ⴰⴱⵖⴰⵏ",
+    "hyp": "Aḍɣan",
+    "cer": 0.2,
+    "secs": 2.6
+   },
+   {
+    "id": 3281,
+    "ref": "ⵉⴱⴱⵉ",
+    "hyp": "ibbi",
+    "cer": 0.0,
+    "secs": 3.4
+   },
+   {
+    "id": 3282,
+    "ref": "ⴰⴱⴳⵓⵔ",
+    "hyp": "abgur",
+    "cer": 0.0,
+    "secs": 2.7
+   }
+  ],
+  "when": "2026-10-19 11:19"
+ },
+ "gemini-2.5-pro": {
+  "mean_cer": 0.191,
+  "rows": [
+   {
+    "id": 3078,
+    "ref": "amawal n tamaziɣt",
+    "hyp": "ɛlaḥbab-inu",
+    "cer": 0.824,
+    "secs": 4.3
+   },
+   {
+    "id": 3079,
+    "ref": "imudar",
+    "hyp": "imudar\nimudar",
+    "cer": 0.0,
+    "secs": 4.1
+   },
+   {
+    "id": 3080,
+    "ref": "agmar",
+    "hyp": "agmar",
+    "cer": 0.0,
+    "secs": 3.9
+   },
+   {
+    "id": 3081,
+    "ref": "tafullust",
+    "hyp": "tafullust, tafullust",
+    "cer": 0.0,
+    "secs": 3.3
+   },
+   {
+    "id": 3082,
+    "ref": "agḍiḍ",
+    "hyp": "agdid, agdid",
+    "cer": 0.4,
+    "secs": 5.4
+   },
+   {
+    "id": 3083,
+    "ref": "tawkt",
+    "hyp": "tawɣt",
+    "cer": 0.2,
+    "secs": 3.4
+   },
+   {
+    "id": 3084,
+    "ref": "abgur",
+    "hyp": "abggur\nabggur",
+    "cer": 0.0,
+    "secs": 3.9
+   },
+   {
+    "id": 3278,
+    "ref": "ⴱ",
+    "hyp": "yab, yab",
+    "cer": 0.667,
+    "secs": 3.1
+   },
+   {
+    "id": 3279,
+    "ref": "ⵉⴱⴱⴰ",
+    "hyp": "ibba",
+    "cer": 0.0,
+    "secs": 3.3
+   },
+   {
+    "id": 3280,
+    "ref": "ⴰⴱⵖⴰⵏ",
+    "hyp": "abxan\nabxan",
+    "cer": 0.2,
+    "secs": 4.4
+   },
+   {
+    "id": 3281,
+    "ref": "ⵉⴱⴱⵉ",
+    "hyp": "ibbi",
+    "cer": 0.0,
+    "secs": 4.2
+   },
+   {
+    "id": 3282,
+    "ref": "ⴰⴱⴳⵓⵔ",
+    "hyp": "abggur\nabggur",
+    "cer": 0.0,
+    "secs": 4.9
+   }
+  ],
+  "when": "2026-10-19 11:22"
+ },
+ "gemini-2.5-flash +tempo085": {
+  "mean_cer": 0.177,
+  "rows": [
+   {
+    "id": 3078,
+    "ref": "amawal n tamaziɣt",
+    "hyp": "Aɣaras",
+    "cer": 0.824,
+    "secs": 5.0
+   },
+   {
+    "id": 3079,
+    "ref": "imudar",
+    "hyp": "imudar",
+    "cer": 0.0,
+    "secs": 2.0
+   },
+   {
+    "id": 3080,
+    "ref": "agmar",
+    "hyp": "Agnar",
+    "cer": 0.2,
+    "secs": 3.4
+   },
+   {
+    "id": 3081,
+    "ref": "tafullust",
+    "hyp": "tafollust",
+    "cer": 0.0,
+    "secs": 2.6
+   },
+   {
+    "id": 3082,
+    "ref": "agḍiḍ",
+    "hyp": "Agdud",
+    "cer": 0.6,
+    "secs": 2.5
+   },
+   {
+    "id": 3083,
+    "ref": "tawkt",
+    "hyp": "tawkt",
+    "cer": 0.0,
+    "secs": 2.2
+   },
+   {
+    "id": 3084,
+    "ref": "abgur",
+    "hyp": "Abgour",
+    "cer": 0.0,
+    "secs": 3.5
+   },
+   {
+    "id": 3278,
+    "ref": "ⴱ",
+    "hyp": "yeb",
+    "cer": 0.5,
+    "secs": 2.6
+   },
+   {
+    "id": 3279,
+    "ref": "ⵉⴱⴱⴰ",
+    "hyp": "ibba",
+    "cer": 0.0,
+    "secs": 2.9
+   },
+   {
+    "id": 3280,
+    "ref": "ⴰⴱⵖⴰⵏ",
+    "hyp": "abɣan",
+    "cer": 0.0,
+    "secs": 2.9
+   },
+   {
+    "id": 3281,
+    "ref": "ⵉⴱⴱⵉ",
+    "hyp": "ibbi",
+    "cer": 0.0,
+    "secs": 3.3
+   },
+   {
+    "id": 3282,
+    "ref": "ⴰⴱⴳⵓⵔ",
+    "hyp": "abgur",
+    "cer": 0.0,
+    "secs": 5.5
+   }
+  ],
+  "when": "2026-10-19 11:24"
+ },
+ "gemini-2.5-flash +loudnorm": {
+  "mean_cer": 0.194,
+  "rows": [
+   {
+    "id": 3078,
+    "ref": "amawal n tamaziɣt",
+    "hyp": "Aɣaras",
+    "cer": 0.824,
+    "secs": 3.6
+   },
+   {
+    "id": 3079,
+    "ref": "imudar",
+    "hyp": "imudar",
+    "cer": 0.0,
+    "secs": 2.2
+   },
+   {
+    "id": 3080,
+    "ref": "agmar",
+    "hyp": "Agnar",
+    "cer": 0.2,
+    "secs": 2.2
+   },
+   {
+    "id": 3081,
+    "ref": "tafullust",
+    "hyp": "tafullust",
+    "cer": 0.0,
+    "secs": 2.1
+   },
+   {
+    "id": 3082,
+    "ref": "agḍiḍ",
+    "hyp": "Agdud",
+    "cer": 0.6,
+    "secs": 2.5
+   },
+   {
+    "id": 3083,
+    "ref": "tawkt",
+    "hyp": "tawkt",
+    "cer": 0.0,
+    "secs": 2.1
+   },
+   {
+    "id": 3084,
+    "ref": "abgur",
+    "hyp": "abgʷr",
+    "cer": 0.2,
+    "secs": 2.1
+   },
+   {
+    "id": 3278,
+    "ref": "ⴱ",
+    "hyp": "Yebb",
+    "cer": 0.5,
+    "secs": 2.0
+   },
+   {
+    "id": 3279,
+    "ref": "ⵉⴱⴱⴰ",
+    "hyp": "ibba",
+    "cer": 0.0,
+    "secs": 3.2
+   },
+   {
+    "id": 3280,
+    "ref": "ⴰⴱⵖⴰⵏ",
+    "hyp": "abɣan",
+    "cer": 0.0,
+    "secs": 2.0
+   },
+   {
+    "id": 3281,
+    "ref": "ⵉⴱⴱⵉ",
+    "hyp": "ibbi",
+    "cer": 0.0,
+    "secs": 2.0
+   },
+   {
+    "id": 3282,
+    "ref": "ⴰⴱⴳⵓⵔ",
+    "hyp": "abgur",
+    "cer": 0.0,
+    "secs": 2.3
+   }
+  ],
+  "when": "2026-10-19 11:24"
+ },
+ "hbouqssi/MMS_Tachelhit (mms-1b shi, Space)": {
+  "mean_cer": 1.0,
+  "rows": [
+   {
+    "id": 3078,
+    "ref": "amawal n tamaziɣt",
+    "hyp": "<error: http 500 {\"error\":null}>",
+    "cer": 1.0,
+    "secs": 4.6
+   },
+   {
+    "id": 3079,
+    "ref": "imudar",
+    "hyp": "<error: http 500 {\"error\":null}>",
+    "cer": 1.0,
+    "secs": 4.7
+   },
+   {
+    "id": 3080,
+    "ref": "agmar",
+    "hyp": "<error: http 500 {\"error\":null}>",
+    "cer": 1.0,
+    "secs": 4.8
+   },
+   {
+    "id": 3081,
+    "ref": "tafullust",
+    "hyp": "<error: http 500 {\"error\":null}>",
+    "cer": 1.0,
+    "secs": 4.7
+   },
+   {
+    "id": 3082,
+    "ref": "agḍiḍ",
+    "hyp": "<error: http 500 {\"error\":null}>",
+    "cer": 1.0,
+    "secs": 4.7
+   },
+   {
+    "id": 3083,
+    "ref": "tawkt",
+    "hyp": "<error: http 500 {\"error\":null}>",
+    "cer": 1.0,
+    "secs": 5.0
+   },
+   {
+    "id": 3084,
+    "ref": "abgur",
+    "hyp": "<error: http 500 {\"error\":null}>",
+    "cer": 1.0,
+    "secs": 4.6
+   },
+   {
+    "id": 3278,
+    "ref": "ⴱ",
+    "hyp": "<error: http 500 {\"error\":null}>",
+    "cer": 1.0,
+    "secs": 4.6
+   },
+   {
+    "id": 3279,
+    "ref": "ⵉⴱⴱⴰ",
+    "hyp": "<error: http 500 {\"error\":null}>",
+    "cer": 1.0,
+    "secs": 5.7
+   },
+   {
+    "id": 3280,
+    "ref": "ⴰⴱⵖⴰⵏ",
+    "hyp": "<error: http 500 {\"error\":null}>",
+    "cer": 1.0,
+    "secs": 5.3
+   },
+   {
+    "id": 3281,
+    "ref": "ⵉⴱⴱⵉ",
+    "hyp": "<error: http 500 {\"error\":null}>",
+    "cer": 1.0,
+    "secs": 4.8
+   },
+   {
+    "id": 3282,
+    "ref": "ⴰⴱⴳⵓⵔ",
+    "hyp": "<error: http 500 {\"error\":null}>",
+    "cer": 1.0,
+    "secs": 5.1
+   }
+  ],
+  "when": "2026-10-19 11:26"
+ },
+ "whisper-small-tamazight": {
+  "mean_cer": 0.782,
+  "rows": [
+   {
+    "id": 3078,
+    "ref": "amawal n tamaziɣt",
+    "hyp": ".",
+    "cer": 1.0,
+    "secs": 7.6
+   },
+   {
+    "id": 3079,
+    "ref": "imudar",
+    "hyp": "Emotor",
+    "cer": 0.5,
+    "secs": 7.6
+   },
+   {
+    "id": 3080,
+    "ref": "agmar",
+    "hyp": "I'm a gamer. I'm a gamer.",
+    "cer": 0.737,
+    "secs": 7.6
+   },
+   {
+    "id": 3081,
+    "ref": "tafullust",
+    "hyp": "and taffoor lost taffoor lost",
+    "cer": 0.68,
+    "secs": 7.6
+   },
+   {
+    "id": 3082,
+    "ref": "agḍiḍ",
+    "hyp": "عجدتا",
+    "cer": 1.0,
+    "secs": 7.6
+   },
+   {
+    "id": 3083,
+    "ref": "tawkt",
+    "hyp": "Taugd",
+    "cer": 0.6,
+    "secs": 7.6
+   },
+   {
+    "id": 3084,
+    "ref": "abgur",
+    "hyp": "Aboukour",
+    "cer": 0.333,
+    "secs": 7.6
+   },
+   {
+    "id": 3278,
+    "ref": "ⴱ",
+    "hyp": "yeah, but it is spring",
+    "cer": 0.95,
+    "secs": 7.6
+   },
+   {
+    "id": 3279,
+    "ref": "ⵉⴱⴱⴰ",
+    "hyp": "E-bough. E-bough. We have WB which is like which is which means that means this B is stressed. E-bough. E-bough means my father.",
+    "cer": 0.964,
+    "secs": 7.6
+   },
+   {
+    "id": 3280,
+    "ref": "ⴰⴱⵖⴰⵏ",
+    "hyp": "Abkhun, Abkhun, Black.",
+    "cer": 0.727,
+    "secs": 7.6
+   },
+   {
+    "id": 3281,
+    "ref": "ⵉⴱⴱⵉ",
+    "hyp": "e b e b again there is a stress on the sound of b e b",
+    "cer": 0.943,
+    "secs": 7.6
+   },
+   {
+    "id": 3282,
+    "ref": "ⴰⴱⴳⵓⵔ",
+    "hyp": "Abgur. Also if you remember that this word or this noun starts with a, it means that this word is a masculine. Abgur.",
+    "cer": 0.95,
+    "secs": 7.6
+   }
+  ],
+  "when": "2026-10-19 11:29"
+ },
+ "wav2vec2-berber": {
+  "mean_cer": 0.749,
+  "rows": [
+   {
+    "id": 3078,
+    "ref": "amawal n tamaziɣt",
+    "hyp": "erdndueqṭu",
+    "cer": 0.941,
+    "secs": 16.9
+   },
+   {
+    "id": 3079,
+    "ref": "imudar",
+    "hyp": "imudar imudarn",
+    "cer": 0.571,
+    "secs": 16.9
+   },
+   {
+    "id": 3080,
+    "ref": "agmar",
+    "hyp": "agnaragnal",
+    "cer": 0.6,
+    "secs": 16.9
+   },
+   {
+    "id": 3081,
+    "ref": "tafullust",
+    "hyp": "tafulust afulnust",
+    "cer": 0.529,
+    "secs": 16.9
+   },
+   {
+    "id": 3082,
+    "ref": "agḍiḍ",
+    "hyp": "addiḍ akdiḍ",
+    "cer": 0.7,
+    "secs": 16.9
+   },
+   {
+    "id": 3083,
+    "ref": "tawkt",
+    "hyp": "taugt d tawut",
+    "cer": 0.692,
+    "secs": 16.9
+   },
+   {
+    "id": 3084,
+    "ref": "abgur",
+    "hyp": "aḍgur abgur",
+    "cer": 0.545,
+    "secs": 16.9
+   },
+   {
+    "id": 3278,
+    "ref": "ⴱ",
+    "hyp": "yab yab it-yespen",
+    "cer": 0.9,
+    "secs": 16.9
+   },
+   {
+    "id": 3279,
+    "ref": "ⵉⴱⴱⴰ",
+    "hyp": "ibba bba wihef dablb učiẓly bucis wutdatms diebi iswst i bba iba mins mayefeɣ dr",
+    "cer": 0.959,
+    "secs": 16.9
+   },
+   {
+    "id": 3280,
+    "ref": "ⴰⴱⵖⴰⵏ",
+    "hyp": "abexxan abexan blakblak",
+    "cer": 0.714,
+    "secs": 16.9
+   },
+   {
+    "id": 3281,
+    "ref": "ⵉⴱⴱⵉ",
+    "hyp": "ibi ibi egen d rez astws onsmdrebi ibbi",
+    "cer": 0.9,
+    "secs": 16.9
+   },
+   {
+    "id": 3282,
+    "ref": "ⴰⴱⴳⵓⵔ",
+    "hyp": "bgu pulso ifyurmabrdadiswerd ur disnɛnsta swid a iteminsdat didiswer iz askrin abgur a",
+    "cer": 0.94,
+    "secs": 16.9
+   }
+  ],
+  "when": "2026-10-19 11:33"
+ },
+ "gemini-2.5-flash +vocals": {
+  "mean_cer": 0.21,
+  "rows": [
+   {
+    "id": 3078,
+    "ref": "amawal n tamaziɣt",
+    "hyp": "Aɣaras",
+    "cer": 0.824,
+    "secs": 4.4
+   },
+   {
+    "id": 3079,
+    "ref": "imudar",
+    "hyp": "imudar",
+    "cer": 0.0,
+    "secs": 2.1
+   },
+   {
+    "id": 3080,
+    "ref": "agmar",
+    "hyp": "Agnar",
+    "cer": 0.2,
+    "secs": 3.3
+   },
+   {
+    "id": 3081,
+    "ref": "tafullust",
+    "hyp": "tafullust",
+    "cer": 0.0,
+    "secs": 2.0
+   },
+   {
+    "id": 3082,
+    "ref": "agḍiḍ",
+    "hyp": "Agdəd",
+    "cer": 0.6,
+    "secs": 1.7
+   },
+   {
+    "id": 3083,
+    "ref": "tawkt",
+    "hyp": "ṭawkt",
+    "cer": 0.2,
+    "secs": 1.9
+   },
+   {
+    "id": 3084,
+    "ref": "abgur",
+    "hyp": "Abggur",
+    "cer": 0.0,
+    "secs": 2.0
+   },
+   {
+    "id": 3278,
+    "ref": "ⴱ",
+    "hyp": "Yeb",
+    "cer": 0.5,
+    "secs": 3.9
+   },
+   {
+    "id": 3279,
+    "ref": "ⵉⴱⴱⴰ",
+    "hyp": "ibba",
+    "cer": 0.0,
+    "secs": 2.8
+   },
+   {
+    "id": 3280,
+    "ref": "ⴰⴱⵖⴰⵏ",
+    "hyp": "aḍɣan",
+    "cer": 0.2,
+    "secs": 2.3
+   },
+   {
+    "id": 3281,
+    "ref": "ⵉⴱⴱⵉ",
+    "hyp": "ibbi",
+    "cer": 0.0,
+    "secs": 2.2
+   },
+   {
+    "id": 3282,
+    "ref": "ⴰⴱⴳⵓⵔ",
+    "hyp": "abgur",
+    "cer": 0.0,
+    "secs": 2.0
+   }
+  ],
+  "when": "2026-10-19 11:42"
+ },
+ "facebook/mms-1b-all shi adapter (local CPU)": {
+  "mean_cer": 0.496,
+  "rows": [
+   {
+    "id": 3078,
+    "ref": "amawal n tamaziɣt",
+    "hyp": "u",
+    "cer": 1.0,
+    "secs": 42.7
+   },
+   {
+    "id": 3079,
+    "ref": "imudar",
+    "hyp": "imudar imudar",
+    "cer": 0.0,
+    "secs": 42.7
+   },
+   {
+    "id": 3080,
+    "ref": "agmar",
+    "hyp": "agmar agmar",
+    "cer": 0.0,
+    "secs": 42.7
+   },
+   {
+    "id": 3081,
+    "ref": "tafullust",
+    "hyp": "tafullust tafullust",
+    "cer": 0.0,
+    "secs": 42.7
+   },
+   {
+    "id": 3082,
+    "ref": "agḍiḍ",
+    "hyp": "ag‐ṭiḍ ag ṭiḍ",
+    "cer": 0.667,
+    "secs": 42.7
+   },
+   {
+    "id": 3083,
+    "ref": "tawkt",
+    "hyp": "tawkt tawkt",
+    "cer": 0.0,
+    "secs": 42.7
+   },
+   {
+    "id": 3084,
+    "ref": "abgur",
+    "hyp": "ab‐gur ab‐gur",
+    "cer": 0.0,
+    "secs": 42.7
+   },
+   {
+    "id": 3278,
+    "ref": "ⴱ",
+    "hyp": "yab yab itizra",
+    "cer": 0.9,
+    "secs": 42.7
+   },
+   {
+    "id": 3279,
+    "ref": "ⵉⴱⴱⴰ",
+    "hyp": "ibaibba wi‐ha dbl bi wit‐is‐lk iiitat mins tis bi is strasst iba iba mians my‐fathar",
+    "cer": 0.958,
+    "secs": 42.7
+   },
+   {
+    "id": 3280,
+    "ref": "ⴰⴱⵖⴰⵏ",
+    "hyp": "abġḫan abḫḫan blak blak",
+    "cer": 0.556,
+    "secs": 42.7
+   },
+   {
+    "id": 3281,
+    "ref": "ⵉⴱⴱⵉ",
+    "hyp": "ibiibbi agan tar‐is a‐stras an t‐sawnd f‐bi ibbi",
+    "cer": 0.927,
+    "secs": 42.7
+   },
+   {
+    "id": 3282,
+    "ref": "ⴰⴱⴳⵓⵔ",
+    "hyp": "abgur als if‐yu‐rimmbr tat tis‐wrld ur‐tis‐nawn starts with a it‐mins that tis‐warld is amaskulin abgura",
+    "cer": 0.947,
+    "secs": 42.7
+   }
+  ],
+  "when": "2026-10-19 11:44"
+ }
+}
