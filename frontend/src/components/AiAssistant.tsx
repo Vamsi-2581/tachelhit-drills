@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
+import { API_BASE, getMediaUrl } from '../config';
 
 interface Msg { role: 'user' | 'model'; text: string; }
 
@@ -14,6 +15,8 @@ export default function AiAssistant({ drillId, drillLabel, autoAction, onClose }
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sayWord, setSayWord] = useState('');
+  const [saying, setSaying] = useState(false);
   const [related, setRelated] = useState<{ id: number; text_catalan?: string; text?: string; words: string[] }[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const didAuto = useRef(false);
@@ -61,8 +64,25 @@ export default function AiAssistant({ drillId, drillLabel, autoAction, onClose }
     }
   };
 
+  // Synthetic Tamazight voice for one word or phrase (nothing is stored on the drill)
+  const pronounce = async (text: string) => {
+    const t = text.trim();
+    if (!t || saying) return;
+    setSaying(true);
+    try {
+      const r = await fetch(`${API_BASE}/tts/tachelhit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: t }) });
+      const j = await r.json();
+      if (!r.ok || !j.url) throw new Error(j.detail || 'TTS');
+      await new Audio(getMediaUrl(j.url)).play();
+    } catch (e: any) {
+      setMessages(m => [...m, { role: 'model', text: `⚠️ No he pogut pronunciar «${t}» (${e?.message || 'error de veu'}).` }]);
+    } finally {
+      setSaying(false);
+    }
+  };
+
   return createPortal(
-    <div style={{ position: 'fixed', inset: 0, zIndex: 30000, display: 'flex', justifyContent: 'flex-end', background: 'rgba(15,23,42,0.4)' }} onClick={onClose}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 100000, display: 'flex', justifyContent: 'flex-end', background: 'rgba(15,23,42,0.4)' }} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         style={{ width: 'min(480px, 100vw)', height: '100%', background: 'var(--bg)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}
@@ -125,8 +145,23 @@ export default function AiAssistant({ drillId, drillLabel, autoAction, onClose }
           )}
         </div>
 
+        {/* Pronounce a word with the synthetic voice */}
+        <div style={{ padding: '8px 12px 0', borderTop: '1px solid var(--border)', display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <input
+            value={sayWord}
+            onChange={(e) => setSayWord(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') pronounce(sayWord); }}
+            placeholder="Pronuncia una paraula (veu sintètica)…"
+            aria-label="Paraula a pronunciar"
+            style={{ flex: 1, padding: '9px 12px', borderRadius: 'var(--r-pill)', border: '1px solid var(--border)', background: 'var(--surface)', fontSize: '13px', color: 'var(--text)', outline: 'none' }}
+          />
+          <button onClick={() => pronounce(sayWord)} disabled={saying || !sayWord.trim()} title="Veu sintètica tamazight: orientativa, no és la del parlant" style={{ padding: '9px 14px', background: 'var(--surface-2)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 'var(--r-pill)', fontWeight: 700, cursor: saying ? 'wait' : 'pointer' }}>
+            {saying ? '…' : '🔊'}
+          </button>
+        </div>
+
         {/* Input */}
-        <div style={{ padding: '12px', borderTop: '1px solid var(--border)', display: 'flex', gap: '8px' }}>
+        <div style={{ padding: '12px', display: 'flex', gap: '8px' }}>
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
