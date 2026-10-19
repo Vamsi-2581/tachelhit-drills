@@ -4158,6 +4158,35 @@ def capture_fail(request_id: int, error: str = Body("", embed=True), db: Session
     return {"ok": True}
 
 
+@app.get("/capture/queue")
+def capture_queue(limit: int = 40, db: Session = Depends(get_db)):
+    """The last `limit` capture requests, newest first, with state, drill count and error:
+    what the agent is doing, for the Captura tab. Read-only (unlike /capture/pending, which
+    claims a request and is for the agent only)."""
+    rows = (db.query(CaptureRequestModel).order_by(CaptureRequestModel.created_at.desc())
+            .limit(max(1, min(limit, 200))).all())
+    out = []
+    for r in rows:
+        drills_created = getattr(r, "drills_created", None)
+        job_status = None
+        if r.job_id and drills_created is None:
+            job = db.query(VideoProcessingJobModel).filter(VideoProcessingJobModel.id == r.job_id).first()
+            if job:
+                job_status = job.status
+                if job.processing_log:
+                    try:
+                        drills_created = json.loads(job.processing_log).get("drills_created")
+                    except (ValueError, TypeError):
+                        pass
+        out.append({"id": r.id, "url": r.url, "tag": r.tag, "variety": r.variety, "status": r.status,
+                    "job_status": job_status, "drills_created": drills_created, "error": r.error,
+                    "created_at": iso_z(r.created_at) if r.created_at else None,
+                    "claimed_at": iso_z(r.claimed_at) if r.claimed_at else None})
+    agent_at = _capture_agent_seen.get("at")
+    return {"requests": out, "agent": {"online": bool(agent_at and (datetime.utcnow() - agent_at).total_seconds() < 45),
+                                       "version": _capture_agent_seen.get("version")}}
+
+
 @app.get("/capture/{request_id}")
 def capture_status(request_id: int, db: Session = Depends(get_db)):
     """Web-app polling: request status + drills_created once processing finishes."""
