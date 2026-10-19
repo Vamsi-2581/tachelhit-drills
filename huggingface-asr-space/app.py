@@ -1,142 +1,246 @@
+"""Tachelhit ASR + forced-alignment Space (Docker, CPU).
+
+Model: ayymen/stt_zgh_fastconformer_ctc_small (NeMo FastConformer CTC, Common Voice zgh,
+CC BY 4.0, 51 MB) — the model behind the Tamazight-NLP ASR and NeMo-Forced-Aligner Spaces.
+It writes Tifinagh. It replaces the Whisper fine-tune that wrote Arabic and hallucinated
+other languages.
+
+Routes (FastAPI, first-class so Gradio's catch-all never shadows them):
+  GET  /health
+  POST /transcribe   audio_file                      -> {"text", "segments":[{start,end,text}]}
+  POST /align        audio_file, text, split_on_newline -> {"text", "segments":[{start,end,text,words}]}
+Gradio (for gradio_client): api_name="predict" (audio -> text) and api_name="align".
+
+Timestamps come from NeMo Forced Aligner (align.py + utils/, copied from
+NVIDIA/NeMo tools/nemo_forced_aligner, Apache 2.0): /align aligns the text you give
+(lines separated by newlines, or by "|"); /transcribe aligns the model's own transcript
+and groups words into segments at pauses.
+"""
+import json
 import os
 import tempfile
+import threading
+import uuid
 
-import torch
 import gradio as gr
-from transformers import pipeline
 import librosa
-from fastapi import FastAPI, UploadFile, File, HTTPException
+import soundfile
+import torch
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 
-# 1. Initialize Whisper Model on CPU
-print("[ASR] Loading Whisper model on CPU...")
-device = "cpu"
-MODEL_ID = os.getenv("ASR_MODEL_ID", "SoufianeDahimi/whisper-small-tamazight")
-# chunk_length_s lets the pipeline transcribe audio longer than the model's
-# 30s receptive field; stride keeps context across chunk boundaries.
-CHUNK_LENGTH_S = int(os.getenv("ASR_CHUNK_LENGTH_S", "30"))
-STRIDE_LENGTH_S = int(os.getenv("ASR_STRIDE_LENGTH_S", "5"))
-pipe = pipeline(
-    "automatic-speech-recognition",
-    model=MODEL_ID,
-    device=device,
-    chunk_length_s=CHUNK_LENGTH_S,
-    stride_length_s=STRIDE_LENGTH_S,
-)
-print("[ASR] Whisper Model loaded successfully.")
+from nemo.collections.asr.models import ASRModel
+from align import AlignmentConfig, CTMFileConfig, main as nfa_main
+
+torch.set_num_threads(max(1, os.cpu_count() or 1))
+MODEL_ID = os.getenv("ASR_MODEL_ID", "ayymen/stt_zgh_fastconformer_ctc_small")
+SAMPLE_RATE = 16000
+MAX_SECS = float(os.getenv("ASR_MAX_SECS", "600"))
+PAUSE_SECS = float(os.getenv("ASR_SEGMENT_PAUSE_SECS", "0.6"))
+MAX_WORDS_PER_SEGMENT = int(os.getenv("ASR_SEGMENT_MAX_WORDS", "12"))
+
+print(f"[ASR] Loading NeMo model {MODEL_ID} on CPU...")
+model = ASRModel.from_pretrained(model_name=MODEL_ID, map_location="cpu")
+model.eval()
+print("[ASR] Model loaded.")
+_lock = threading.Lock()  # one NeMo call at a time on a 2-vCPU Space
 
 
-def transcribe_with_segments(audio_path):
-    """
-    Transcribe an audio/video file into timestamped segments.
+def _to_wav(src_path: str, dst_path: str) -> float:
+    """Decode anything ffmpeg/librosa can read into mono 16 kHz wav; returns duration in s."""
+    data, sr = librosa.load(src_path, sr=SAMPLE_RATE, mono=True)
+    duration = float(len(data)) / SAMPLE_RATE
+    if duration > MAX_SECS:
+        raise HTTPException(status_code=413, detail=f"audio longer than {MAX_SECS:.0f} s")
+    soundfile.write(dst_path, data, SAMPLE_RATE)
+    return duration
 
-    Returns a tuple (full_text, segments) where segments is a list of
-    {"start": float, "end": float, "text": str}. Handles long-form audio via
-    the pipeline's chunking and falls back gracefully if the model does not
-    emit usable timestamps.
-    """
-    audio_data, sr = librosa.load(audio_path, sr=16000)
-    duration = float(len(audio_data) / sr) if sr else 0.0
 
-    # return_timestamps=True yields chunk-level (start, end) spans.
-    result = pipe(audio_data, return_timestamps=True)
+def _transcribe(wav_path: str) -> str:
+    with _lock:
+        out = model.transcribe([wav_path], batch_size=1, verbose=False)
+    text = out[0]
+    if isinstance(text, (list, tuple)):
+        text = text[0]
+    if hasattr(text, "text"):
+        text = text.text
+    return (text or "").strip()
 
-    full_text = (result.get("text") or "").strip()
-    raw_chunks = result.get("chunks") or []
 
-    segments = []
-    last_end = 0.0
-    for chunk in raw_chunks:
-        text = (chunk.get("text") or "").strip()
+def _read_ctm(path: str):
+    rows = []
+    if not os.path.exists(path):
+        return rows
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            parts = line.rstrip("\n").split(" ", 4)
+            if len(parts) < 5:
+                continue
+            start, dur, tok = float(parts[2]), float(parts[3]), parts[4]
+            rows.append({"start": round(start, 2), "end": round(start + dur, 2), "text": tok.replace("<space>", " ")})
+    return rows
+
+
+def _align(wav_path: str, text: str, tmpdir: str) -> dict:
+    """Run NeMo Forced Aligner on one wav with the given text ('|' separates segments)."""
+    utt_id = f"u{uuid.uuid4().hex[:10]}"
+    audio_path = os.path.join(tmpdir, f"{utt_id}.wav")
+    os.replace(wav_path, audio_path)
+    manifest = os.path.join(tmpdir, f"{utt_id}_manifest.json")
+    with open(manifest, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"audio_filepath": audio_path, "text": text}, ensure_ascii=False) + "\n")
+    out_dir = os.path.join(tmpdir, "nfa")
+    cfg = AlignmentConfig(
+        pretrained_name=MODEL_ID,
+        manifest_filepath=manifest,
+        output_dir=out_dir,
+        audio_filepath_parts_in_utt_id=1,
+        batch_size=1,
+        use_local_attention=True,
+        additional_segment_grouping_separator="|",
+        transcribe_device="cpu",
+        viterbi_device="cpu",
+        save_output_file_formats=["ctm"],
+        ctm_file_config=CTMFileConfig(remove_blank_tokens=True),
+    )
+    with _lock:
+        nfa_main(cfg)
+    words = _read_ctm(os.path.join(out_dir, "ctm", "words", f"{utt_id}.ctm"))
+    segs = _read_ctm(os.path.join(out_dir, "ctm", "segments", f"{utt_id}.ctm"))
+    for s in segs:
+        s["words"] = [w for w in words if w["start"] >= s["start"] - 0.01 and w["end"] <= s["end"] + 0.01]
+    return {"text": text.replace("|", "\n"), "segments": segs, "words": words}
+
+
+def _segments_from_words(words, duration: float, full_text: str):
+    """Group aligned words into segments at pauses (for /transcribe's segment output)."""
+    if not words:
+        return [{"start": 0.0, "end": round(duration, 2), "text": full_text}] if full_text else []
+    segs, cur = [], [words[0]]
+    for prev, w in zip(words, words[1:]):
+        if w["start"] - prev["end"] > PAUSE_SECS or len(cur) >= MAX_WORDS_PER_SEGMENT:
+            segs.append(cur); cur = []
+        cur.append(w)
+    segs.append(cur)
+    return [{"start": c[0]["start"], "end": c[-1]["end"], "text": " ".join(w["text"] for w in c)} for c in segs]
+
+
+def transcribe_file(src_path: str) -> dict:
+    with tempfile.TemporaryDirectory() as tmp:
+        wav = os.path.join(tmp, "in.wav")
+        duration = _to_wav(src_path, wav)
+        text = _transcribe(wav)
         if not text:
-            continue
-        ts = chunk.get("timestamp") or (None, None)
-        start, end = ts[0], ts[1]
-        # Whisper can return None for an open-ended final chunk, or missing
-        # starts; coerce these into a monotonic, non-negative timeline.
-        start = float(start) if start is not None else last_end
-        end = float(end) if end is not None else max(start, duration)
-        if end < start:
-            end = start
-        segments.append({"start": start, "end": end, "text": text})
-        last_end = end
-
-    # Fallback: no usable chunks but we did get text -> one segment spanning
-    # the whole clip (still far better than a hardcoded 0-5s window).
-    if not segments and full_text:
-        segments = [{"start": 0.0, "end": duration or 0.0, "text": full_text}]
-
-    return full_text, segments
+            return {"text": "", "segments": [], "model": MODEL_ID}
+        try:
+            al = _align(wav, text, tmp)
+            segments = _segments_from_words(al["words"], duration, text)
+        except Exception as e:  # alignment is best-effort; the transcript still goes out
+            print(f"[ASR] alignment failed: {e}")
+            segments = [{"start": 0.0, "end": round(duration, 2), "text": text}]
+        return {"text": text, "segments": segments, "model": MODEL_ID}
 
 
-# Core transcription utility engine (text-only, used by the Gradio UI)
-def transcribe_audio_logic(audio_path):
-    if not audio_path:
-        return "Error: No audio file received."
-    try:
-        full_text, _ = transcribe_with_segments(audio_path)
-        return full_text
-    except Exception as e:
-        return f"Error during processing: {str(e)}"
+def align_file(src_path: str, text: str, split_on_newline: bool = True) -> dict:
+    text = (text or "").strip()
+    with tempfile.TemporaryDirectory() as tmp:
+        wav = os.path.join(tmp, "in.wav")
+        duration = _to_wav(src_path, wav)
+        if not text:
+            text = _transcribe(wav)
+            if not text:
+                return {"text": "", "segments": [], "words": [], "model": MODEL_ID, "note": "no speech detected"}
+        if split_on_newline:
+            text = "|".join(l.strip() for l in text.splitlines() if l.strip())
+        out = _align(wav, text, tmp)
+        out.update({"duration": round(duration, 2), "model": MODEL_ID})
+        return out
 
 
-# 2. FastAPI is the real server. The custom API routes live on it directly, so
-# they are first-class (not shadowed by Gradio's catch-all) and are NOT subject
-# to Gradio's cross-site form-POST protection. The Gradio UI is mounted under
-# this app at the end.
-app = FastAPI(title="Tachelhit ASR Service")
+app = FastAPI(title="Tachelhit ASR + alignment service")
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model": MODEL_ID}
+    return {"status": "ok", "model": MODEL_ID, "routes": ["/transcribe", "/align"]}
+
+
+async def _save_upload(upload: UploadFile) -> str:
+    suffix = os.path.splitext(upload.filename or "")[1] or ".bin"
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    with os.fdopen(fd, "wb") as fh:
+        while True:
+            chunk = await upload.read(1 << 20)
+            if not chunk:
+                break
+            fh.write(chunk)
+    return path
 
 
 @app.post("/transcribe")
-async def transcribe_uploaded_file(audio_file: UploadFile = File(...)):
+async def transcribe_uploaded_file(audio_file: UploadFile = File(...), language: str = Form(None)):
+    path = await _save_upload(audio_file)
     try:
-        suffix = os.path.splitext(audio_file.filename or "")[1] or ".mp4"
-
-        # Save incoming video/audio binary data to temporary disk
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            content = await audio_file.read()
-            tmp.write(content)
-            tmp_path = tmp.name
-
-        try:
-            # Run inference: full text + real timestamped segments
-            full_text, segments = transcribe_with_segments(tmp_path)
-        finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-
-        # Return payload in the shape main.py's task loops expect
-        return {
-            "rough_transcription": full_text,
-            "corrected_transcription": full_text,
-            "similarity_score": 1.0,
-            "segments": segments,
-        }
+        return transcribe_file(path)
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"ASR failed: {e}")
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 
-# 3. Gradio UI (used by the mobile microphone) mounted at the root path.
-# Built with Blocks + an explicit api_name="predict" so the gradio_client
-# endpoint is "/predict" — the backend's audio-record correction path
-# (main.py) calls client.predict(..., api_name="/predict"). gr.Interface in
-# Gradio 5/6 would auto-name the endpoint after the function instead.
-# Mounting after the API routes means POST /transcribe still resolves to the
-# explicit FastAPI route above.
-with gr.Blocks(title="Tachelhit ASR Service") as demo:
-    gr.Markdown("# Tachelhit ASR Service")
-    audio_in = gr.Audio(type="filepath", label="Input Audio")
-    text_out = gr.Textbox(label="Tachelhit Transcription")
-    gr.Button("Transcribe").click(
-        transcribe_audio_logic, inputs=audio_in, outputs=text_out, api_name="predict"
-    )
+@app.post("/align")
+async def align_uploaded_file(audio_file: UploadFile = File(...), text: str = Form(""),
+                              split_on_newline: bool = Form(True)):
+    path = await _save_upload(audio_file)
+    try:
+        return align_file(path, text, split_on_newline)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"alignment failed: {e}")
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+# Gradio API for gradio_client callers: api_name="predict" (audio -> text) kept from the
+# Whisper version; api_name="align" added. Mounted after the routes above.
+def _gr_predict(audio_path):
+    if not audio_path:
+        return ""
+    try:
+        return transcribe_file(audio_path)["text"]
+    except Exception as e:
+        return f"Error during processing: {e}"
+
+
+def _gr_align(audio_path, text, split_on_newline):
+    if not audio_path:
+        return {"error": "no audio"}
+    try:
+        return align_file(audio_path, text or "", bool(split_on_newline))
+    except Exception as e:
+        return {"error": str(e)}
+
+
+with gr.Blocks(title="Tachelhit ASR + alignment") as demo:
+    gr.Markdown(f"# Tachelhit ASR + forced alignment\nModel `{MODEL_ID}` (NeMo, CC BY 4.0). "
+                "API: `POST /transcribe`, `POST /align` (audio_file, text, split_on_newline).")
+    with gr.Tab("Transcribe"):
+        a1 = gr.Audio(type="filepath", label="Audio")
+        t1 = gr.Textbox(label="Transcription (Tifinagh)")
+        gr.Button("Transcribe").click(_gr_predict, inputs=a1, outputs=t1, api_name="predict")
+    with gr.Tab("Align"):
+        a2 = gr.Audio(type="filepath", label="Audio")
+        x2 = gr.Textbox(label="Text (one line per segment; empty = use the model's transcript)", lines=6)
+        s2 = gr.Checkbox(True, label="Split on new lines")
+        j2 = gr.JSON(label="Segments and words with times")
+        gr.Button("Align").click(_gr_align, inputs=[a2, x2, s2], outputs=j2, api_name="align")
+
 app = gr.mount_gradio_app(app, demo, path="/")
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=7860)

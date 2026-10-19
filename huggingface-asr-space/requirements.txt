@@ -1,13 +1,13 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
 torchaudio
-transformers
+Cython
+numpy<2.0.0
+nemo-toolkit[asr]==2.0.0rc1
 librosa
-numpy
-pydantic
-openai
-requests
+soundfile
 python-multipart
 fastapi
 uvicorn[standard]
 gradio
+requests
