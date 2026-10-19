@@ -11,6 +11,7 @@ interface Drill {
   text_arabic?: string;
   tag?: string;
   topics?: string; // subject catalogue slugs (utils/topics.ts)
+  verified?: boolean;
   // Add other fields from Drill model if needed for display/search
 }
 
@@ -135,6 +136,8 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
       topicsSearchText(drill.topics).includes(drillSearchTerm.toLowerCase()) ||
       drill.id.toString().includes(drillSearchTerm)))
     ;
+  // Verified drills first: a test should prefer what a speaker has confirmed.
+  filteredAvailableDrills.sort((a, b) => Number(!!b.verified) - Number(!!a.verified));
   const addAllShown = () => {
     const shown = filteredAvailableDrills.slice(0, 200);
     if (!shown.length) return;
@@ -258,7 +261,7 @@ export default function TestConfigPanel({ onClose, onTestCreated, initialSelecte
                 (drillSearchTerm.length > 0 ? filteredAvailableDrills : filteredAvailableDrills.slice(0, 30)).map(drill => (
                   <div key={drill.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', padding: '8px 10px', borderRadius: 'var(--r-sm)', marginBottom: '4px', background: 'var(--surface-2)' }}>
                     <span style={{ fontSize: '14px', color: 'var(--text)' }}>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>#{drill.id}</span> {drill.text_catalan}
+                      <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>#{drill.id}</span> {drill.verified ? <span title="Verificat" style={{ color: 'var(--emerald)', fontWeight: 800 }}>✓ </span> : null}{drill.text_catalan}
                     </span>
                     <button
                       onClick={() => handleAddDrill(drill)}

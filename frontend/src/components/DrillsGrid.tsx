@@ -509,6 +509,20 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                     {d.tag && <span>{d.tag}</span>}
                     {parseTopics(d.topics).map((t) => <span key={t} style={{ padding: '1px 7px', borderRadius: 'var(--r-pill)', background: 'var(--surface-2)', border: '1px solid var(--border)' }}>{topicLabel(t)}</span>)}
                     <SourceCredit drill={d} compact />
+                    <button
+                      onClick={async () => {
+                        try {
+                          await axios.put(`${API_BASE}/drills/${d.id}`, { verified: !d.verified });
+                          toast.success(d.verified ? 'Marca de verificat treta' : 'Drill verificat');
+                          await refreshData();
+                        } catch { toast.error('No s\'ha pogut desar'); }
+                      }}
+                      title={d.verified ? 'Verificat per un parlant · clica per treure la marca' : 'Marca aquest drill com a verificat (text i so correctes)'}
+                      style={{ marginLeft: 'auto', padding: '2px 9px', borderRadius: 'var(--r-pill)', fontSize: '11.5px', fontWeight: 700, cursor: 'pointer',
+                        border: `1px solid ${d.verified ? 'var(--emerald)' : 'var(--border)'}`, background: d.verified ? 'var(--emerald-soft)' : 'var(--surface)', color: d.verified ? 'var(--emerald)' : 'var(--text-soft)' }}
+                    >
+                      {d.verified ? '✓ Verificat' : 'Verifica'}
+                    </button>
                 </div>
             </div>
         );
@@ -826,6 +840,8 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
     // 🖥️ DESKTOP INTERFACE: Standard High-Performance spreadsheet view
     const columnDefs: ColDef<Drill>[] = [
         { field: 'id', headerName: 'ID', width: 80, sortable: true, editable: true },
+        { field: 'verified', headerName: '✓', width: 52, sortable: true, headerTooltip: 'Verificat per un parlant',
+          cellRenderer: (p: any) => (p.value ? <span title="Verificat" style={{ color: 'var(--emerald)', fontWeight: 800 }}>✓</span> : null) },
         {
             field: 'image_url',
             headerName: 'Preview',
