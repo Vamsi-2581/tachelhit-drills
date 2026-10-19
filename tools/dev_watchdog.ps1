@@ -22,7 +22,7 @@ while ($true) {
     }
     if (-not (Up 'http://127.0.0.1:8000/health') -and ((Get-Date) - $lastApi).TotalSeconds -gt 60) {
         Say 'backend down -> starting'
-        Start-Process -FilePath $Python -ArgumentList 'main.py' -WorkingDirectory (Join-Path $Root 'backend') `
+        Start-Process -FilePath $Python -ArgumentList '-X','utf8','main.py' -WorkingDirectory (Join-Path $Root 'backend') `
             -WindowStyle Hidden -RedirectStandardOutput (Join-Path $env:TEMP 'tachelhit-backend.log') -RedirectStandardError (Join-Path $env:TEMP 'tachelhit-backend.err.log')
         $lastApi = Get-Date
     }

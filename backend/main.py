@@ -2,6 +2,7 @@
 import asyncio
 import threading
 import os
+import sys
 import glob
 import subprocess
 import json
@@ -41,6 +42,14 @@ from deep_translator import GoogleTranslator
 
 # Load environment variables
 load_dotenv()
+# Console output must never break a pipeline step: on Windows a redirected stdout defaults to
+# cp1252 and print() of «ɣ» raised UnicodeEncodeError inside lesson_audio_vocabulary (local
+# capture backend, 2026-10-19), which the caller took as "the listening failed".
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
 # Our own ASR Space (NeMo Tifinagh model + /transcribe + /align, huggingface-asr-space/). The
 # Tamazight-NLP/ASR Space it used to default to is Gradio-only: no /transcribe route (404).
 ASR_SPACE_DEFAULT = "https://huggingface.co/spaces/josepabloucr/huggingface-asr-space"
