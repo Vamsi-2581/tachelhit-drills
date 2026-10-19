@@ -54,7 +54,7 @@ export default function ImageFillPanel() {
           <span style={{ display: 'inline-flex', width: 38, height: 38, borderRadius: 'var(--r-md)', background: 'var(--brand-gradient-soft)', color: 'var(--brand-1)', alignItems: 'center', justifyContent: 'center' }}><FaImage /></span>
           <div>
             <div style={{ fontWeight: 700, fontFamily: 'var(--font-display)', fontSize: '16px', color: 'var(--text)' }}>Imatges dels drills</div>
-            <div style={{ fontSize: '12.5px', color: 'var(--text-soft)' }}>Genera il·lustracions (IA) per als drills concrets que no en tenen</div>
+            <div style={{ fontSize: '12.5px', color: 'var(--text-soft)' }}>Dibuixa el sentit de cada frase en un sol estil de fitxa (sense text) per als drills que no tenen imatge</div>
           </div>
         </div>
         {running ? (

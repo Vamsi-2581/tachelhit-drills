@@ -215,6 +215,12 @@ export const api = {
   transliterate: (text: string) =>
     request<TransliterationForms>(`/transliterate?text=${encodeURIComponent(text)}`),
 
+  // --- one drill's picture: Gemini draws the sentence in the flashcard style; `hint` says what to draw ---
+  illustrateDrill: (drillId: number, hint?: string) =>
+    request<{ image_url: string; photographer: string }>(`/generate-image/${drillId}`, {
+      method: 'POST', body: JSON.stringify({ use_ai: true, search_query: hint?.trim() || null }),
+    }),
+
   // --- bulk image fill (background job) ---
   imageFillStart: (onlyDepictable = true) =>
     request<{ status: string }>(`/images/fill-missing?only_depictable=${onlyDepictable}`, { method: 'POST' }),

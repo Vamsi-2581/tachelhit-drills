@@ -133,7 +133,7 @@ function App() {
   ];
   const navBtn = (active: boolean): React.CSSProperties => ({
     flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: '6px',
-    padding: compactNav ? '8px 9px' : '8px 14px', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: '14px',
+    padding: compactNav ? '8px 7px' : '8px 14px', borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: '14px',
     cursor: 'pointer', border: '1px solid transparent', whiteSpace: 'nowrap',
     background: active ? 'var(--brand-gradient-soft)' : 'transparent',
     color: active ? 'var(--brand-1)' : 'var(--text-soft)',
@@ -155,7 +155,7 @@ function App() {
             <span style={{ width: '30px', height: '30px', borderRadius: '9px', background: 'var(--brand-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>ⵣ</span>
             {!compactNav && <span style={{ fontWeight: 800, fontSize: '16px', color: 'var(--text)', letterSpacing: '-0.01em' }}>Tamazight</span>}
           </button>
-          <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', flex: 1, minWidth: 0, padding: '2px 0', scrollbarWidth: 'none' }}>
+          <div style={{ display: 'flex', gap: compactNav ? '2px' : '4px', overflowX: 'auto', flex: 1, minWidth: 0, padding: '2px 0', scrollbarWidth: 'none' }}>
             {navLinks.map(l => (
               <button key={l.to} onClick={() => navigate(l.to)} title={l.label} aria-label={l.label}
                 style={navBtn(l.to === '/' ? location.pathname === '/' : location.pathname.startsWith(l.to))}>

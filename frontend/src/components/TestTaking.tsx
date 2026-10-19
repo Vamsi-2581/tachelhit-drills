@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import SourceCredit from './SourceCredit';
 import axios from 'axios';
 import { API_BASE, getMediaUrl, getUserName } from '../config';
+import { answerSafeFilter } from '../utils/media';
 import { api } from '../api';
 import { toast } from '../toast';
 import { syncManager } from '../services/OfflineSyncManager';
@@ -802,7 +803,9 @@ export default function TestTaking({ testId, onExit }: { testId: number; onExit:
                   maxWidth: '100%',
                   maxHeight: '200px',
                   borderRadius: 'var(--r-md)',
-                  objectFit: 'contain'
+                  objectFit: 'contain',
+                  // a video frame can carry the subtitle with the answer: blur it until answered
+                  filter: answerSafeFilter(currentDrill.image_url, !showCorrectAnswer)
                 }}
               />
             </div>

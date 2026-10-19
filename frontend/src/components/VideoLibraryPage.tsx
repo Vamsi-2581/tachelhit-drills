@@ -1,115 +1,97 @@
-import '../agGridSetup';
 import { useState, useEffect, useMemo } from 'react';
-import { AgGridReact } from 'ag-grid-react';
-import type { ColDef } from 'ag-grid-community';
-import 'ag-grid-community/styles/ag-theme-alpine.css';
 import axios from 'axios';
+import { FaPlay } from 'react-icons/fa';
 import { API_BASE } from '../config';
-import { isYouTubeUrl, getYouTubeVideoId } from '../utils/youtubeUtils';
+import { getYouTubeVideoId } from '../utils/youtubeUtils';
+import type { Drill } from '../types';
 import VideoLibraryPlayer from './VideoLibraryPlayer';
 
+type LibraryVideo = { id: string; url: string; title: string; drills: Drill[] };
+
+// Captured drills keep the YouTube link in source_url (video_url holds the
+// Cloudinary clip); older hand-made drills put the YouTube link in video_url.
+const youtubeLinkOf = (d: Drill): string | null => {
+  for (const u of [d.source_url, d.video_url]) {
+    if (u && getYouTubeVideoId(u)) return u;
+  }
+  return null;
+};
+
+export const groupLibraryVideos = (drills: Drill[]): LibraryVideo[] => {
+  const grouped: Record<string, LibraryVideo> = {};
+  for (const d of drills) {
+    if (d.video_start_time === null || d.video_start_time === undefined) continue;
+    const url = youtubeLinkOf(d);
+    const id = url ? getYouTubeVideoId(url) : null;
+    if (!url || !id) continue;
+    if (!grouped[id]) grouped[id] = { id, url, title: d.source_title || d.tag || `Vídeo ${id}`, drills: [] };
+    grouped[id].drills.push(d);
+  }
+  return Object.values(grouped)
+    .map(v => ({ ...v, drills: [...v.drills].sort((a, b) => Number(a.video_start_time) - Number(b.video_start_time)) }))
+    .sort((a, b) => b.drills.length - a.drills.length);
+};
+
 export default function VideoLibraryPage() {
-    const [drills, setDrills] = useState<any[]>([]);
-    const [activeLibraryVideo, setActiveLibraryVideo] = useState<{url: string, drills: any[]} | null>(null);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(false);
+  const [drills, setDrills] = useState<Drill[]>([]);
+  const [active, setActive] = useState<LibraryVideo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-    useEffect(() => {
-        setLoading(true);
-        setError(false);
-        axios.get(`${API_BASE}/drills/`)
-            .then(res => { setDrills(res.data); setLoading(false); })
-            .catch(err => { console.error('Failed to load drills:', err); setError(true); setLoading(false); });
-    }, []);
+  useEffect(() => {
+    axios.get(`${API_BASE}/drills/`)
+      .then(res => setDrills(res.data))
+      .catch(err => { console.error('Failed to load drills:', err); setError(true); })
+      .finally(() => setLoading(false));
+  }, []);
 
-    const libraryVideos = useMemo(() => {
-        const grouped: Record<string, { url: string; drills: any[] }> = {};
+  const videos = useMemo(() => groupLibraryVideos(drills), [drills]);
 
-        drills.forEach(drill => {
-            if (drill.video_url && isYouTubeUrl(drill.video_url)) {
-                const videoId = getYouTubeVideoId(drill.video_url); 
-                
-                if (videoId) {
-                    if (!grouped[videoId]) {
-                        grouped[videoId] = { url: drill.video_url, drills: [] };
-                    }
-                    if (drill.video_start_time !== null && drill.video_start_time !== undefined) {
-                        grouped[videoId].drills.push(drill);
-                    }
-                }
-            }
-        });
-        
-        return Object.entries(grouped).map(([videoId, data]) => {
-            // Sort chronologically so subtitles appear in order
-            const sortedDrills = data.drills.sort((a, b) => Number(a.video_start_time) - Number(b.video_start_time));
-            
-            return {
-                id: videoId,
-                url: data.url,
-                drillCount: sortedDrills.length,
-                title: sortedDrills[0]?.tag || sortedDrills[0]?.author || `Vídeo: ${videoId}`,
-                drills: sortedDrills
-            };
-        }).filter(video => video.drillCount > 0);
-    }, [drills]);
+  return (
+    <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
+      <div style={{ padding: 'clamp(12px, 4vw, 24px)', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+        <h1 id="library-title" style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 'clamp(20px, 5vw, 24px)', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
+          Biblioteca de vídeos{videos.length > 0 && <span style={{ marginLeft: 10, fontSize: 14, fontWeight: 600, color: 'var(--text-muted)' }}>{videos.length}</span>}
+        </h1>
+        <p style={{ margin: '4px 0 0 0', color: 'var(--text-soft)', fontSize: '14px' }}>Els vídeos sencers, amb els drills que n'has capturat com a subtítols.</p>
+      </div>
 
-    const columnDefs: ColDef[] = [
-        { field: 'title', headerName: 'Perfil del vídeo', flex: 1 },
-        { field: 'drillCount', headerName: 'Nombre de drills (subtítols)', width: 250 },
-        {
-            headerName: 'Acció',
-            width: 150,
-            cellRenderer: (params: any) => (
-                <button
-                    onClick={() => setActiveLibraryVideo(params.data)}
-                    aria-label={`Reprodueix el vídeo sencer: ${params.data.title}`}
-                    style={{ padding: '8px 16px', background: 'var(--brand-gradient)', color: 'white', border: 'none', borderRadius: 'var(--r-pill)', cursor: 'pointer', fontWeight: 700, fontSize: '13px', boxShadow: 'var(--shadow-brand)' }}
-                >
-                    <span aria-hidden="true">▶</span> Reprodueix el vídeo sencer
-                </button>
-            )
-        }
-    ];
-
-    return (
-        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
-            <div style={{ padding: 'clamp(12px, 4vw, 24px)', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-                <h1 id="library-title" style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 'clamp(20px, 5vw, 24px)', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>Biblioteca de vídeos</h1>
-                <p style={{ margin: '4px 0 0 0', color: 'var(--text-soft)', fontSize: '14px' }}>Vídeos complets sincronitzats amb les traduccions dels teus drills.</p>
+      <div role="region" aria-labelledby="library-title" style={{ padding: 'clamp(12px, 4vw, 32px)', display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 300px), 1fr))', alignContent: 'start' }}>
+        {error && (
+          <div style={{ gridColumn: '1 / -1', padding: '12px 16px', background: 'var(--surface)', border: '1px solid var(--rose)', borderRadius: 'var(--r-md)', color: 'var(--rose)', fontSize: 14 }}>
+            No s'han pogut carregar els vídeos. Torna-ho a provar més tard.
+          </div>
+        )}
+        {loading && !error && <div style={{ gridColumn: '1 / -1', color: 'var(--text-soft)', fontSize: 14 }}>S'estan carregant els vídeos…</div>}
+        {!loading && !error && videos.length === 0 && (
+          <div style={{ gridColumn: '1 / -1', padding: 28, textAlign: 'center', background: 'var(--surface)', border: '1px dashed var(--border)', borderRadius: 'var(--r-lg)', color: 'var(--text-soft)', fontSize: 14 }}>
+            Encara no hi ha vídeos. Captura una cançó o un conte des de <b>Captura</b> i apareixerà aquí sencer, amb els seus drills com a subtítols.
+          </div>
+        )}
+        {videos.map(v => (
+          <button
+            key={v.id}
+            onClick={() => setActive(v)}
+            aria-label={`Reprodueix el vídeo sencer: ${v.title}`}
+            style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', padding: 0, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--r-lg)', overflow: 'hidden', cursor: 'pointer', boxShadow: 'var(--shadow-sm)', color: 'var(--text)' }}
+          >
+            <div style={{ position: 'relative', aspectRatio: '16 / 9', background: 'var(--surface-2)' }}>
+              <img src={`https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(15,23,42,0.72)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', paddingLeft: 4 }}><FaPlay size={18} /></span>
+              </span>
             </div>
-
-            {error && (
-                <div style={{ margin: 'clamp(12px, 4vw, 32px)', marginBottom: 0, padding: '12px 16px', background: 'var(--surface)', border: '1px solid var(--rose)', borderRadius: 'var(--r-md)', color: 'var(--rose)', fontSize: '14px' }}>
-                    No s'han pogut carregar els vídeos. Torna-ho a provar més tard.
-                </div>
-            )}
-
-            <div
-                className="ag-theme-alpine"
-                role="region"
-                aria-labelledby="library-title"
-                style={{ flex: 1, width: '100%', padding: 'clamp(12px, 4vw, 32px)' }}
-            >
-                <AgGridReact
-                    rowData={libraryVideos}
-                    columnDefs={columnDefs}
-                    rowHeight={60}
-                    theme="legacy"
-                    loading={loading}
-                    overlayLoadingTemplate="<span style='padding:16px;color:var(--text-soft)'>S'estan carregant els vídeos…</span>"
-                    overlayNoRowsTemplate="<span style='padding:16px;color:var(--text-soft)'>Encara no hi ha vídeos sincronitzats amb els teus drills. Afegeix marques de temps als drills per veure'ls aquí.</span>"
-                    defaultColDef={{ resizable: true, sortable: true, filter: true }}
-                />
+            <div style={{ padding: '12px 14px 14px' }}>
+              <div style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{v.title}</div>
+              <div style={{ marginTop: 6, fontSize: 13, color: 'var(--text-soft)' }}>
+                {v.drills.length} {v.drills.length === 1 ? 'drill' : 'drills'}{v.drills[0]?.variety ? ` · ${v.drills[0].variety}` : ''}
+              </div>
             </div>
-            
-            {activeLibraryVideo && (
-                <VideoLibraryPlayer 
-                    videoUrl={activeLibraryVideo.url} 
-                    drills={activeLibraryVideo.drills} 
-                    onClose={() => setActiveLibraryVideo(null)} 
-                />
-            )}
-        </div>
-    );
+          </button>
+        ))}
+      </div>
+
+      {active && <VideoLibraryPlayer videoUrl={active.url} drills={active.drills} onClose={() => setActive(null)} />}
+    </div>
+  );
 }

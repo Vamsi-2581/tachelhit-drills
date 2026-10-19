@@ -20,6 +20,7 @@ from typing import Optional, List, Dict, Any, Tuple
 import hashlib
 import re
 import secrets
+from illustrate import generate_illustration, illustration_available
 from gemini_client import gemini_generate, gemini_available, gemini_agent
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -2096,7 +2097,12 @@ async def generate_image(
     photographer_info = "AI Generator"
 
     try:
-        if use_ai:
+        if use_ai and illustration_available():
+            # Gemini draws the sentence in the deck's flashcard style (see illustrate.py);
+            # `search_query` becomes a hint on what to draw, never the text itself.
+            image_bytes = await asyncio.to_thread(generate_illustration, drill.text_catalan or search_query or "", search_query)
+            photographer_info = "Gemini illustration"
+        elif use_ai:
             # 1. NOM DEL REPOSITORI (New dedicated Space)
             PHOTO_SPACE = os.getenv("HUGGINGFACE_IMAGE_SPACE_URL", "josepabloucr/tachelhit-image-service")
 
@@ -2140,10 +2146,10 @@ async def generate_image(
 
 
 # ---- Bulk image fill (background job) --------------------------------------
-# Auto-illustrate drills that lack an image. Per the quality probe, SD-Turbo
-# only produces usable images for DEPICTABLE content (concrete nouns / actions
-# / scenes / full sentences); abstract drills (grammar labels, interjections)
-# render garbled text, so they are skipped by default.
+# Auto-illustrate drills that lack an image, with Gemini's image model in the
+# flashcard style (illustrate.py) when Gemini is configured, else the SD-Turbo
+# Space. Grammar labels and bare interjections are skipped by default: there is
+# no scene to draw for "sí sí sí".
 _image_fill_job = {"running": False, "total": 0, "done": 0, "failed": 0, "skipped": 0, "current": ""}
 
 
@@ -2158,19 +2164,25 @@ def _image_api_predict(client, prompt):
     return client.predict(prompt)
 
 
+_GRAMMAR_WORDS = ("verb", "temps verbals", "gramàt", "gramat", "conjug", "pronom", "adjectiu", "preposici", "plural ", "singular ")
+
+
 def _is_depictable(drill) -> bool:
+    """Is there a scene to draw? A single concrete word ("carbassa", "vent") is the most
+    drawable thing there is; what has no scene is a grammar label ("Verb comprar — temps
+    verbals") or a chant of one word ("sí sí sí")."""
     text = (drill.text_catalan or "").strip()
     if not text:
         return False
+    low = text.lower()
+    if any(k in low for k in _GRAMMAR_WORDS):
+        return False
     tag = (drill.tag or "").lower()
-    if any(k in tag for k in ("srt", "gramat", "grammar", "lyric")):
+    if any(k in tag for k in ("gramat", "gramàt", "grammar")):
         return False
     lowered = [w.strip(".,!?¡¿…-").lower() for w in text.split()]
     lowered = [w for w in lowered if w]
-    # single word or repeated interjection ("sí sí sí", "no, no, no")
-    if len(set(lowered)) <= 1 and len(text) <= 14:
-        return False
-    return True
+    return not (len(lowered) >= 2 and len(set(lowered)) == 1)
 
 
 def _run_image_fill(only_depictable: bool = True):
@@ -2193,12 +2205,15 @@ def _run_image_fill(only_depictable: bool = True):
                 continue
             _image_fill_job["current"] = (d.text_catalan or "")[:40]
             try:
-                if client is None:
-                    client = Client(space)
-                prompt = translator_ca_to_en.translate(d.text_catalan)
-                result_path = _image_api_predict(client, prompt)
-                with open(result_path, "rb") as f:
-                    image_bytes = f.read()
+                if illustration_available():
+                    image_bytes = generate_illustration(d.text_catalan)
+                else:
+                    if client is None:
+                        client = Client(space)
+                    prompt = translator_ca_to_en.translate(d.text_catalan)
+                    result_path = _image_api_predict(client, prompt)
+                    with open(result_path, "rb") as f:
+                        image_bytes = f.read()
                 up = cloudinary.uploader.upload(
                     image_bytes, folder="tachelhit/images",
                     public_id=f"img_{d.id}_{int(datetime.utcnow().timestamp())}",

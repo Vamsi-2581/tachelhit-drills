@@ -112,3 +112,14 @@ export function sourceCredit(d: { source_url?: string | null; source_channel?: s
   if (parts.length) return parts.join(' · ');
   try { return new URL(d.source_url as string).hostname.replace(/^www\./, ''); } catch { return 'font externa'; }
 }
+
+// ---- Drill pictures ---------------------------------------------------------
+// A drill picture is either an illustration drawn for the sentence or a frame cut
+// from the source video. A frame often carries the burned-in subtitle — the very
+// Tachelhit line the learner is supposed to produce — so wherever the answer is
+// hidden (tests, review mode) the frame is blurred, never shown as is.
+export const isVideoFrame = (url?: string | null): boolean => !!url && /\/image_segments\//.test(url);
+
+// CSS filter for a frame while the answer is hidden: the scene's colours stay, the text goes.
+export const answerSafeFilter = (url?: string | null, hidden = true): string | undefined =>
+  hidden && isVideoFrame(url) ? 'blur(14px) saturate(1.1)' : undefined;
