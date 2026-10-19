@@ -1,13 +1,22 @@
---extra-index-url https://download.pytorch.org/whl/cpu
-torch
-torchaudio
+# Pinned to the package set NeMo 2.0.0rc1 was released against (Aug 2024): today's
+# pytorch-lightning (2.6) removed NeptuneLogger and today's transformers (5.x) breaks its
+# imports, so an unpinned build fails. torch/torchaudio CPU wheels are installed by the
+# Dockerfile before this file.
 Cython
 numpy<2.0.0
+pytorch-lightning==2.2.4
+lightning==2.2.4
+transformers==4.44.2
+huggingface_hub==0.24.6
 nemo-toolkit[asr]==2.0.0rc1
+ipython
 librosa
 soundfile
 python-multipart
-fastapi
+fastapi==0.112.4
+starlette<0.39
+pydantic<2.11
 uvicorn[standard]
-gradio
+gradio==4.44.1
+gradio_client==1.3.0
 requests
