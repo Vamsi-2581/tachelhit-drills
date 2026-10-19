@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaBolt, FaCheck, FaExclamationTriangle } from 'react-icons/fa';
-import { api, type CaptureStatus } from '../api';
+import { api, type CaptureStatus, type CaptureQueueItem } from '../api';
 import { toast } from '../toast';
 
 // Hands-off capture: queue a URL for the local agent to download on the user's
@@ -29,6 +29,15 @@ export default function AutoCapturePanel() {
   const [status, setStatus] = useState<CaptureStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [agent, setAgent] = useState<{ online: boolean; version: string | null } | null>(null);
+  // The queue: what the agent has done and is doing (the server's list, not the agent's log).
+  const [queue, setQueue] = useState<CaptureQueueItem[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.captureQueue(20).then((q) => { if (alive) setQueue(q.requests); }).catch(() => {});
+    load();
+    const id = window.setInterval(load, 15000);
+    return () => { alive = false; window.clearInterval(id); };
+  }, [status?.status]);
   const timer = useRef<number | null>(null);
   const navigate = useNavigate();
 
@@ -137,6 +146,27 @@ export default function AutoCapturePanel() {
           </span>
         )}
       </div>
+
+      {queue.length > 0 && (
+        <div style={{ marginTop: '14px' }}>
+          <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' }}>Cua de captures</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {queue.map((r) => {
+              const state = r.status === 'done' ? 'fet' : r.status === 'failed' ? 'error' : r.status === 'pending' ? 'en cua' : 'en curs';
+              const color = r.status === 'done' ? 'var(--emerald)' : r.status === 'failed' ? 'var(--rose)' : r.status === 'pending' ? 'var(--text-muted)' : 'var(--saffron-strong)';
+              const when = r.created_at ? new Date(r.created_at).toLocaleTimeString('ca-ES', { hour: '2-digit', minute: '2-digit' }) : '';
+              return (
+                <div key={r.id} title={r.error || r.url} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', borderRadius: 'var(--r-md)', background: 'var(--surface-2)', border: '1px solid var(--border)', fontSize: '12.5px' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flex: 'none' }} aria-hidden />
+                  <span style={{ fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{r.tag || r.url.replace(/^https?:\/\/(www\.)?/, '')}</span>
+                  <span style={{ color, fontWeight: 700, flex: 'none' }}>{state}{r.drills_created != null ? ` · ${r.drills_created} drills` : ''}</span>
+                  <span style={{ color: 'var(--text-muted)', flex: 'none' }}>{when}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

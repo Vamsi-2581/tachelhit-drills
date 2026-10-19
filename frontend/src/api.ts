@@ -101,6 +101,19 @@ export interface CaptureStatus {
   error: string | null;
 }
 
+export interface CaptureQueueItem {
+  id: number;
+  url: string;
+  tag: string | null;
+  variety: string | null;
+  status: string;                 // pending | claimed | processing | done | failed
+  job_status: string | null;
+  drills_created: number | null;
+  error: string | null;
+  created_at: string | null;
+  claimed_at: string | null;
+}
+
 export interface SpaceState {
   state: 'up' | 'waking' | 'down' | 'private_or_missing' | 'unset';
   id?: string;
@@ -201,6 +214,7 @@ export const api = {
     }),
   captureStatus: (id: number) => request<CaptureStatus>(`/capture/${id}`),
   captureAgent: () => request<{ online: boolean; last_seen: string | null; version: string | null }>('/capture/agent'),
+  captureQueue: (limit = 20) => request<{ requests: CaptureQueueItem[]; agent: { online: boolean; version: string | null } }>(`/capture/queue?limit=${limit}`),
 
   // --- AI Space health (reliability) ---
   spacesHealth: () => request<SpacesHealth>('/health/spaces'),
