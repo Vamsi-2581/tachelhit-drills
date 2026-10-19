@@ -263,6 +263,26 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
     };
   }, [isPlaying]);
 
+  // The big button: pause while playing, resume from the same point when paused, start otherwise.
+  const [isPaused, setIsPaused] = useState(false);
+  const togglePlayback = () => {
+    const activeAudio = audioRef.current || ttsAudioRef.current;
+    if (isPlaying && activeAudio) {
+      activeAudio.pause();
+      setIsPaused(true);
+      setIsPlaying(false);
+      return;
+    }
+    if (isPaused && activeAudio && !activeAudio.ended) {
+      setIsPaused(false);
+      setIsPlaying(true);
+      activeAudio.play().catch(() => { setIsPlaying(false); setIsPaused(false); });
+      return;
+    }
+    setIsPaused(false);
+    playCurrentAudio();
+  };
+
   const handleSeek = (time: number) => {
     const activeAudio = audioRef.current || ttsAudioRef.current;
     if (activeAudio) {
@@ -1103,9 +1123,9 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
 
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0 }}>
           <button
-            onClick={playCurrentAudio}
-            disabled={isPlaying}
-            aria-label={isPlaying ? 'Reproduint' : 'Reprodueix l\'àudio'}
+            onClick={togglePlayback}
+            aria-label={isPlaying ? 'Pausa' : (isPaused ? 'Continua' : 'Reprodueix l\'àudio')}
+            title={isPlaying ? 'Pausa' : (isPaused ? 'Continua' : 'Reprodueix')}
             style={{
               width: '60px',
               height: '60px',
@@ -1114,12 +1134,11 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
               color: 'white',
               border: 'none',
               fontSize: '24px',
-              cursor: isPlaying ? 'default' : 'pointer',
+              cursor: 'pointer',
               boxShadow: 'var(--shadow-brand)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              opacity: isPlaying ? 0.9 : 1,
               transition: 'all 0.2s'
             }}
           >
