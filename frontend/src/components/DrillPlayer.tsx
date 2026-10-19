@@ -16,6 +16,7 @@ declare global {
 }
 
 import type { Drill } from '../types';
+import { useIsMobileLayout } from '../utils/layout';
 
 interface DrillPlayerProps {
   drills: Drill[];
@@ -34,6 +35,8 @@ interface VideoControls {
 }
 
 export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: DrillPlayerProps) {
+  // Phones: the grading bar docks full-width at the bottom and keyboard hints are dropped
+  const compactUi = useIsMobileLayout();
   // Style definitions (moved to top to avoid "used before declaration" errors)
   const cleanButtonStyle = {
     background: 'rgba(255,255,255,0.15)',
@@ -938,7 +941,7 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
 
       {/* Navigation Footer — leaves room for the grading bar in review mode */}
       <div style={{
-        padding: reviewMode && onGrade ? '16px 20px calc(92px + env(safe-area-inset-bottom, 0px))' : '16px 20px calc(16px + env(safe-area-inset-bottom, 0px))',
+        padding: reviewMode && onGrade ? `16px 20px calc(${compactUi ? 136 : 92}px + env(safe-area-inset-bottom, 0px))` : '16px 20px calc(16px + env(safe-area-inset-bottom, 0px))',
         background: 'var(--surface)',
         borderTop: '1px solid var(--border)',
         boxShadow: '0 -4px 16px rgba(15,23,42,0.04)',
@@ -1601,11 +1604,12 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
       {/* Spaced-repetition grading bar */}
       {reviewMode && onGrade && currentDrill && (
         <div style={{
-          position: 'fixed', bottom: 'calc(18px + env(safe-area-inset-bottom, 0px))', left: '50%', transform: 'translateX(-50%)',
-          display: 'flex', gap: '10px', zIndex: 10001,
-          flexWrap: 'wrap', justifyContent: 'center', maxWidth: '96vw',
-          background: 'rgba(15, 23, 42, 0.85)', padding: '10px 14px',
-          borderRadius: 'var(--r-pill)', backdropFilter: 'blur(8px)', boxShadow: 'var(--shadow-lg)'
+          position: 'fixed', zIndex: 10001, display: 'flex', gap: compactUi ? '8px' : '10px',
+          flexWrap: 'wrap', justifyContent: 'center',
+          background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)', boxShadow: 'var(--shadow-lg)',
+          ...(compactUi
+            ? { left: 0, right: 0, bottom: 0, padding: '10px 10px calc(12px + env(safe-area-inset-bottom, 0px))', borderRadius: 'var(--r-xl) var(--r-xl) 0 0' }
+            : { bottom: 'calc(18px + env(safe-area-inset-bottom, 0px))', left: '50%', transform: 'translateX(-50%)', maxWidth: '96vw', padding: '10px 14px', borderRadius: 'var(--r-pill)' })
         }}>
           {hideAnswer ? (
             <button
@@ -1614,11 +1618,11 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
               style={{
                 padding: '12px 28px', background: 'var(--brand-1)', color: 'white',
                 border: 'none', borderRadius: 'var(--r-pill)', fontWeight: 800,
-                fontSize: '15px', cursor: 'pointer',
+                fontSize: '15px', cursor: 'pointer', whiteSpace: 'nowrap',
                 display: 'inline-flex', alignItems: 'center', gap: '8px'
               }}
             >
-              <FaEye /> Mostra la resposta (Espai)
+              <FaEye /> Mostra la resposta{!compactUi && ' (Espai)'}
             </button>
           ) : (
           <>
@@ -1651,14 +1655,14 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
               aria-label={`${label} (tecla ${i + 1})`}
               title={suggestedGrade === g ? 'Suggerit per la teva pronunciació' : undefined}
               style={{
-                padding: '10px 16px', background: bg, color: 'white', border: 'none',
+                padding: compactUi ? '10px 12px' : '10px 16px', background: bg, color: 'white', border: 'none',
                 borderRadius: 'var(--r-pill)', fontWeight: 700, fontSize: '14px', cursor: 'pointer',
                 display: 'inline-flex', alignItems: 'center', gap: '6px',
                 boxShadow: suggestedGrade === g ? '0 0 0 3px rgba(255,255,255,0.85)' : undefined,
                 transform: suggestedGrade === g ? 'scale(1.08)' : undefined
               }}
             >
-              <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', background: 'rgba(255,255,255,0.85)', borderRadius: 'var(--r-sm)', padding: '1px 5px', lineHeight: 1.4 }}>{i + 1}</span>
+              {!compactUi && <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', background: 'rgba(255,255,255,0.85)', borderRadius: 'var(--r-sm)', padding: '1px 5px', lineHeight: 1.4 }}>{i + 1}</span>}
               {suggestedGrade === g ? <FaStar /> : null}{label}
             </button>
           ))}
