@@ -3378,17 +3378,21 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                     seg["text_catalan"] = tr["ca"]
                 if "ar" in tr:
                     seg["text_arabic"] = tr["ar"]
-        if foreign and plain and has_segments and os.getenv("NARRATION_DRAFTS", "0") == "1":
+        if foreign and plain and has_segments and os.getenv("NARRATION_DRAFTS", "1") != "0":
             # What is actually SPOKEN (draft): transcribe the narration per cue, with the
-            # caption as the meaning anchor. OFF by default: evaluated on the hedgehog
-            # story, 9 of 14 drafts were unrelated to the Arabic — Tamazight ASR is not
-            # solved, even anchored. Enable with NARRATION_DRAFTS=1 for experiments.
+            # caption as the meaning anchor. Tamazight ASR is not solved (on the hedgehog
+            # story 9 of 14 drafts were unrelated to the Arabic), so the draft is written
+            # as a machine listening bracket "[? …]" in the suggestion field — the same
+            # convention as tools/review_heard.py — and never as the Latin form: the
+            # verification queue then offers it to a speaker as a one-tap option.
+            # Disable with NARRATION_DRAFTS=0.
             try:
                 spoken = await asyncio.to_thread(transcribe_narration, video_path, tmp_dir, plain, src_name)
                 for i, seg in enumerate(plain):
-                    if i in spoken:
-                        seg["text_tachelhit_suggested"] = spoken[i]["tifinagh"] or spoken[i]["latin"]
-                        seg["latin"] = spoken[i]["latin"] or None
+                    heard = (spoken.get(i) or {}).get("latin") or (spoken.get(i) or {}).get("tifinagh") or ""
+                    heard = " ".join(heard.split())
+                    if heard and not any(c in heard for c in '{}"[]'):
+                        seg["text_tachelhit_suggested"] = f"[? {heard}]"
                 print(f"[NARRATION] {len(spoken)}/{len(plain)} cues got a spoken-Tamazight draft")
             except Exception as e:
                 print(f"[NARRATION] skipped: {e}")
