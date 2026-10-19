@@ -455,10 +455,31 @@ export default function DrillsResponsive() {
             })}
           </div>
         )}
-        {/* Subjects: one chip per topic of the catalogue (what the drill teaches), by size. */}
+        {/* Subjects: one chip per topic of the catalogue (what the drill teaches), by size.
+            With a subject selected, «Test del tema» makes a test of every drill shown. */}
         {subjects.length > 0 && (
           <div role="group" aria-label="Temes" style={{ display: 'flex', gap: '6px', overflowX: 'auto', scrollbarWidth: 'none', padding: isMobile ? '2px 8px 6px' : '2px 0 6px', flexShrink: 0, alignItems: 'center' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Temes</span>
+            {searchCategory === 'topic' && searchQuery && filteredDrills.length > 0 && (
+              <button
+                onClick={async () => {
+                  const ids = filteredDrills.slice(0, 200).map((d: Drill) => d.id);
+                  try {
+                    await axios.post(`${API_BASE}/tests/`, {
+                      title: topicLabel(searchQuery), description: `Test del tema «${topicLabel(searchQuery)}» (${ids.length} drills)`,
+                      question_type: 'text_input', hint_level: 'none', hint_percentage: 30, hint_tries_before_reveal: 3,
+                      time_limit_seconds: null, passing_score: 70, drill_ids: ids.join(','),
+                    });
+                    toast.success(`Test «${topicLabel(searchQuery)}» creat amb ${ids.length} drills`);
+                    navigate('/tests');
+                  } catch { toast.error('No s\'ha pogut crear el test'); }
+                }}
+                title={`Crea un test amb els ${Math.min(filteredDrills.length, 200)} drills d'aquest tema`}
+                style={{ flexShrink: 0, padding: '5px 10px', borderRadius: 'var(--r-pill)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', border: '1px solid var(--brand-1)', background: 'var(--brand-gradient-soft)', color: 'var(--brand-1)' }}
+              >
+                🎓 Test del tema ({Math.min(filteredDrills.length, 200)})
+              </button>
+            )}
             {subjects.map(({ slug, count }) => {
               const active = searchCategory === 'topic' && searchQuery === slug;
               return (
