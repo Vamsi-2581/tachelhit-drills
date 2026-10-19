@@ -41,6 +41,9 @@ from deep_translator import GoogleTranslator
 
 # Load environment variables
 load_dotenv()
+# Our own ASR Space (NeMo Tifinagh model + /transcribe + /align, huggingface-asr-space/). The
+# Tamazight-NLP/ASR Space it used to default to is Gradio-only: no /transcribe route (404).
+ASR_SPACE_DEFAULT = "https://huggingface.co/spaces/josepabloucr/huggingface-asr-space"
 
 # Configure Cloudinary
 cloudinary.config(
@@ -2393,7 +2396,7 @@ def transliterate(text: str = ""):
 # slowly. Surfacing their state lets the UI say "waking up… ~30s" + offer to
 # pre-warm, instead of a capture silently failing.
 _HF_SPACES = {
-    "asr": ("HUGGINGFACE_ASR_SPACE_URL", "https://huggingface.co/spaces/Tamazight-NLP/ASR"),
+    "asr": ("HUGGINGFACE_ASR_SPACE_URL", ASR_SPACE_DEFAULT),
     "tts": ("HUGGINGFACE_TTS_SPACE_URL", "Tamazight-NLP/TTS"),
     "translation": ("HUGGINGFACE_TRANSLATION_SPACE_URL", "https://huggingface.co/spaces/josepabloucr/Finetuned-Quantized-NLLB"),
     "ocr": ("HUGGINGFACE_OCR_SPACE_URL", ""),
@@ -3010,7 +3013,7 @@ def process_video_analysis_task(job_id: int, video_path: str, tmp_dir: str, lang
         db.commit()
 
         # 3. Call ASR Space (Direct Proxy)
-        asr_space_url = os.getenv("HUGGINGFACE_ASR_SPACE_URL", "https://huggingface.co/spaces/Tamazight-NLP/ASR")
+        asr_space_url = os.getenv("HUGGINGFACE_ASR_SPACE_URL", ASR_SPACE_DEFAULT)
         if not asr_space_url:
             raise Exception("HUGGINGFACE_ASR_SPACE_URL not configured")
 
@@ -4181,7 +4184,7 @@ def _align_known_lines(media_path: str, lines: List[str]) -> Optional[List[Dict]
     lines = [(l or "").strip() for l in lines]
     if os.getenv("ALIGN_KNOWN_TEXT", "1") != "1" or not any(lines) or not media_path:
         return None
-    space = os.getenv("HUGGINGFACE_ASR_SPACE_URL", "https://huggingface.co/spaces/Tamazight-NLP/ASR")
+    space = os.getenv("HUGGINGFACE_ASR_SPACE_URL", ASR_SPACE_DEFAULT)
     url = resolve_hf_space_host(space) + "/align"
     hf_token = os.getenv("HUGGINGFACE_API_KEY")
     headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
@@ -5631,7 +5634,7 @@ async def pronunciation_check(
             tmp.write(content)
             tmp_path = tmp.name
 
-        asr_space_url = os.getenv("HUGGINGFACE_ASR_SPACE_URL", "https://huggingface.co/spaces/Tamazight-NLP/ASR")
+        asr_space_url = os.getenv("HUGGINGFACE_ASR_SPACE_URL", ASR_SPACE_DEFAULT)
         rough = await asyncio.to_thread(hf_predict, asr_space_url, handle_file(tmp_path), api_name="/predict")
         heard = str(rough or "").strip()
 
@@ -6184,7 +6187,7 @@ def debug_spaces():
     return {
         "huggingface_space_url": os.getenv("HUGGINGFACE_SPACE_URL"),
         "huggingface_image_space_url": os.getenv("HUGGINGFACE_IMAGE_SPACE_URL"),
-        "huggingface_asr_space_url": os.getenv("HUGGINGFACE_ASR_SPACE_URL", "https://huggingface.co/spaces/Tamazight-NLP/ASR"),
+        "huggingface_asr_space_url": os.getenv("HUGGINGFACE_ASR_SPACE_URL", ASR_SPACE_DEFAULT),
         "huggingface_translation_space_url": HUGGINGFACE_TRANSLATION_SPACE_URL,
         "message": "These are the configured Hugging Face Spaces"
     }
@@ -6198,7 +6201,7 @@ async def debug_spaces_status():
     spaces = {
         "huggingface_space_url": os.getenv("HUGGINGFACE_SPACE_URL"),
         "huggingface_image_space_url": os.getenv("HUGGINGFACE_IMAGE_SPACE_URL"),
-        "huggingface_asr_space_url": os.getenv("HUGGINGFACE_ASR_SPACE_URL", "https://huggingface.co/spaces/josepabloucr/ASR"),
+        "huggingface_asr_space_url": os.getenv("HUGGINGFACE_ASR_SPACE_URL", ASR_SPACE_DEFAULT),
         "huggingface_translation_space_url": HUGGINGFACE_TRANSLATION_SPACE_URL,
     }
     results = {}
@@ -6376,7 +6379,7 @@ async def transcribe_audio(
         return TranscribeResponse(rough_transcription=short["latin"], corrected_transcription=short["tifinagh"], similarity_score=0.0)
 
     # Call HF Space
-    asr_space_url = os.getenv("HUGGINGFACE_ASR_SPACE_URL", "https://huggingface.co/spaces/Tamazight-NLP/ASR")
+    asr_space_url = os.getenv("HUGGINGFACE_ASR_SPACE_URL", ASR_SPACE_DEFAULT)
     if not asr_space_url:
         raise HTTPException(status_code=500, detail="HUGGINGFACE_ASR_SPACE_URL not configured in environment")
 
@@ -6437,7 +6440,7 @@ class ASRService:
         """
         Call the Hugging Face ASR Space to transcribe the given audio URL.
         """
-        asr_space_url = os.getenv("HUGGINGFACE_ASR_SPACE_URL", "https://huggingface.co/spaces/josepabloucr/ASR")
+        asr_space_url = os.getenv("HUGGINGFACE_ASR_SPACE_URL", ASR_SPACE_DEFAULT)
         if not asr_space_url:
             raise ValueError("HUGGINGFACE_ASR_SPACE_URL not configured")
 
