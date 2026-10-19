@@ -18,11 +18,42 @@ declare global {
 
 import type { Drill } from '../types';
 import { useIsMobileLayout } from '../utils/layout';
+import { draftUsable } from '../utils/drafts';
 
 /** The unconfirmed reading to show when a drill has no speaker-confirmed text: the
  *  subtitle/AI draft in the suggestion field unless it is a machine listening bracket. */
+/** Word-by-word highlight that follows the voice. The synthetic voice has no word
+ *  timings, so each word's share of the clip is proportional to its length: close
+ *  enough to follow along on a short phrase. `frac` < 0 = not playing (plain text). */
+const KaraokeLine = ({ text, frac, muted }: { text: string; frac: number; muted?: boolean }) => {
+  const tokens = text.split(/\s+/).filter(Boolean);
+  const weights = tokens.map((w) => Math.max(1, w.replace(/[^\p{L}\p{N}]/gu, '').length) + 0.6);
+  const total = weights.reduce((a, b) => a + b, 0) || 1;
+  let active = -1;
+  if (frac >= 0 && tokens.length) {
+    let acc = 0;
+    active = tokens.length - 1;
+    for (let i = 0; i < tokens.length; i++) {
+      acc += weights[i] / total;
+      if (frac < acc) { active = i; break; }
+    }
+  }
+  return (
+    <span>
+      {tokens.map((w, i) => (
+        <span key={i} style={{
+          display: 'inline-block', padding: '0 4px', borderRadius: '8px', transition: 'background-color 0.12s, color 0.12s',
+          background: i === active ? 'var(--saffron-soft)' : 'transparent',
+          color: i === active ? 'var(--saffron-strong)' : (active >= 0 && i < active ? 'var(--text-soft)' : (muted ? 'var(--text-soft)' : undefined)),
+        }}>{w}</span>
+      ))}
+    </span>
+  );
+};
+
 const draftText = (d?: Drill | null): string => {
   if (!d) return '';
+  if (!draftUsable(d)) return '';  // the meaning check rejected it: not for learners
   const sug = (d.text_tachelhit_suggested || '').trim();
   if (sug && !sug.startsWith('[')) return sug;
   return (d.text_tachelhit_latin || '').trim();
@@ -860,12 +891,12 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
             {hideAnswer ? (
               <span style={{ letterSpacing: '8px', opacity: 0.35 }}>· · ·</span>
             ) : currentDrill?.text_tachelhit ? (
-              currentDrill.text_tachelhit
+              <KaraokeLine text={currentDrill.text_tachelhit} frac={isPlaying && audioDuration > 0 ? Math.min(1, audioProgress / audioDuration) : -1} />
             ) : draftText(currentDrill) ? (
               // Captured from subtitles / drafted by a machine and not yet confirmed by a speaker:
               // still worth seeing while learning, but visibly not gold
               <span style={{ color: 'var(--text-soft)', fontWeight: 600 }} title="Esborrany no verificat per cap parlant">
-                {draftText(currentDrill)}
+                <KaraokeLine text={draftText(currentDrill)} frac={isPlaying && audioDuration > 0 ? Math.min(1, audioProgress / audioDuration) : -1} muted />
                 <span style={{ display: 'block', fontSize: '11px', fontFamily: 'inherit', letterSpacing: '0.04em', textTransform: 'uppercase', opacity: 0.7, marginTop: '4px' }}>esborrany · no verificat</span>
               </span>
             ) : (
@@ -882,7 +913,7 @@ export default function DrillPlayer({ drills, onExit, reviewMode, onGrade }: Dri
               fontStyle: 'italic',
               color: 'var(--text-soft)'
             }}>
-              {currentDrill.text_tachelhit_latin}
+              <KaraokeLine text={currentDrill.text_tachelhit_latin} frac={isPlaying && audioDuration > 0 ? Math.min(1, audioProgress / audioDuration) : -1} muted />
             </div>
           )}
 

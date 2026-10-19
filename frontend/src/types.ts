@@ -20,6 +20,7 @@ export interface Drill {
   // Documentation / variation layer
   text_tachelhit_latin?: string;
   text_tachelhit_suggested?: string; // machine/AI draft (not gold)
+  draft_check?: string; // JSON verdict of the draft's meaning check (yes/roughly/no)
   text_catalan_suggested?: string;
   variety?: string;
   region?: string;

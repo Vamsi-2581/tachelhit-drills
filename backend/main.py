@@ -21,6 +21,7 @@ import hashlib
 import re
 import secrets
 from illustrate import generate_illustration, illustration_available
+from draft_check import check_draft_meaning, draft_status
 from gemini_client import gemini_generate, gemini_available, gemini_agent
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -2232,6 +2233,79 @@ def _run_image_fill(only_depictable: bool = True):
         db.close()
 
 
+def _drill_meanings(d) -> Dict[str, str]:
+    return {"català": d.text_catalan or "", "àrab": d.text_arabic or "", "anglès": getattr(d, "text_english", "") or ""}
+
+
+def _check_drill_draft(d, db) -> Optional[dict]:
+    """Run the meaning check on a drill's draft and store it. None = nothing to check."""
+    if (d.text_tachelhit or "").strip() or not (d.text_tachelhit_suggested or "").strip():
+        return None
+    rec = check_draft_meaning(d.text_tachelhit_suggested, _drill_meanings(d))
+    if rec is None:
+        return None
+    d.draft_check = json.dumps(rec, ensure_ascii=False)
+    db.commit()
+    return rec
+
+
+@app.post("/drafts/check/{drill_id}")
+def check_draft(drill_id: int, db: Session = Depends(get_db)):
+    """Meaning check of one drill's machine draft against its known meaning."""
+    d = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
+    if not d:
+        raise HTTPException(status_code=404, detail="Drill not found")
+    rec = _check_drill_draft(d, db)
+    if rec is None:
+        return {"drill_id": drill_id, "status": "nothing_to_check"}
+    return {"drill_id": drill_id, **rec}
+
+
+_draft_check_job = {"running": False, "total": 0, "done": 0, "failed": 0, "no": 0, "roughly": 0, "yes": 0}
+
+
+def _run_draft_checks():
+    db = SessionLocal()
+    try:
+        todo = [d for d in db.query(DrillModel).all()
+                if not (d.text_tachelhit or "").strip() and (d.text_tachelhit_suggested or "").strip()
+                and draft_status(d.draft_check, d.text_tachelhit_suggested) == "unchecked"]
+        _draft_check_job["total"] = len(todo)
+        for d in todo:
+            if not _draft_check_job["running"]:
+                break
+            try:
+                rec = _check_drill_draft(d, db)
+                if rec:
+                    _draft_check_job[rec["verdict"]] += 1
+                _draft_check_job["done"] += 1
+            except Exception as e:
+                _draft_check_job["failed"] += 1
+                print(f"[DRAFT-CHECK] drill {d.id} failed: {e}")
+                db.rollback()
+    finally:
+        _draft_check_job["running"] = False
+        db.close()
+
+
+@app.post("/drafts/check-missing")
+def check_missing_drafts():
+    """Background: check every unchecked draft (drills with a machine draft and no speaker text)."""
+    if _draft_check_job["running"]:
+        return {"status": "already_running", **_draft_check_job}
+    import threading
+    for k in ("total", "done", "failed", "no", "roughly", "yes"):
+        _draft_check_job[k] = 0
+    _draft_check_job["running"] = True
+    threading.Thread(target=_run_draft_checks, daemon=True).start()
+    return {"status": "started"}
+
+
+@app.get("/drafts/check-missing/status")
+def check_missing_drafts_status():
+    return dict(_draft_check_job)
+
+
 @app.post("/images/fill-missing")
 def fill_missing_images(only_depictable: bool = True):
     if _image_fill_job["running"]:
@@ -3268,6 +3342,7 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         # (letters / words burned into the picture); only if the frames carry no
         # lesson text do we fall back to speech recognition.
         lesson_segments: List[Dict[str, Any]] = []
+        lesson_lines_untimed: List[Dict[str, Any]] = []
         # With lyrics given, the lines are known and only their TIMES are needed: those
         # come from speech recognition. The frame reader would return the lesson text
         # with no times for clips that show no text (a speaker on camera), and the
@@ -3286,6 +3361,13 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                                                               2.0, 12, meta.get("channel"))
             except Exception as e:
                 print(f"[LESSON] frame reading failed: {e}")
+            if lesson_segments and not any(seg.get("start") is not None for seg in lesson_segments):
+                # A narrated lesson (a presenter on camera, words flashed now and then): the
+                # lines are known from the audio but the frames gave no times. Speech
+                # recognition gives the times; the lesson lines are laid on them below.
+                print(f"[LESSON] {len(lesson_segments)} lines heard, none timed on screen -> times from ASR")
+                lesson_lines_untimed = lesson_segments
+                lesson_segments = []
             if lesson_segments:
                 for seg in lesson_segments:
                     if seg.get("start") is None:
@@ -3320,6 +3402,9 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                     "gloss": gloss_,            # e.g. "horse" — translated instead of the Tamazight
                     "gloss_lang": gloss_lang_,  # "en"
                 })
+
+        if lesson_lines_untimed and segments:
+            segments = _attach_lesson_lines(segments, lesson_lines_untimed)
 
         if not segments:
             job.status = "FAILED"
@@ -3443,13 +3528,9 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         # not place: it would become a drill with no clip at all (lessons 04/05/06/12 on
         # 2026-10-18 each produced one, sometimes with the wrong letter). Drop those; a
         # pure audio transcript (nothing timed) keeps its text-only drills as before.
-        _any_timed = any(s.get("start") is not None for s in segments)
         for seg in segments:
             original_text = seg.get("text")
-            if _any_timed and (seg.get("no_media") or seg.get("start") is None):
-                print(f"[AutoDrills] skipping untimed segment (no clip): {str(seg.get('latin') or original_text)[:60]!r}")
-                media_errors.append(f"{seg.get('latin') or original_text}: spoken but not shown on screen (no clip, skipped)")
-                continue
+            # (untimed segments are kept: a text drill with a synthetic voice, see below)
             drill_tachelhit = seg.get("text_tachelhit") or (original_text if effective_source in ("shi", "ber") else None)
             drill_arabic = seg.get("text_arabic") or (original_text if effective_source == "ar" else None)
 
@@ -3494,12 +3575,25 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
             db.add(db_drill)
             db.commit()
             db.refresh(db_drill)
+            if (seg.get("text_tachelhit_suggested") or "").strip() and not drill_tachelhit:
+                # a machine listening: check it against the meaning before anyone learns from it
+                try:
+                    await asyncio.to_thread(_check_drill_draft, db_drill, db)
+                except Exception as chk_err:
+                    print(f"[DRAFT-CHECK] drill {db_drill.id}: {chk_err}")
             # Count the drill now — a text drill is valid even if media clipping
             # fails; the audio/video clip is best-effort enrichment on top.
             drills_created.append(db_drill.id)
             try:
                 if seg.get("no_media") or seg.get("start") is None:
                     media_errors.append(f"{seg.get('latin') or seg.get('text')}: spoken but not shown on screen (no clip)")
+                    # No section of the source to cut: give the text a synthetic Tamazight
+                    # voice so the drill is still playable (marked synthetic in the player).
+                    if drill_tachelhit:
+                        try:
+                            db_drill.audio_tts_shi_url = await asyncio.to_thread(generate_tachelhit_tts_hf, drill_tachelhit, db_drill.id)
+                        except Exception as tts_err:
+                            print(f"[AUTO] synthetic voice failed for drill {db_drill.id}: {tts_err}")
                     db.commit()
                     continue
                 if audio_src:
@@ -3956,6 +4050,39 @@ def ocr_video_segments(
         clip.close()
 
     return segments
+
+def _attach_lesson_lines(segments: List[Dict], lines: List[Dict]) -> List[Dict]:
+    """Lay lesson items (text/tifinagh/latin/gloss, no times) on ASR segments (times, a
+    rough Latin guess): same positional + fuzzy matching as the lyrics alignment, on the
+    Latin reading. Each matched segment takes the item's text and gloss; items that no
+    segment claims are kept untimed (a text drill with a synthetic voice)."""
+    import difflib
+    if not lines or not segments:
+        return segments
+    n_seg, n_lines = len(segments), len(lines)
+    used = set()
+    for i, seg in enumerate(segments):
+        expected = round(i * (n_lines - 1) / max(1, n_seg - 1)) if n_seg > 1 else 0
+        window = range(max(0, expected - 2), min(n_lines, expected + 3))
+        asr_text = (seg.get("text") or "").lower()
+        best_idx, best_score = expected, -1.0
+        for j in window:
+            cand = (lines[j].get("latin") or lines[j].get("text") or "").lower()
+            score = difflib.SequenceMatcher(None, asr_text, cand).ratio() - (0.15 if j in used else 0.0)
+            if score > best_score:
+                best_idx, best_score = j, score
+        used.add(best_idx)
+        item = lines[best_idx]
+        seg["text_asr"] = seg.get("text")
+        seg["text"] = item.get("tifinagh") or item.get("text") or seg.get("text")
+        for k in ("latin", "tifinagh", "gloss", "gloss_lang", "kind"):
+            if item.get(k):
+                seg[k] = item[k]
+    leftovers = [dict(lines[j]) for j in range(n_lines) if j not in used]
+    for it in leftovers:
+        it["start"], it["end"] = None, None
+    return segments + leftovers
+
 
 def _align_lyrics_lines(segments: List[Dict], lyrics: str) -> List[Dict]:
     """
@@ -4491,7 +4618,14 @@ def _drill_context(drill) -> str:
     lines = [f"- {label}: {val}" for label, val in fields if val]
     sug = (getattr(drill, "text_tachelhit_suggested", None) or "").strip()
     if sug and not (drill.text_tachelhit or "").strip():
-        lines.append(f"- Esborrany automàtic (lectura de màquina, NO confirmada per cap parlant; «[? a | b]» = insegur): {sug}")
+        st = draft_status(getattr(drill, "draft_check", None), sug)
+        if st == "no":
+            lines.append("- Esborrany automàtic: n'hi ha un, però la comprovació de significat diu que NO quadra amb la traducció "
+                         "(no són paraules amazigues reals o diuen una altra cosa). NO l'expliquis: digues que cal la transcripció "
+                         "d'un parlant i explica només el significat català/àrab.")
+        else:
+            lines.append(f"- Esborrany automàtic (lectura de màquina, NO confirmada per cap parlant; «[? a | b]» = insegur"
+                         + ("; la comprovació de significat diu que quadra aproximadament" if st == "roughly" else "") + f"): {sug}")
     if not (drill.text_tachelhit or "").strip() and not sug:
         lines.append("- Taixelhit: encara no hi ha transcripció d'aquest drill")
     lines.append("La FRASE del drill és la del camp Taixelhit (o, si no n'hi ha, l'esborrany); el català n'és el significat.")
@@ -4623,6 +4757,8 @@ def ai_explain_drill(drill_id: int, db: Session = Depends(get_db)):
     draft = re.sub(r"\s+", " ", draft.replace("[?", " ").replace("[", " ").replace("]", " ").replace("|", " / ")).strip()
     if not text and not draft:
         raise HTTPException(status_code=400, detail="Aquest drill encara no té cap lectura en taixelhit per explicar")
+    if not text and draft and draft_status(getattr(drill, "draft_check", None), drill.text_tachelhit_suggested) == "no":
+        raise HTTPException(status_code=400, detail="La lectura automàtica d'aquest drill no quadra amb el significat: cal la transcripció d'un parlant abans d'explicar-la")
     source_note = ("" if text else
                    "ATENCIÓ: no hi ha text confirmat pel parlant; la lectura és un ESBORRANY automàtic "
                    f"(«{draft}»). Explica'l igualment però digues-ho a l'aprenent en una línia. Per a CADA paraula digues si és una "

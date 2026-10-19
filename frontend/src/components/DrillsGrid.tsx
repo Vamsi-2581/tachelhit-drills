@@ -39,6 +39,7 @@ import { toast } from '../toast';
 import { isMobileLayout } from '../utils/layout';
 import AiAssistant from './AiAssistant';
 import AiToolsMenu from './AiToolsMenu';
+import { draftUsable, DRAFT_REJECTED_LABEL } from '../utils/drafts';
 
 interface DrillsGridProps {
     rowData: Drill[];
@@ -459,7 +460,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
         const d = previewDrill;
         const latin = d.text_tachelhit_latin || d.text_tachelhit;
         const tifinagh = d.text_tachelhit && d.text_tachelhit !== latin ? d.text_tachelhit : null;
-        const draft = !latin && d.text_tachelhit_suggested;
+        const draft = !latin && draftUsable(d) ? d.text_tachelhit_suggested : '';
         const shown = reveal || alwaysReveal;
         const timeSpan = d.video_start_time != null && d.video_end_time != null ? `${Math.round(d.video_start_time)}s–${Math.round(d.video_end_time)}s` : null;
         return (
@@ -480,7 +481,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                             {speaking ? '…' : '🔊 Veu sintètica'}
                         </button>
                     )}
-                    {!latin && (draft ? <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>{draft} <span style={{ fontSize: '11px' }}>(esborrany IA)</span></span> : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>sense transcripció</span>)}
+                    {!latin && (draft ? <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>{draft} <span style={{ fontSize: '11px' }}>(esborrany IA)</span></span> : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>{d.text_tachelhit_suggested ? DRAFT_REJECTED_LABEL : 'sense transcripció'}</span>)}
                 </div>
                 {tifinagh && <div style={{ fontSize: '15px', color: 'var(--text-soft)', marginTop: '2px' }}>{tifinagh}</div>}
                 {!tifinagh && cardTifinagh?.id === d.id && (
@@ -635,9 +636,9 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                         {/* Content text blocks */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             <div style={{ fontSize: '16px', color: 'var(--text)', fontWeight: 600, lineHeight: 1.4 }}>{drill.text_catalan || <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>Sense català</span>}</div>
-                            <div style={{ fontSize: '17px', color: 'var(--brand-1)', fontWeight: 700, fontFamily: 'var(--font-tifinagh)', lineHeight: 1.5 }}>{drill.text_tachelhit || (drill.text_tachelhit_suggested
+                            <div style={{ fontSize: '17px', color: 'var(--brand-1)', fontWeight: 700, fontFamily: 'var(--font-tifinagh)', lineHeight: 1.5 }}>{drill.text_tachelhit || (drill.text_tachelhit_suggested && draftUsable(drill)
                               ? <span title="Esborrany automàtic (no verificat)" style={{ color: 'var(--text-muted)', fontWeight: 500, fontStyle: 'italic' }}>{drill.text_tachelhit_suggested}<span style={{ display: 'block', fontSize: 10, letterSpacing: '0.04em', textTransform: 'uppercase', fontStyle: 'normal', fontFamily: 'var(--font-sans)' }}>esborrany</span></span>
-                              : <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontFamily: 'var(--font-sans)' }}>Sense taixelhit</span>)}</div>
+                              : <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontFamily: 'var(--font-sans)' }}>{drill.text_tachelhit_suggested ? DRAFT_REJECTED_LABEL : 'Sense taixelhit'}</span>)}</div>
                             {drill.text_arabic && (
                                 <div style={{ fontSize: '16px', color: 'var(--emerald)', direction: 'rtl', textAlign: 'right', fontWeight: 600, lineHeight: 1.5 }}>{drill.text_arabic}</div>
                             )}
@@ -829,9 +830,9 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
           tooltipValueGetter: (p: { data?: Drill }) => p.data?.text_tachelhit_suggested ? `Suggeriment IA: ${p.data.text_tachelhit_suggested}` : undefined,
           cellRenderer: (p: { value?: string; data?: Drill }) => p.value
             ? <span>{p.value}{p.data?.text_tachelhit_suggested ? <span title="Lectura automàtica (no substitueix el text del parlant)" style={{ display: 'block', fontSize: 12, fontWeight: 500, fontStyle: 'italic', color: 'var(--text-muted)', fontFamily: 'var(--font-body)' }}>💡 {p.data.text_tachelhit_suggested}</span> : null}</span>
-            : (p.data?.text_tachelhit_suggested
+            : (p.data?.text_tachelhit_suggested && draftUsable(p.data)
                 ? <span title="Esborrany automàtic (no verificat): edita el drill per confirmar-lo" style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontWeight: 500 }}>{p.data.text_tachelhit_suggested}{p.data.text_tachelhit_latin ? <span style={{ display: 'block', fontSize: 11, fontFamily: 'var(--font-body)' }}>{p.data.text_tachelhit_latin}</span> : null}<span style={{ display: 'block', fontSize: 10, letterSpacing: '0.04em', textTransform: 'uppercase' }}>esborrany</span></span>
-                : null),
+                : (p.data?.text_tachelhit_suggested ? <span style={{ color: 'var(--text-muted)', fontSize: 11, fontFamily: 'var(--font-body)', fontWeight: 500 }}>{DRAFT_REJECTED_LABEL}</span> : null)),
           cellStyle: { 'line-height': '20px', 'padding-top': '10px', 'padding-bottom': '10px', 'font-family': 'var(--font-tifinagh)', 'color': 'var(--brand-1)', 'font-weight': '700' } },
         { field: 'text_arabic', headerName: 'العربية', flex: 2, minWidth: 150, filter: true, wrapText: true, autoHeight: true, editable: true, cellStyle: { 'line-height': '20px', 'padding-top': '10px', 'padding-bottom': '10px', 'direction': 'rtl', 'color': 'var(--emerald)', 'font-weight': '600' } },
         { field: 'tag', headerName: 'Etiqueta', width: 120, filter: true, editable: true },
