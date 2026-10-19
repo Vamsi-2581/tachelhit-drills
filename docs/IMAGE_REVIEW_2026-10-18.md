@@ -35,7 +35,7 @@ with a Catalan sentence and no picture at all. Grammar-label drills ("Verb compr
 verbals"), one-word chants and the few non-Catalan strays ("acnyal", "q") were not drawn.
 
 The new pictures were audited the same way: {1: 58, 2: 2, 3: 85, 4: 23, 5: 182} (relevance → count).
-The 62 that scored ≤ 2 or showed text were drawn again after the scene step was
+The 62 that scored ≤ 2 or showed text were drawn again (and 20 abstract phrases a third time with a hand-written scene, see `hint` in the JSON) after the scene step was
 added to the illustrator (a text call names one concrete scene before the image model
 draws it), which is what fixed "Afilat" → a knife and "Dibuixem" → children drawing.
 

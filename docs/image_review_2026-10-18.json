@@ -5,6 +5,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333713/tachelhit/images/img_5_1783333713.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358064/tachelhit/illustrations/ill_5_1792358065.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -19,6 +20,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333820/tachelhit/images/img_6_1783333820.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358062/tachelhit/illustrations/ill_6_1792358063.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -33,6 +35,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770720364/tachelhit/images/img_8_1770720363.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358109/tachelhit/illustrations/ill_8_1792358110.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -47,6 +50,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770719873/tachelhit/images/img_11_1770719872.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359024/tachelhit/illustrations/ill_11_1792359025.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -61,6 +65,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770719918/tachelhit/images/img_13_1770719917.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358103/tachelhit/illustrations/ill_13_1792358104.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -75,6 +80,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770719927/tachelhit/images/img_14_1770719927.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358101/tachelhit/illustrations/ill_14_1792358103.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -87,8 +93,9 @@
   "id": 15,
   "text": "Saps on viu el prof de Català?",
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770719942/tachelhit/images/img_15_1770719942.jpg",
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359021/tachelhit/illustrations/ill_15_1792359022.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388515/tachelhit/illustrations/ill_15_1792388515.webp",
+  "passes": 3,
+  "hint": "a man asking a neighbour, who shrugs; in the background a teacher with books under his arm walks into a house among village houses",
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -103,6 +110,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770720017/tachelhit/images/img_16_1770720016.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358096/tachelhit/illustrations/ill_16_1792358097.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -117,6 +125,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770720037/tachelhit/images/img_17_1770720037.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358094/tachelhit/illustrations/ill_17_1792358095.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 2,
    "kind": "photo",
@@ -131,6 +140,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770720071/tachelhit/images/img_18_1770720070.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358090/tachelhit/illustrations/ill_18_1792358092.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -145,6 +155,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770720106/tachelhit/images/img_19_1770720106.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358088/tachelhit/illustrations/ill_19_1792358088.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -159,6 +170,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770720127/tachelhit/images/img_20_1770720126.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358086/tachelhit/illustrations/ill_20_1792358088.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "photo",
@@ -173,6 +185,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770720313/tachelhit/images/img_29_1770720312.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358083/tachelhit/illustrations/ill_29_1792358085.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -187,6 +200,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770719770/tachelhit/images/img_30_1770719769.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358079/tachelhit/illustrations/ill_30_1792358081.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -201,6 +215,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770717109/tachelhit/images/img_31_1770717109.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358079/tachelhit/illustrations/ill_31_1792358080.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -215,6 +230,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770717103/tachelhit/images/img_32_1770717103.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358075/tachelhit/illustrations/ill_32_1792358077.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -229,6 +245,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770720332/tachelhit/images/img_33_1770720332.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358071/tachelhit/illustrations/ill_33_1792358073.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -243,6 +260,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770720146/tachelhit/images/img_34_1770720146.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358072/tachelhit/illustrations/ill_34_1792358073.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -257,6 +275,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770720210/tachelhit/images/img_36_1770720209.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358069/tachelhit/illustrations/ill_36_1792358070.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -271,6 +290,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770720272/tachelhit/images/img_38_1770720272.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358065/tachelhit/illustrations/ill_38_1792358066.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -285,6 +305,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783326828/tachelhit/images/img_39_1783326828.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358058/tachelhit/illustrations/ill_39_1792358059.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -299,6 +320,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783326793/tachelhit/images/img_40_1783326793.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358054/tachelhit/illustrations/ill_40_1792358055.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -313,6 +335,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329828/tachelhit/images/img_41_1783329828.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358056/tachelhit/illustrations/ill_41_1792358058.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -327,6 +350,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783336020/tachelhit/images/img_43_1783336019.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359019/tachelhit/illustrations/ill_43_1792359021.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -341,6 +365,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327951/tachelhit/images/img_44_1783327950.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358047/tachelhit/illustrations/ill_44_1792358048.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -355,6 +380,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783326653/tachelhit/images/img_45_1783326653.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359015/tachelhit/illustrations/ill_45_1792359017.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -369,6 +395,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783336295/tachelhit/images/img_46_1783336295.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358043/tachelhit/illustrations/ill_46_1792358044.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "drawing_scan",
@@ -383,6 +410,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783336328/tachelhit/images/img_47_1783336327.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358040/tachelhit/illustrations/ill_47_1792358041.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -397,6 +425,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771256266/tachelhit/images/img_49_1771256265.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358039/tachelhit/illustrations/ill_49_1792358041.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -411,6 +440,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783326724/tachelhit/images/img_50_1783326724.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358036/tachelhit/illustrations/ill_50_1792358037.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -425,6 +455,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771626986/tachelhit/image/image_52_1771626986.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358033/tachelhit/illustrations/ill_52_1792358035.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -439,6 +470,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816613/tachelhit/images/img_63_1770816613.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358029/tachelhit/illustrations/ill_63_1792358030.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -453,6 +485,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816604/tachelhit/images/img_64_1770816603.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358031/tachelhit/illustrations/ill_64_1792358032.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -467,6 +500,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816597/tachelhit/images/img_65_1770816597.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358026/tachelhit/illustrations/ill_65_1792358027.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -481,6 +515,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816591/tachelhit/images/img_66_1770816591.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358024/tachelhit/illustrations/ill_66_1792358025.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -495,6 +530,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816586/tachelhit/images/img_67_1770816586.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358021/tachelhit/illustrations/ill_67_1792358022.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -509,6 +545,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329724/tachelhit/images/img_68_1783329724.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358018/tachelhit/illustrations/ill_68_1792358020.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -523,6 +560,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329863/tachelhit/images/img_70_1783329863.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359012/tachelhit/illustrations/ill_70_1792359013.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -537,6 +575,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783330941/tachelhit/images/img_71_1783330941.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358016/tachelhit/illustrations/ill_71_1792358017.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -549,8 +588,9 @@
   "id": 73,
   "text": "Que t'han dit Oriol i Biel ",
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331050/tachelhit/images/img_73_1783331049.webp",
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359011/tachelhit/illustrations/ill_73_1792359012.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388514/tachelhit/illustrations/ill_73_1792388514.webp",
+  "passes": 3,
+  "hint": "two boys whispering into the ear of a young man, while a curious woman beside him leans in to ask what they said",
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -565,6 +605,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327422/tachelhit/images/img_74_1783327422.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358010/tachelhit/illustrations/ill_74_1792358011.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -579,6 +620,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816576/tachelhit/images/img_75_1770816576.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358002/tachelhit/illustrations/ill_75_1792358004.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -593,6 +635,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816569/tachelhit/images/img_76_1770816569.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358006/tachelhit/illustrations/ill_76_1792358007.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -607,6 +650,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816564/tachelhit/images/img_77_1770816563.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358000/tachelhit/illustrations/ill_77_1792358001.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -621,6 +665,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816554/tachelhit/images/img_78_1770816553.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357998/tachelhit/illustrations/ill_78_1792358000.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -635,6 +680,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816524/tachelhit/images/img_81_1770816523.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357995/tachelhit/illustrations/ill_81_1792357997.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -649,6 +695,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770817938/tachelhit/image/image_82_1770817932.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357992/tachelhit/illustrations/ill_82_1792357994.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "screenshot",
@@ -663,6 +710,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816497/tachelhit/images/img_83_1770816496.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357991/tachelhit/illustrations/ill_83_1792357992.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -677,6 +725,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816486/tachelhit/images/img_84_1770816486.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357983/tachelhit/illustrations/ill_84_1792357985.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -691,6 +740,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816478/tachelhit/images/img_85_1770816478.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357989/tachelhit/illustrations/ill_85_1792357990.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -705,6 +755,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816467/tachelhit/images/img_86_1770816466.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357985/tachelhit/illustrations/ill_86_1792357986.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "photo",
@@ -719,6 +770,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816450/tachelhit/images/img_87_1770816450.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357981/tachelhit/illustrations/ill_87_1792357983.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "photo",
@@ -733,6 +785,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816458/tachelhit/images/img_88_1770816458.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357969/tachelhit/illustrations/ill_88_1792357971.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -747,6 +800,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816427/tachelhit/images/img_89_1770816426.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357976/tachelhit/illustrations/ill_89_1792357977.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "photo",
@@ -761,6 +815,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783326968/tachelhit/images/img_90_1783326968.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357974/tachelhit/illustrations/ill_90_1792357975.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -775,6 +830,7 @@
   "old_image_url": "",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358565/tachelhit/illustrations/ill_104_1792358567.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -783,6 +839,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359086/tachelhit/illustrations/ill_105_1792359087.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -791,6 +848,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358560/tachelhit/illustrations/ill_106_1792358562.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -799,6 +857,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329091/tachelhit/images/img_107_1783329090.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357977/tachelhit/illustrations/ill_107_1792357978.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -813,6 +872,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329245/tachelhit/images/img_108_1783329245.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357968/tachelhit/illustrations/ill_108_1792357969.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -827,6 +887,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329356/tachelhit/images/img_110_1783329356.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357966/tachelhit/illustrations/ill_110_1792357967.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -841,6 +902,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329758/tachelhit/images/img_112_1783329757.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357959/tachelhit/illustrations/ill_112_1792357961.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -855,6 +917,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329170/tachelhit/images/img_113_1783329170.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357957/tachelhit/illustrations/ill_113_1792357958.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -869,6 +932,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329208/tachelhit/images/img_114_1783329208.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357955/tachelhit/illustrations/ill_114_1792357956.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -883,6 +947,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358558/tachelhit/illustrations/ill_115_1792358559.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -891,6 +956,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358556/tachelhit/illustrations/ill_116_1792358557.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -899,6 +965,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359083/tachelhit/illustrations/ill_117_1792359085.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -907,6 +974,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783328056/tachelhit/images/img_118_1783328056.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357961/tachelhit/illustrations/ill_118_1792357963.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -921,6 +989,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327177/tachelhit/images/img_119_1783327177.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357951/tachelhit/illustrations/ill_119_1792357953.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -935,6 +1004,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783328088/tachelhit/images/img_120_1783328088.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357947/tachelhit/illustrations/ill_120_1792357949.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -949,6 +1019,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358550/tachelhit/illustrations/ill_122_1792358552.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -957,6 +1028,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358548/tachelhit/illustrations/ill_123_1792358550.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -965,6 +1037,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327107/tachelhit/images/img_124_1783327107.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357945/tachelhit/illustrations/ill_124_1792357946.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -979,6 +1052,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327143/tachelhit/images/img_125_1783327143.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357949/tachelhit/illustrations/ill_125_1792357951.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -993,6 +1067,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331014/tachelhit/images/img_126_1783331014.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357937/tachelhit/illustrations/ill_126_1792357939.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -1007,6 +1082,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327212/tachelhit/images/img_127_1783327212.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359007/tachelhit/illustrations/ill_127_1792359009.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1021,6 +1097,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783330979/tachelhit/images/img_128_1783330979.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357939/tachelhit/illustrations/ill_128_1792357941.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -1035,6 +1112,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358545/tachelhit/illustrations/ill_130_1792358547.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1043,6 +1121,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358539/tachelhit/illustrations/ill_131_1792358540.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1051,6 +1130,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359081/tachelhit/illustrations/ill_132_1792359082.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1059,6 +1139,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358541/tachelhit/illustrations/ill_133_1792358542.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1067,6 +1148,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358531/tachelhit/illustrations/ill_134_1792358532.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1075,6 +1157,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359078/tachelhit/illustrations/ill_136_1792359079.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1083,6 +1166,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358527/tachelhit/illustrations/ill_137_1792358529.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1091,6 +1175,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358523/tachelhit/illustrations/ill_138_1792358525.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1099,6 +1184,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358522/tachelhit/illustrations/ill_139_1792358523.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1107,6 +1193,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358518/tachelhit/illustrations/ill_140_1792358520.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1115,6 +1202,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359075/tachelhit/illustrations/ill_143_1792359076.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1123,6 +1211,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358515/tachelhit/illustrations/ill_144_1792358517.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1131,6 +1220,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332135/tachelhit/images/img_145_1783332135.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357931/tachelhit/illustrations/ill_145_1792357932.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -1145,6 +1235,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331119/tachelhit/images/img_147_1783331119.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357928/tachelhit/illustrations/ill_147_1792357929.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -1159,6 +1250,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327666/tachelhit/images/img_148_1783327665.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357930/tachelhit/illustrations/ill_148_1792357931.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1173,6 +1265,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332171/tachelhit/images/img_149_1783332171.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357922/tachelhit/illustrations/ill_149_1792357924.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -1187,6 +1280,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327597/tachelhit/images/img_150_1783327597.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357921/tachelhit/illustrations/ill_150_1792357922.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "photo",
@@ -1199,8 +1293,9 @@
   "id": 152,
   "text": "Avui",
   "old_image_url": null,
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359072/tachelhit/illustrations/ill_152_1792359074.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388524/tachelhit/illustrations/ill_152_1792388524.webp",
+  "passes": 3,
+  "hint": "a woman pointing straight down at the ground at her feet, bright midday sun directly overhead, no calendar",
   "old_audit": null
  },
  {
@@ -1209,14 +1304,16 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359065/tachelhit/illustrations/ill_153_1792359067.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
   "id": 154,
   "text": "demà passat",
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332803/tachelhit/images/img_154_1783332803.webp",
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359003/tachelhit/illustrations/ill_154_1792359004.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388537/tachelhit/illustrations/ill_154_1792388538.webp",
+  "passes": 3,
+  "hint": "a path with three large stepping stones; a person stands on the first and points at the third, a sun rising beyond it",
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1229,8 +1326,9 @@
   "id": 155,
   "text": "Ahir",
   "old_image_url": null,
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359069/tachelhit/illustrations/ill_155_1792359071.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388523/tachelhit/illustrations/ill_155_1792388523.webp",
+  "passes": 3,
+  "hint": "a woman pointing with her thumb back over her shoulder at a faded, grey scene of a setting sun behind her, while the sun is up in front of her",
   "old_audit": null
  },
  {
@@ -1239,6 +1337,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332276/tachelhit/images/img_156_1783332276.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357913/tachelhit/illustrations/ill_156_1792357915.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -1253,6 +1352,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327562/tachelhit/images/img_157_1783327561.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357909/tachelhit/illustrations/ill_157_1792357910.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -1267,6 +1367,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358504/tachelhit/illustrations/ill_158_1792358505.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1275,14 +1376,16 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359064/tachelhit/illustrations/ill_159_1792359066.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
   "id": 160,
   "text": "De res",
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327701/tachelhit/images/img_160_1783327701.webp",
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359001/tachelhit/illustrations/ill_160_1792359003.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388506/tachelhit/illustrations/ill_160_1792388506.webp",
+  "passes": 3,
+  "hint": "a man waving off thanks with an open palm and a modest smile after handing a loaf of bread to a neighbour who bows in gratitude",
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1297,6 +1400,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770838575/tachelhit/images/img_161_1770838575.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358376/tachelhit/illustrations/ill_161_1792358376.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "drawing_scan",
@@ -1311,6 +1415,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770838561/tachelhit/images/img_162_1770838561.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357906/tachelhit/illustrations/ill_162_1792357907.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -1325,6 +1430,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327527/tachelhit/images/img_164_1783327527.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357901/tachelhit/illustrations/ill_164_1792357903.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -1339,6 +1445,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327492/tachelhit/images/img_165_1783327492.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358999/tachelhit/illustrations/ill_165_1792359000.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1353,6 +1460,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332702/tachelhit/images/img_166_1783332702.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357899/tachelhit/illustrations/ill_166_1792357900.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1367,6 +1475,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327388/tachelhit/images/img_167_1783327388.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357893/tachelhit/illustrations/ill_167_1792357895.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1381,6 +1490,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332871/tachelhit/images/img_168_1783332871.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357889/tachelhit/illustrations/ill_168_1792357890.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1395,6 +1505,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358500/tachelhit/illustrations/ill_169_1792358502.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1403,14 +1514,16 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358496/tachelhit/illustrations/ill_170_1792358497.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
   "id": 171,
   "text": "ho entenc",
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327281/tachelhit/images/img_171_1783327280.webp",
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358994/tachelhit/illustrations/ill_171_1792358996.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388531/tachelhit/illustrations/ill_171_1792388531.webp",
+  "passes": 3,
+  "hint": "a man smiling and nodding with a bright lightbulb above his head while his friend finishes explaining",
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -1425,6 +1538,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358494/tachelhit/illustrations/ill_172_1792358495.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1433,6 +1547,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332311/tachelhit/images/img_173_1783332311.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358993/tachelhit/illustrations/ill_173_1792358994.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1445,8 +1560,9 @@
   "id": 174,
   "text": "l'entens",
   "old_image_url": null,
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359061/tachelhit/illustrations/ill_174_1792359063.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388539/tachelhit/illustrations/ill_174_1792388539.webp",
+  "passes": 3,
+  "hint": "an old man speaking with gestures to a young woman who nods with a lit lightbulb above her, while a third person asks her with raised eyebrows",
   "old_audit": null
  },
  {
@@ -1455,6 +1571,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332346/tachelhit/images/img_175_1783332346.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357886/tachelhit/illustrations/ill_175_1792357887.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1469,6 +1586,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358489/tachelhit/illustrations/ill_177_1792358490.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1477,6 +1595,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359057/tachelhit/illustrations/ill_178_1792359058.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1485,6 +1604,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332381/tachelhit/images/img_179_1783332381.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357881/tachelhit/illustrations/ill_179_1792357882.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1499,6 +1619,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332667/tachelhit/images/img_180_1783332667.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357879/tachelhit/illustrations/ill_180_1792357881.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -1513,6 +1634,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327003/tachelhit/images/img_181_1783327003.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357877/tachelhit/illustrations/ill_181_1792357878.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1527,6 +1649,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332417/tachelhit/images/img_182_1783332417.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357873/tachelhit/illustrations/ill_182_1792357874.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1541,6 +1664,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770838543/tachelhit/images/img_183_1770838543.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357871/tachelhit/illustrations/ill_183_1792357871.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -1555,6 +1679,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770838508/tachelhit/images/img_185_1770838508.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357869/tachelhit/illustrations/ill_185_1792357870.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -1569,6 +1694,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770838473/tachelhit/images/img_186_1770838472.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357866/tachelhit/illustrations/ill_186_1792357867.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -1583,6 +1709,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770838469/tachelhit/images/img_187_1770838469.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358374/tachelhit/illustrations/ill_187_1792358376.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "photo",
@@ -1597,6 +1724,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327737/tachelhit/images/img_192_1783327736.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357862/tachelhit/illustrations/ill_192_1792357863.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -1611,6 +1739,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358485/tachelhit/illustrations/ill_193_1792358487.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1619,6 +1748,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327986/tachelhit/images/img_194_1783327985.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357859/tachelhit/illustrations/ill_194_1792357860.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1633,6 +1763,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327844/tachelhit/images/img_196_1783327843.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357862/tachelhit/illustrations/ill_196_1792357864.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1647,14 +1778,16 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359056/tachelhit/illustrations/ill_198_1792359057.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
   "id": 201,
   "text": "No tinc gana",
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329129/tachelhit/images/img_201_1783329128.webp",
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358990/tachelhit/illustrations/ill_201_1792358991.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388507/tachelhit/illustrations/ill_201_1792388506.webp",
+  "passes": 3,
+  "hint": "a woman gently pushing away a full plate of couscous with her palm, shaking her head, mouth closed",
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1669,6 +1802,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358479/tachelhit/illustrations/ill_203_1792358480.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1677,6 +1811,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332633/tachelhit/images/img_204_1783332633.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357854/tachelhit/illustrations/ill_204_1792357855.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -1691,6 +1826,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358478/tachelhit/illustrations/ill_206_1792358479.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1699,6 +1835,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332454/tachelhit/images/img_207_1783332454.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357852/tachelhit/illustrations/ill_207_1792357853.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -1713,6 +1850,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329582/tachelhit/images/img_208_1783329581.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357848/tachelhit/illustrations/ill_208_1792357850.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -1727,14 +1865,16 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358476/tachelhit/illustrations/ill_209_1792358477.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
   "id": 210,
   "text": "Driss no es inteligent",
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332598/tachelhit/images/img_210_1783332597.webp",
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358985/tachelhit/illustrations/ill_210_1792358987.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388504/tachelhit/illustrations/ill_210_1792388504.webp",
+  "passes": 3,
+  "hint": "a man scratching his head, puzzled by a simple three-piece wooden puzzle, with a big question mark above him",
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1749,6 +1889,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329543/tachelhit/images/img_211_1783329543.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357841/tachelhit/illustrations/ill_211_1792357842.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -1763,6 +1904,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359052/tachelhit/illustrations/ill_212_1792359054.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1771,6 +1913,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359049/tachelhit/illustrations/ill_213_1792359051.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1779,6 +1922,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358468/tachelhit/illustrations/ill_214_1792358470.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1787,6 +1931,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359047/tachelhit/illustrations/ill_215_1792359049.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1795,6 +1940,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359045/tachelhit/illustrations/ill_216_1792359046.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1803,6 +1949,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358456/tachelhit/illustrations/ill_217_1792358458.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1811,6 +1958,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358455/tachelhit/illustrations/ill_218_1792358457.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1819,6 +1967,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358449/tachelhit/illustrations/ill_219_1792358450.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1827,6 +1976,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332562/tachelhit/images/img_220_1783332562.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357847/tachelhit/illustrations/ill_220_1792357848.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "photo",
@@ -1841,6 +1991,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358448/tachelhit/illustrations/ill_221_1792358449.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1849,6 +2000,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359039/tachelhit/illustrations/ill_222_1792359041.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1857,6 +2009,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359040/tachelhit/illustrations/ill_228_1792359041.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1865,6 +2018,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332837/tachelhit/images/img_229_1783332837.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358984/tachelhit/illustrations/ill_229_1792358985.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -1879,6 +2033,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329013/tachelhit/images/img_230_1783329013.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357838/tachelhit/illustrations/ill_230_1792357839.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -1891,8 +2046,9 @@
   "id": 231,
   "text": "mai",
   "old_image_url": null,
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359036/tachelhit/illustrations/ill_231_1792359038.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388522/tachelhit/illustrations/ill_231_1792388522.webp",
+  "passes": 3,
+  "hint": "a man with arms crossed in an X in front of his chest, shaking his head firmly, a cup of tea being offered to him",
   "old_audit": null
  },
  {
@@ -1901,6 +2057,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358436/tachelhit/illustrations/ill_232_1792358438.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -1909,6 +2066,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783330870/tachelhit/images/img_234_1783330869.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357834/tachelhit/illustrations/ill_234_1792357835.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1923,6 +2081,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329689/tachelhit/images/img_235_1783329689.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358982/tachelhit/illustrations/ill_235_1792358983.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -1937,6 +2096,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332525/tachelhit/images/img_236_1783332524.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357826/tachelhit/illustrations/ill_236_1792357828.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -1951,6 +2111,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329618/tachelhit/images/img_237_1783329618.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357832/tachelhit/illustrations/ill_237_1792357833.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -1965,6 +2126,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783326584/tachelhit/images/img_238_1783326584.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357824/tachelhit/illustrations/ill_238_1792357825.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "photo",
@@ -1979,6 +2141,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783330834/tachelhit/images/img_239_1783330834.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357819/tachelhit/illustrations/ill_239_1792357821.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -1993,6 +2156,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332905/tachelhit/images/img_240_1783332905.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357818/tachelhit/illustrations/ill_240_1792357820.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -2007,6 +2171,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358435/tachelhit/illustrations/ill_241_1792358436.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -2015,6 +2180,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333529/tachelhit/images/img_243_1783333529.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357812/tachelhit/illustrations/ill_243_1792357814.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -2027,8 +2193,9 @@
   "id": 244,
   "text": "No importa",
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333379/tachelhit/images/img_244_1783333379.webp",
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358976/tachelhit/illustrations/ill_244_1792358978.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388498/tachelhit/illustrations/ill_244_1792388498.webp",
+  "passes": 3,
+  "hint": "a young woman shrugging with a relaxed smile at a cup of tea spilled on the table, while a worried friend covers his mouth",
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -2043,6 +2210,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334141/tachelhit/images/img_246_1783334140.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357811/tachelhit/illustrations/ill_246_1792357813.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 2,
    "kind": "illustration",
@@ -2057,6 +2225,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783330730/tachelhit/images/img_249_1783330730.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357809/tachelhit/illustrations/ill_249_1792357811.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "drawing_scan",
@@ -2069,8 +2238,9 @@
   "id": 250,
   "text": "Que mes",
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333159/tachelhit/images/img_250_1783333159.webp",
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358974/tachelhit/illustrations/ill_250_1792358976.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388496/tachelhit/illustrations/ill_250_1792388496.webp",
+  "passes": 3,
+  "hint": "a shopkeeper with open palms asking a customer whose basket is already full of vegetables what else she wants",
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -2085,6 +2255,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783330693/tachelhit/images/img_251_1783330692.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357804/tachelhit/illustrations/ill_251_1792357805.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -2099,6 +2270,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333491/tachelhit/images/img_252_1783333491.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357801/tachelhit/illustrations/ill_252_1792357803.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -2113,6 +2285,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783330764/tachelhit/images/img_253_1783330764.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357798/tachelhit/illustrations/ill_253_1792357800.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -2127,6 +2300,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771509245/tachelhit/images/img_254_1771509245.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357796/tachelhit/illustrations/ill_254_1792357798.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -2141,6 +2315,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771509230/tachelhit/images/img_255_1771509230.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357794/tachelhit/illustrations/ill_255_1792357795.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -2155,6 +2330,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771509222/tachelhit/images/img_256_1771509222.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357792/tachelhit/illustrations/ill_256_1792357793.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "photo",
@@ -2169,6 +2345,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771509155/tachelhit/images/img_259_1771509155.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357789/tachelhit/illustrations/ill_259_1792357791.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -2183,6 +2360,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771509148/tachelhit/images/img_260_1771509147.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357786/tachelhit/illustrations/ill_260_1792357786.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -2197,6 +2375,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771509138/tachelhit/images/img_261_1771509138.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357785/tachelhit/illustrations/ill_261_1792357786.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -2211,6 +2390,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771364969/tachelhit/images/img_262_1771364969.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357782/tachelhit/illustrations/ill_262_1792357783.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2225,6 +2405,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783330798/tachelhit/images/img_263_1783330797.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357777/tachelhit/illustrations/ill_263_1792357779.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2239,6 +2420,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333195/tachelhit/images/img_264_1783333195.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357778/tachelhit/illustrations/ill_264_1792357779.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "drawing_scan",
@@ -2253,6 +2435,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327317/tachelhit/images/img_265_1783327317.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357775/tachelhit/illustrations/ill_265_1792357776.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2267,6 +2450,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333454/tachelhit/images/img_266_1783333454.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357771/tachelhit/illustrations/ill_266_1792357772.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2281,6 +2465,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783326899/tachelhit/images/img_269_1783326898.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357770/tachelhit/illustrations/ill_269_1792357771.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2295,6 +2480,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327458/tachelhit/images/img_270_1783327458.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357768/tachelhit/illustrations/ill_270_1792357769.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 4,
    "kind": "drawing_scan",
@@ -2309,6 +2495,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783326619/tachelhit/images/img_271_1783326618.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357762/tachelhit/illustrations/ill_271_1792357764.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2323,6 +2510,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783326933/tachelhit/images/img_272_1783326933.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357760/tachelhit/illustrations/ill_272_1792357762.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2337,6 +2525,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771509128/tachelhit/images/img_273_1771509128.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357756/tachelhit/illustrations/ill_273_1792357757.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -2351,6 +2540,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771509103/tachelhit/images/img_274_1771509103.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357763/tachelhit/illustrations/ill_274_1792357765.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -2365,6 +2555,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771509084/tachelhit/images/img_275_1771509084.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357755/tachelhit/illustrations/ill_275_1792357756.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -2379,6 +2570,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771364922/tachelhit/images/img_277_1771364922.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357748/tachelhit/illustrations/ill_277_1792357750.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -2393,6 +2585,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783327038/tachelhit/images/img_278_1783327038.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357747/tachelhit/illustrations/ill_278_1792357749.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -2407,6 +2600,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771364915/tachelhit/images/img_279_1771364915.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357753/tachelhit/illustrations/ill_279_1792357755.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -2421,6 +2615,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771364838/tachelhit/images/img_280_1771364838.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357745/tachelhit/illustrations/ill_280_1792357747.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -2435,6 +2630,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771363525/tachelhit/images/img_282_1771363524.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357738/tachelhit/illustrations/ill_282_1792357740.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2449,6 +2645,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771363118/tachelhit/images/img_287_1771363117.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357741/tachelhit/illustrations/ill_287_1792357742.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -2463,6 +2660,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771363124/tachelhit/images/img_288_1771363124.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357739/tachelhit/illustrations/ill_288_1792357741.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2477,6 +2675,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771363094/tachelhit/images/img_289_1771363094.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357731/tachelhit/illustrations/ill_289_1792357732.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -2491,6 +2690,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771363074/tachelhit/images/img_290_1771363074.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358973/tachelhit/illustrations/ill_290_1792358975.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2505,6 +2705,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771363067/tachelhit/images/img_291_1771363066.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357725/tachelhit/illustrations/ill_291_1792357726.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -2519,6 +2720,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771363047/tachelhit/images/img_293_1771363047.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357723/tachelhit/illustrations/ill_293_1792357725.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -2533,6 +2735,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771363019/tachelhit/images/img_295_1771363019.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357719/tachelhit/illustrations/ill_295_1792357720.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -2547,6 +2750,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771363028/tachelhit/images/img_296_1771363028.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358967/tachelhit/illustrations/ill_296_1792358969.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -2561,6 +2765,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771363012/tachelhit/images/img_297_1771363012.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357710/tachelhit/illustrations/ill_297_1792357710.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -2575,6 +2780,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771363005/tachelhit/images/img_298_1771363005.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357717/tachelhit/illustrations/ill_298_1792357719.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -2589,6 +2795,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771361370/tachelhit/images/img_300_1771361369.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357708/tachelhit/illustrations/ill_300_1792357710.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -2603,6 +2810,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771362931/tachelhit/images/img_305_1771362931.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357711/tachelhit/illustrations/ill_305_1792357713.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -2617,6 +2825,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771362923/tachelhit/images/img_306_1771362922.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357701/tachelhit/illustrations/ill_306_1792357703.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2631,6 +2840,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771362898/tachelhit/images/img_308_1771362897.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357701/tachelhit/illustrations/ill_308_1792357702.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2645,6 +2855,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771362790/tachelhit/images/img_312_1771362790.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357697/tachelhit/illustrations/ill_312_1792357698.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2657,8 +2868,9 @@
   "id": 337,
   "text": "per veure si entenc",
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771362706/tachelhit/images/img_337_1771362706.webp",
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358966/tachelhit/illustrations/ill_337_1792358967.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388531/tachelhit/illustrations/ill_337_1792388531.webp",
+  "passes": 3,
+  "hint": "a woman listening with a hand on her chin, a half-lit lightbulb above her head, her friend explaining with gestures",
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -2673,6 +2885,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771362660/tachelhit/images/img_340_1771362660.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357693/tachelhit/illustrations/ill_340_1792357695.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2687,6 +2900,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771343774/tachelhit/images/img_343_1771343774.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357689/tachelhit/illustrations/ill_343_1792357691.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "photo",
@@ -2701,6 +2915,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331440/tachelhit/images/img_346_1783331440.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357686/tachelhit/illustrations/ill_346_1792357688.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2715,6 +2930,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331767/tachelhit/images/img_347_1783331767.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357685/tachelhit/illustrations/ill_347_1792357687.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2729,6 +2945,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331296/tachelhit/images/img_348_1783331296.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357682/tachelhit/illustrations/ill_348_1792357683.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -2743,6 +2960,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331331/tachelhit/images/img_349_1783331331.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357678/tachelhit/illustrations/ill_349_1792357679.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2757,6 +2975,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331620/tachelhit/images/img_350_1783331620.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358965/tachelhit/illustrations/ill_350_1792358966.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2771,6 +2990,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331476/tachelhit/images/img_351_1783331476.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357674/tachelhit/illustrations/ill_351_1792357676.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -2785,6 +3005,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331154/tachelhit/images/img_352_1783331154.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357667/tachelhit/illustrations/ill_352_1792357669.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -2799,6 +3020,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331731/tachelhit/images/img_353_1783331731.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357670/tachelhit/illustrations/ill_353_1792357671.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -2813,6 +3035,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331658/tachelhit/images/img_354_1783331658.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357666/tachelhit/illustrations/ill_354_1792357667.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -2827,6 +3050,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331367/tachelhit/images/img_355_1783331366.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357663/tachelhit/illustrations/ill_355_1792357664.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -2841,6 +3065,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331512/tachelhit/images/img_356_1783331512.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357660/tachelhit/illustrations/ill_356_1792357660.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2855,6 +3080,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331225/tachelhit/images/img_357_1783331225.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357659/tachelhit/illustrations/ill_357_1792357660.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2869,6 +3095,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331694/tachelhit/images/img_358_1783331694.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357655/tachelhit/illustrations/ill_358_1792357656.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -2883,6 +3110,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331583/tachelhit/images/img_359_1783331583.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357651/tachelhit/illustrations/ill_359_1792357652.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -2897,6 +3125,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331403/tachelhit/images/img_360_1783331402.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357652/tachelhit/illustrations/ill_360_1792357652.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -2911,6 +3140,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331260/tachelhit/images/img_361_1783331260.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357647/tachelhit/illustrations/ill_361_1792357648.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 4,
    "kind": "illustration",
@@ -2925,6 +3155,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331548/tachelhit/images/img_363_1783331547.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358958/tachelhit/illustrations/ill_363_1792358960.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -2939,6 +3170,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332100/tachelhit/images/img_365_1783332100.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357643/tachelhit/illustrations/ill_365_1792357643.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "photo",
@@ -2953,6 +3185,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331957/tachelhit/images/img_367_1783331957.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357639/tachelhit/illustrations/ill_367_1792357640.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -2965,8 +3198,9 @@
   "id": 368,
   "text": "Portali",
   "old_image_url": null,
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359031/tachelhit/illustrations/ill_368_1792359033.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388516/tachelhit/illustrations/ill_368_1792388515.webp",
+  "passes": 3,
+  "hint": "a mother handing a tray with a glass of mint tea to a child and pointing at an old man sitting on a cushion across the room",
   "old_audit": null
  },
  {
@@ -2975,6 +3209,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358429/tachelhit/illustrations/ill_369_1792358431.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -2983,6 +3218,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359029/tachelhit/illustrations/ill_370_1792359031.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -2991,6 +3227,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332064/tachelhit/images/img_371_1783332063.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358957/tachelhit/illustrations/ill_371_1792358959.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -3005,6 +3242,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333784/tachelhit/images/img_372_1783333783.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358955/tachelhit/illustrations/ill_372_1792358957.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -3019,6 +3257,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783332941/tachelhit/images/img_374_1783332941.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358949/tachelhit/illustrations/ill_374_1792358951.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -3033,6 +3272,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333341/tachelhit/images/img_375_1783333341.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357627/tachelhit/illustrations/ill_375_1792357628.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -3047,6 +3287,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333566/tachelhit/images/img_377_1783333566.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358949/tachelhit/illustrations/ill_377_1792358950.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -3061,6 +3302,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334213/tachelhit/images/img_383_1783334212.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357624/tachelhit/illustrations/ill_383_1792357626.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -3075,6 +3317,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334250/tachelhit/images/img_384_1783334250.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357620/tachelhit/illustrations/ill_384_1792357621.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -3089,6 +3332,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333086/tachelhit/images/img_387_1783333086.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357618/tachelhit/illustrations/ill_387_1792357619.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -3101,8 +3345,9 @@
   "id": 392,
   "text": "és supermercat està davant de la casa de l'adrià",
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335954/tachelhit/images/img_392_1783335954.webp",
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358947/tachelhit/illustrations/ill_392_1792358948.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388530/tachelhit/illustrations/ill_392_1792388531.webp",
+  "passes": 3,
+  "hint": "a small grocery shop with crates of fruit outside, directly across a narrow street from a house with a blue door; blank sign",
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -3117,6 +3362,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771627453/tachelhit/image/image_395_1771627453.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357612/tachelhit/illustrations/ill_395_1792357612.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -3131,6 +3377,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331882/tachelhit/images/img_403_1783331882.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357611/tachelhit/illustrations/ill_403_1792357612.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -3145,6 +3392,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335853/tachelhit/images/img_408_1783335853.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357609/tachelhit/illustrations/ill_408_1792357611.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -3159,6 +3407,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334176/tachelhit/images/img_418_1783334176.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357604/tachelhit/illustrations/ill_418_1792357606.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -3173,6 +3422,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771708042/tachelhit/image/image_420_1771708042.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357603/tachelhit/illustrations/ill_420_1792357604.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -3187,6 +3437,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333606/tachelhit/images/img_427_1783333606.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358940/tachelhit/illustrations/ill_427_1792358941.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -3201,6 +3452,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333268/tachelhit/images/img_428_1783333268.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357602/tachelhit/illustrations/ill_428_1792357603.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -3215,6 +3467,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333678/tachelhit/images/img_429_1783333678.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357594/tachelhit/illustrations/ill_429_1792357596.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -3229,6 +3482,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333231/tachelhit/images/img_430_1783333231.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357595/tachelhit/illustrations/ill_430_1792357597.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 2,
    "kind": "illustration",
@@ -3243,6 +3497,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333856/tachelhit/images/img_431_1783333855.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357589/tachelhit/illustrations/ill_431_1792357591.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -3257,6 +3512,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333927/tachelhit/images/img_432_1783333927.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357587/tachelhit/illustrations/ill_432_1792357588.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -3271,6 +3527,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333122/tachelhit/images/img_433_1783333122.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357585/tachelhit/illustrations/ill_433_1792357587.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -3285,6 +3542,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333891/tachelhit/images/img_434_1783333891.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357580/tachelhit/illustrations/ill_434_1792357580.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 4,
    "kind": "illustration",
@@ -3299,6 +3557,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334001/tachelhit/images/img_435_1783334001.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357578/tachelhit/illustrations/ill_435_1792357580.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -3313,6 +3572,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333964/tachelhit/images/img_436_1783333964.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357582/tachelhit/illustrations/ill_436_1792357584.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "photo",
@@ -3327,6 +3587,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1771256266/tachelhit/images/img_49_1771256265.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357575/tachelhit/illustrations/ill_437_1792357576.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -3341,6 +3602,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816613/tachelhit/images/img_63_1770816613.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357572/tachelhit/illustrations/ill_446_1792357573.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -3355,6 +3617,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816597/tachelhit/images/img_65_1770816597.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357571/tachelhit/illustrations/ill_447_1792357572.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -3369,6 +3632,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770816586/tachelhit/images/img_67_1770816586.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358941/tachelhit/illustrations/ill_448_1792358941.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -3383,6 +3647,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783333306/tachelhit/images/img_449_1783333306.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357564/tachelhit/illustrations/ill_449_1792357566.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -3397,6 +3662,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334321/tachelhit/images/img_451_1783334321.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357563/tachelhit/illustrations/ill_451_1792357565.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -3411,6 +3677,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335819/tachelhit/images/img_452_1783335819.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357558/tachelhit/illustrations/ill_452_1792357559.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -3425,6 +3692,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770838508/tachelhit/images/img_185_1770838508.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357557/tachelhit/illustrations/ill_454_1792357558.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -3439,6 +3707,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1770838473/tachelhit/images/img_186_1770838472.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357556/tachelhit/illustrations/ill_455_1792357558.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -3453,6 +3722,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358426/tachelhit/illustrations/ill_458_1792358427.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -3461,6 +3731,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783336055/tachelhit/images/img_459_1783336055.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357551/tachelhit/illustrations/ill_459_1792357553.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -3475,6 +3746,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334562/tachelhit/images/img_461_1783334562.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357544/tachelhit/illustrations/ill_461_1792357546.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -3489,6 +3761,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358422/tachelhit/illustrations/ill_462_1792358423.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -3497,6 +3770,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334969/tachelhit/images/img_463_1783334969.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357548/tachelhit/illustrations/ill_463_1792357550.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -3509,8 +3783,9 @@
   "id": 464,
   "text": "Ho dic be?",
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334529/tachelhit/images/img_464_1783334529.webp",
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358938/tachelhit/illustrations/ill_464_1792358940.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388498/tachelhit/illustrations/ill_464_1792388497.webp",
+  "passes": 3,
+  "hint": "a learner speaking with a speech bubble that contains only sound waves, eyebrows raised in question; the teacher beside gives a thumbs up",
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -3525,6 +3800,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334934/tachelhit/images/img_465_1783334934.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357542/tachelhit/illustrations/ill_465_1792357544.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -3539,6 +3815,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334458/tachelhit/images/img_466_1783334458.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357536/tachelhit/illustrations/ill_466_1792357538.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -3553,6 +3830,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334493/tachelhit/images/img_467_1783334493.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357541/tachelhit/illustrations/ill_467_1792357543.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -3567,6 +3845,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334868/tachelhit/images/img_468_1783334867.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357535/tachelhit/illustrations/ill_468_1792357537.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -3581,6 +3860,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335004/tachelhit/images/img_469_1783335004.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357534/tachelhit/illustrations/ill_469_1792357536.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "drawing_scan",
@@ -3595,6 +3875,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358419/tachelhit/illustrations/ill_470_1792358421.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -3603,6 +3884,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358418/tachelhit/illustrations/ill_471_1792358420.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -3611,6 +3893,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334599/tachelhit/images/img_472_1783334598.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357528/tachelhit/illustrations/ill_472_1792357530.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -3625,6 +3908,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334634/tachelhit/images/img_473_1783334634.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357529/tachelhit/illustrations/ill_473_1792357531.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -3639,6 +3923,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358412/tachelhit/illustrations/ill_474_1792358413.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -3647,6 +3932,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792359028/tachelhit/illustrations/ill_475_1792359029.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -3655,6 +3941,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335171/tachelhit/images/img_477_1783335171.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357527/tachelhit/illustrations/ill_477_1792357529.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -3669,6 +3956,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334670/tachelhit/images/img_478_1783334670.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357522/tachelhit/illustrations/ill_478_1792357523.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -3683,6 +3971,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335136/tachelhit/images/img_481_1783335136.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357521/tachelhit/illustrations/ill_481_1792357521.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 4,
    "kind": "illustration",
@@ -3697,6 +3986,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358415/tachelhit/illustrations/ill_486_1792358416.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -3705,6 +3995,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358405/tachelhit/illustrations/ill_487_1792358406.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -3713,6 +4004,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335070/tachelhit/images/img_489_1783335069.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357519/tachelhit/illustrations/ill_489_1792357521.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -3727,6 +4019,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334803/tachelhit/images/img_490_1783334803.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358931/tachelhit/illustrations/ill_490_1792358932.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -3741,6 +4034,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783334771/tachelhit/images/img_491_1783334771.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358932/tachelhit/illustrations/ill_491_1792358933.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -3755,6 +4049,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358403/tachelhit/illustrations/ill_492_1792358405.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -3763,6 +4058,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335717/tachelhit/images/img_496_1783335716.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357511/tachelhit/illustrations/ill_496_1792357513.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -3777,6 +4073,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335582/tachelhit/images/img_499_1783335582.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357507/tachelhit/illustrations/ill_499_1792357507.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -3791,6 +4088,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358402/tachelhit/illustrations/ill_505_1792358403.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -3799,6 +4097,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358398/tachelhit/illustrations/ill_506_1792358399.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -3807,6 +4106,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358395/tachelhit/illustrations/ill_507_1792358396.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -3815,6 +4115,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358390/tachelhit/illustrations/ill_509_1792358392.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -3823,6 +4124,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1772550978/tachelhit/image/image_510_1772550978.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358372/tachelhit/illustrations/ill_510_1792358374.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -3837,6 +4139,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783336394/tachelhit/images/img_513_1783336394.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357505/tachelhit/illustrations/ill_513_1792357507.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -3851,6 +4154,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1772904227/tachelhit/images/img_515_1772904227.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357498/tachelhit/illustrations/ill_515_1792357500.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -3865,6 +4169,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1772900233/tachelhit/images/img_516_1772900231.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358366/tachelhit/illustrations/ill_516_1792358368.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -3879,6 +4184,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358396/tachelhit/illustrations/ill_517_1792358397.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -3887,6 +4193,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1772391290/tachelhit/image/image_518_1772391290.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357503/tachelhit/illustrations/ill_518_1792357504.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -3901,6 +4208,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1772549713/tachelhit/image/image_525_1772549713.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357497/tachelhit/illustrations/ill_525_1792357498.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "screenshot",
@@ -3915,6 +4223,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1774054437/tachelhit/image/image_552_1774054436.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358367/tachelhit/illustrations/ill_552_1792358368.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "screenshot",
@@ -3927,8 +4236,9 @@
   "id": 563,
   "text": "I got you",
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335241/tachelhit/images/img_563_1783335240.webp",
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358929/tachelhit/illustrations/ill_563_1792358931.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388490/tachelhit/illustrations/ill_563_1792388489.webp",
+  "passes": 3,
+  "hint": "a woman slipping on a wet path while her friend grabs her arm firmly and holds her up, both relieved",
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -3943,6 +4253,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335274/tachelhit/images/img_564_1783335274.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357494/tachelhit/illustrations/ill_564_1792357496.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -3957,6 +4268,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1779374336/tachelhit/image/image_566_1779374335.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357488/tachelhit/illustrations/ill_566_1792357488.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "screenshot",
@@ -3971,6 +4283,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783336158/tachelhit/images/img_575_1783336157.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357482/tachelhit/illustrations/ill_575_1792357483.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -3985,6 +4298,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783331084/tachelhit/images/img_592_1783331084.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358923/tachelhit/illustrations/ill_592_1792358925.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -3999,6 +4313,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358388/tachelhit/illustrations/ill_593_1792358389.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -4007,6 +4322,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335443/tachelhit/images/img_597_1783335442.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357475/tachelhit/illustrations/ill_597_1792357476.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -4021,6 +4337,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335477/tachelhit/images/img_598_1783335477.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357472/tachelhit/illustrations/ill_598_1792357474.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "illustration",
@@ -4035,6 +4352,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783336090/tachelhit/images/img_605_1783336090.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357487/tachelhit/illustrations/ill_605_1792357488.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -4049,6 +4367,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783336121/tachelhit/images/img_606_1783336121.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357467/tachelhit/illustrations/ill_606_1792357468.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -4063,6 +4382,7 @@
   "old_image_url": "",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358383/tachelhit/illustrations/ill_610_1792358385.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -4071,6 +4391,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335343/tachelhit/images/img_613_1783335342.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357465/tachelhit/illustrations/ill_613_1792357467.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -4085,6 +4406,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1774440242/tachelhit/image/image_614_1774440241.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357460/tachelhit/illustrations/ill_614_1792357462.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 2,
    "kind": "photo",
@@ -4099,6 +4421,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1774442926/tachelhit/image/image_621_1774442926.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357459/tachelhit/illustrations/ill_621_1792357459.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -4113,6 +4436,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1774446929/tachelhit/image/image_622_1774446929.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357457/tachelhit/illustrations/ill_622_1792357459.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -4127,6 +4451,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335375/tachelhit/images/img_624_1783335375.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357453/tachelhit/illustrations/ill_624_1792357454.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -4141,6 +4466,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335920/tachelhit/images/img_625_1783335920.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357450/tachelhit/illustrations/ill_625_1792357451.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -4155,6 +4481,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1775552042/tachelhit/images/img_628_1775552042.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357449/tachelhit/illustrations/ill_628_1792357450.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -4169,6 +4496,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1775552010/tachelhit/images/img_629_1775552010.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357445/tachelhit/illustrations/ill_629_1792357447.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -4183,6 +4511,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1775552276/tachelhit/images/img_630_1775552276.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358359/tachelhit/illustrations/ill_630_1792358359.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -4197,6 +4526,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783335887/tachelhit/images/img_632_1783335886.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357442/tachelhit/illustrations/ill_632_1792357443.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -4211,6 +4541,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1774696088/tachelhit/image/image_636_1774696087.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358922/tachelhit/illustrations/ill_636_1792358923.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "screenshot",
@@ -4225,6 +4556,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1775551966/tachelhit/images/img_637_1775551966.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358914/tachelhit/illustrations/ill_637_1792358915.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -4239,6 +4571,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1775551942/tachelhit/images/img_638_1775551942.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358913/tachelhit/illustrations/ill_638_1792358914.webp",
   "passes": 2,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -4251,8 +4584,9 @@
   "id": 639,
   "text": "My plesure ",
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1775551925/tachelhit/images/img_639_1775551925.jpg",
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358921/tachelhit/illustrations/ill_639_1792358922.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388489/tachelhit/illustrations/ill_639_1792388488.webp",
+  "passes": 3,
+  "hint": "a young man with one hand on his chest, smiling warmly and nodding, after handing a basket of oranges to an old woman who thanks him",
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -4267,6 +4601,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1774695885/tachelhit/image/image_640_1774695885.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357427/tachelhit/illustrations/ill_640_1792357428.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "screenshot",
@@ -4281,6 +4616,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1774695964/tachelhit/image/image_641_1774695963.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357426/tachelhit/illustrations/ill_641_1792357427.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "screenshot",
@@ -4295,6 +4631,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1775551799/tachelhit/images/img_642_1775551798.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357424/tachelhit/illustrations/ill_642_1792357426.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 3,
    "kind": "photo",
@@ -4309,6 +4646,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783336628/tachelhit/images/img_2923_1783336627.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357419/tachelhit/illustrations/ill_2923_1792357421.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "illustration",
@@ -4323,14 +4661,16 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358382/tachelhit/illustrations/ill_2924_1792358384.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
   "id": 2927,
   "text": "Sota el teu cul under your ass",
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1779371928/tachelhit/image/image_2927_1779371928.jpg",
-  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358914/tachelhit/illustrations/ill_2927_1792358915.webp",
-  "passes": 2,
+  "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792388489/tachelhit/illustrations/ill_2927_1792388488.webp",
+  "passes": 3,
+  "hint": "a small cat peeking out from under the chair a seated man is sitting on; the man looks down surprised",
   "old_audit": {
    "relevance": 3,
    "kind": "screenshot",
@@ -4345,6 +4685,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783329391/tachelhit/images/img_2928_1783329390.webp",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357416/tachelhit/illustrations/ill_2928_1792357418.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "illustration",
@@ -4359,6 +4700,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1779371947/tachelhit/image/image_2932_1779371947.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357412/tachelhit/illustrations/ill_2932_1792357414.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "screenshot",
@@ -4373,6 +4715,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1779371957/tachelhit/image/image_2933_1779371957.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357411/tachelhit/illustrations/ill_2933_1792357413.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "screenshot",
@@ -4387,6 +4730,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1778574081/tachelhit/image/image_2938_1778574080.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358359/tachelhit/illustrations/ill_2938_1792358359.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -4401,6 +4745,7 @@
   "old_image_url": "",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358380/tachelhit/illustrations/ill_2941_1792358382.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  },
  {
@@ -4409,6 +4754,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1783203273/tachelhit/images/img_2944_1783203272.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357404/tachelhit/illustrations/ill_2944_1792357405.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 1,
    "kind": "photo",
@@ -4423,6 +4769,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1779286623/tachelhit/image/image_2946_1779286622.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357404/tachelhit/illustrations/ill_2946_1792357405.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "screenshot",
@@ -4437,6 +4784,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1779210612/tachelhit/image/image_2948_1779210612.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358359/tachelhit/illustrations/ill_2948_1792358359.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "screenshot",
@@ -4451,6 +4799,7 @@
   "old_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1779285967/tachelhit/image/image_2951_1779285966.jpg",
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792357409/tachelhit/illustrations/ill_2951_1792357411.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": {
    "relevance": 5,
    "kind": "screenshot",
@@ -4465,6 +4814,7 @@
   "old_image_url": null,
   "new_image_url": "https://res.cloudinary.com/du26ppvh0/image/upload/v1792358110/tachelhit/illustrations/ill_3072_1792358112.webp",
   "passes": 1,
+  "hint": null,
   "old_audit": null
  }
 ]
