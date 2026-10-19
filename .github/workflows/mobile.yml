@@ -73,6 +73,42 @@ jobs:
         working-directory: frontend/ios
       - name: Zip the .app
         run: cd ios/build/Build/Products/Debug-iphonesimulator && zip -qr "$GITHUB_WORKSPACE/App-simulator.zip" App.app
+      # Runtime proof, not just a compile: boot a Simulator, install, launch, make sure the
+      # process is still alive after the web app has had time to load, and keep screenshots.
+      - name: Run it in the Simulator and take screenshots
+        run: |
+          set -euo pipefail
+          APP=ios/build/Build/Products/Debug-iphonesimulator/App.app
+          BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Info.plist")
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devs = [d for os_, v in json.load(sys.stdin)["devices"].items() if "iOS" in os_ for d in v if d["isAvailable"] and "iPhone" in d["name"]]
+          devs.sort(key=lambda d: (not d["name"].startswith("iPhone 16"), d["name"]))
+          print(devs[0]["udid"]); print(devs[0]["name"], file=sys.stderr)')
+          echo "simulator=$UDID bundle=$BUNDLE"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" "$BUNDLE"
+          mkdir -p shots
+          for t in 10 25 45; do
+            sleep $(( t == 10 ? 10 : 15 ))
+            xcrun simctl io "$UDID" screenshot "shots/home-after-${t}s.png"
+          done
+          if ! xcrun simctl spawn "$UDID" launchctl list | grep -q "$BUNDLE"; then
+            echo "::error::the app is not running 45 s after launch"
+            xcrun simctl spawn "$UDID" log show --last 3m --predicate 'process == "App"' --style compact | tail -200 || true
+            exit 1
+          fi
+          xcrun simctl spawn "$UDID" log show --last 3m --predicate 'process == "App" AND messageType >= error' --style compact | tail -100 > shots/app-errors.log || true
+          echo "app still running after 45 s"
+        working-directory: frontend
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tachelhit-drills-ios-screenshots
+          path: frontend/shots
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: tachelhit-drills-ios-simulator
