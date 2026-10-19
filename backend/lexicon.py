@@ -87,8 +87,8 @@ def load(force: bool = False) -> bool:
                                               "pos": [], "example": r.get("example") or "",
                                               "example_tifinagh": r.get("example_tifinagh") or ""}
                         en = (r.get("english") or "").strip()
-                        if en and en.lower() not in {x.lower() for x in e["english"]} and len(e["english"]) < 8:
-                            e["english"].append(en)
+                        if en and en.lower() not in {x.lower() for x, _ in e["english"]} and len(e["english"]) < 60:
+                            e["english"].append((en, int(r.get("sense") or 1)))
                         for p in r.get("pos") or []:
                             if p not in e["pos"]:
                                 e["pos"].append(p)
@@ -98,6 +98,10 @@ def load(force: bool = False) -> bool:
             dl: Dict[str, List[dict]] = {}
             for f, e in by_form.items():
                 e["pos"] = ", ".join(e["pos"])
+                # basic senses first: the dictionary's own sense number (1 = primary meaning of
+                # that English word), then short headwords («Hand», «Arm») before idiom glosses
+                # («Applause», «Busy»), so the 12 kept are the ones a learner needs
+                e["english"] = [x for x, _ in sorted(e["english"], key=lambda t: (t[1], len(t[0]), t[0].lower()))][:12]
                 sk, lk = _keys(f)
                 _add(ds, dl, sk, lk, e, 6)
             # verbs
