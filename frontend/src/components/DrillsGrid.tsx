@@ -56,6 +56,28 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
     const [explainDrill, setExplainDrill] = useState<Drill | null>(null);
     // Card: Tifinagh face of a Latin-only reading (machine transliteration, labelled)
     const [cardTifinagh, setCardTifinagh] = useState<{ id: number; text: string } | null>(null);
+    // Synthetic Tamazight voice on the card: an extra way to hear the phrase or one word,
+    // never a replacement for the recording or the clip (those keep their own player).
+    const [speaking, setSpeaking] = useState(false);
+    const speak = async (text: string, drill?: Drill) => {
+        const t = (text || '').trim();
+        if (!t || speaking) return;
+        setSpeaking(true);
+        try {
+            const stored = drill && drill.text_tachelhit === t ? drill.audio_tts_shi_url : null;
+            let url = stored || '';
+            if (!url) {
+                const r = await axios.post(`${API_BASE}/tts/tachelhit`, { text: t, drill_id: drill && drill.text_tachelhit === t ? drill.id : null });
+                url = r.data?.url || '';
+            }
+            if (!url) throw new Error('sense veu');
+            await new Audio(getMediaUrl(url)).play();
+        } catch {
+            toast.error('No s\'ha pogut generar la veu sintètica ara mateix.');
+        } finally {
+            setSpeaking(false);
+        }
+    };
     useEffect(() => {
         const d = preview?.drillId != null ? rowData.find((x) => x.id === preview.drillId) : undefined;
         if (!d) { setCardTifinagh(null); return; }
@@ -442,8 +464,23 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
         const timeSpan = d.video_start_time != null && d.video_end_time != null ? `${Math.round(d.video_start_time)}s–${Math.round(d.video_end_time)}s` : null;
         return (
             <div style={{ padding: '12px 14px 4px', background: 'var(--surface)', borderTop: '1px solid var(--border)' }}>
-                <div style={{ fontSize: '19px', fontWeight: 700, color: 'var(--text)', lineHeight: 1.3 }}>
-                    {latin || (draft ? <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>{draft} <span style={{ fontSize: '11px' }}>(esborrany IA)</span></span> : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>sense transcripció</span>)}
+                <div style={{ fontSize: '19px', fontWeight: 700, color: 'var(--text)', lineHeight: 1.3, display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    {latin ? (
+                        <span>
+                            {latin.split(/(\s+)/).map((w, i) => w.trim()
+                                ? <span key={i} role="button" tabIndex={0} title="Pronuncia aquesta paraula (veu sintètica)" onClick={() => speak(w.replace(/[.,;:!?¿¡«»"()]/g, ''))}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') speak(w); }} style={{ cursor: 'pointer', borderBottom: '1px dotted var(--border)' }}>{w}</span>
+                                : <span key={i}>{w}</span>)}
+                        </span>
+                    ) : null}
+                    {(d.text_tachelhit || latin) && (
+                        <button onClick={() => speak(d.text_tachelhit || latin || '', d)} disabled={speaking}
+                            title="Veu sintètica de la frase: un complement, no substitueix la gravació ni el vídeo"
+                            style={{ padding: '4px 10px', fontSize: '12px', fontWeight: 700, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-pill)', cursor: speaking ? 'wait' : 'pointer', color: 'var(--text-soft)' }}>
+                            {speaking ? '…' : '🔊 Veu sintètica'}
+                        </button>
+                    )}
+                    {!latin && (draft ? <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>{draft} <span style={{ fontSize: '11px' }}>(esborrany IA)</span></span> : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>sense transcripció</span>)}
                 </div>
                 {tifinagh && <div style={{ fontSize: '15px', color: 'var(--text-soft)', marginTop: '2px' }}>{tifinagh}</div>}
                 {!tifinagh && cardTifinagh?.id === d.id && (
