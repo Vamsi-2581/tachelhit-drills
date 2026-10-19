@@ -4772,7 +4772,9 @@ def ai_explain_drill(drill_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="La lectura automàtica d'aquest drill no quadra amb el significat: cal la transcripció d'un parlant abans d'explicar-la")
     source_note = ("" if text else
                    "ATENCIÓ: no hi ha text confirmat pel parlant; la lectura és un ESBORRANY automàtic "
-                   f"(«{draft}»). Explica'l igualment però digues-ho a l'aprenent en una línia i no afirmis res que no quadri amb el català.")
+                   f"(«{draft}»). Explica'l igualment però digues-ho a l'aprenent en una línia. Per a CADA paraula digues si és una "
+                   "paraula amaziga coneguda (i quina) o una lectura dubtosa de la màquina; no inventis arrels ni morfologia per fer "
+                   "quadrar l'esborrany amb el català, i si la frase sencera no quadra amb el significat, digues-ho clarament.")
     prompt = (
         _drill_context(drill) + ("\n- Esborrany automàtic: " + draft if not text and draft else "") + "\n\n"
         + source_note + "\n\n"
