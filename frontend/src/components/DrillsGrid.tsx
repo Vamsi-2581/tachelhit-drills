@@ -1,3 +1,4 @@
+import type React from 'react';
 import '../agGridSetup';
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -37,6 +38,7 @@ import type { Drill } from '../types';
 import { toast } from '../toast';
 import { isMobileLayout } from '../utils/layout';
 import AiAssistant from './AiAssistant';
+import AiToolsMenu from './AiToolsMenu';
 
 interface DrillsGridProps {
     rowData: Drill[];
@@ -52,6 +54,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
     // Inline media preview (video/audio) opened from the grid or the cards.
     const [preview, setPreview] = useState<{ url: string; kind: 'video' | 'audio'; title?: string; drillId?: number } | null>(null);
     const [explainDrill, setExplainDrill] = useState<Drill | null>(null);
+    const [askDrill, setAskDrill] = useState<Drill | null>(null);
     // Phone list: render the cards in slices of 40 as the learner scrolls. A thousand cards
     // with a picture each made the page crawl.
     const MOBILE_PAGE = 40;
@@ -408,7 +411,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
     // Clip finished: listen -> read -> meaning -> next. With the meaning already on
     // screen we move on at once; otherwise reveal it and give three seconds to read.
     const onClipEnded = () => {
-        if (!autoNext) return;
+        if (!autoNext || explainDrill || askDrill) return;  // the tutor is open: stay on this drill
         if (alwaysReveal || reveal) { previewStep(1); return; }
         setReveal(true);
         autoNextTimer.current = window.setTimeout(() => previewStep(1), 3000);
@@ -492,6 +495,19 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                     <label title="Mostra la traducció sense haver de tocar" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-soft)', cursor: 'pointer' }}>
                         <input type="checkbox" checked={alwaysReveal} onChange={(e) => setAlwaysRevealPersist(e.target.checked)} /> Significat sempre
                     </label>
+                    {(() => {
+                        const d = rowData.find((x) => x.id === preview.drillId);
+                        if (!d) return null;
+                        const btn: React.CSSProperties = { padding: '8px 12px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, fontSize: '13px', cursor: 'pointer', color: 'var(--text)' };
+                        return (
+                            <>
+                                {(d.text_tachelhit || d.text_tachelhit_suggested || d.text_tachelhit_latin) && (
+                                    <button onClick={() => setExplainDrill(d)} title="Paraula per paraula, construcció i drills semblants" style={btn}>💡 Explica'm</button>
+                                )}
+                                <button onClick={() => setAskDrill(d)} title="Pregunta a l'assistent sobre aquest drill: paraules, conjugació, pronunciació" style={btn}>💬 Pregunta</button>
+                            </>
+                        );
+                    })()}
                     <a href={preview.url} target="_blank" rel="noreferrer" style={{ fontSize: '13px', color: 'var(--brand-1)', fontWeight: 700 }}>Obre en una pestanya</a>
                     <button onClick={() => setPreview(null)} style={{ padding: '8px 14px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', fontWeight: 700, cursor: 'pointer', color: 'var(--text)' }}>Tanca</button>
                 </div>
@@ -756,7 +772,7 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
         { field: 'text_tachelhit', headerName: 'Tamazight', flex: 2, minWidth: 150, filter: true, wrapText: true, autoHeight: true, editable: true,
           tooltipValueGetter: (p: { data?: Drill }) => p.data?.text_tachelhit_suggested ? `Suggeriment IA: ${p.data.text_tachelhit_suggested}` : undefined,
           cellRenderer: (p: { value?: string; data?: Drill }) => p.value
-            ? <span>{p.value}{p.data?.text_tachelhit_suggested ? <span title={`Suggeriment IA: ${p.data.text_tachelhit_suggested}`} style={{ marginLeft: 6, fontSize: 12 }}>💡</span> : null}</span>
+            ? <span>{p.value}{p.data?.text_tachelhit_suggested ? <span title="Lectura automàtica (no substitueix el text del parlant)" style={{ display: 'block', fontSize: 12, fontWeight: 500, fontStyle: 'italic', color: 'var(--text-muted)', fontFamily: 'var(--font-body)' }}>💡 {p.data.text_tachelhit_suggested}</span> : null}</span>
             : (p.data?.text_tachelhit_suggested
                 ? <span title="Esborrany automàtic (no verificat): edita el drill per confirmar-lo" style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontWeight: 500 }}>{p.data.text_tachelhit_suggested}{p.data.text_tachelhit_latin ? <span style={{ display: 'block', fontSize: 11, fontFamily: 'var(--font-body)' }}>{p.data.text_tachelhit_latin}</span> : null}<span style={{ display: 'block', fontSize: 10, letterSpacing: '0.04em', textTransform: 'uppercase' }}>esborrany</span></span>
                 : null),
@@ -788,54 +804,39 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
         },
         {
             headerName: 'Eines IA',
-            width: 430,
-            cellRenderer: (params: any) => (
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', height: '100%' }}>
-                    <button onClick={() => handleTranslate(params.data, 'ca', 'shi')} disabled={actionLoadingId !== null} title="Tradueix del català al taixelhit" style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 9px', fontSize: '11px', fontWeight: 700, background: 'var(--surface-2)', color: 'var(--text-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', opacity: actionLoadingId ? 0.5 : 1, cursor: actionLoadingId ? 'not-allowed' : 'pointer' }}><span style={{ color: 'var(--brand-1)', display: 'flex' }}><FaLanguage /></span> CA→Ta</button>
-                    <button onClick={() => handleTranslate(params.data, 'shi', 'ca')} disabled={actionLoadingId !== null} title="Tradueix del taixelhit al català" style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 9px', fontSize: '11px', fontWeight: 700, background: 'var(--surface-2)', color: 'var(--text-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', opacity: actionLoadingId ? 0.5 : 1, cursor: actionLoadingId ? 'not-allowed' : 'pointer' }}><span style={{ color: 'var(--emerald)', display: 'flex' }}><FaLanguage /></span> Ta→CA</button>
-                    <button onClick={() => handleTachelhitTTS(params.data)} disabled={actionLoadingId !== null} title="Genera veu en taixelhit" style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 9px', fontSize: '11px', fontWeight: 700, background: 'var(--surface-2)', color: 'var(--text-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', opacity: actionLoadingId ? 0.5 : 1, cursor: actionLoadingId ? 'not-allowed' : 'pointer' }}><span style={{ color: 'var(--saffron)', display: 'flex' }}><FaVolumeUp /></span> Veu</button>
-                    <button onClick={() => setRecordDrill(params.data)} disabled={actionLoadingId !== null} title="Veus del drill (gravacions)" aria-label="Veus del drill" style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 9px', fontSize: '11px', fontWeight: 700, background: 'var(--surface-2)', color: 'var(--text-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', cursor: 'pointer' }}><span style={{ color: 'var(--rose)', display: 'flex' }}><FaMicrophone /></span> Veus</button>
-                    {(params.data.audio_url || params.data.video_url) && (
-                        <button
-                            onClick={() => {
-                                const hasAudio = params.data.audio_url;
-                                const hasVideo = params.data.video_url;
-                                if (hasAudio && hasVideo) {
-                                    if (confirm('Transcripció des de VÍDEO? (Cancel·la per ÀUDIO)')) {
-                                        handleTranscribe(params.data, 'video');
-                                    } else {
-                                        handleTranscribe(params.data, 'audio');
-                                    }
-                                } else if (hasVideo) {
-                                    handleTranscribe(params.data, 'video');
-                                } else {
-                                    handleTranscribe(params.data, 'audio');
-                                }
-                            }}
-                            disabled={actionLoadingId !== null}
-                            title="Transcriu l'àudio o el vídeo (ASR)"
-                            style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 9px', fontSize: '11px', fontWeight: 700, background: 'var(--surface-2)', color: 'var(--text-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', opacity: actionLoadingId ? 0.5 : 1, cursor: actionLoadingId ? 'not-allowed' : 'pointer' }}
-                        ><span style={{ color: 'var(--sky)', display: 'flex' }}><FaMagic /></span> Transcriu</button>
-                    )}
-                    <button
-                        onClick={async () => {
-                            const audio = params.data.audio_url;
-                            const video = params.data.video_url;
-                            const media = audio || video;
-                            if (media) {
-                                setActionLoadingId(`down-${params.data.id}`);
-                                const mediaType = audio ? 'audio' : 'video';
-                                await syncManager.downloadAndCacheMedia(media, mediaType);
-                                setActionLoadingId(null);
-                                toast.success('Mèdia descarregat per a ús fora de línia!');
-                            }
-                        }}
-                        disabled={actionLoadingId !== null || !(params.data.audio_url || params.data.video_url)}
-                        title="Desa el mèdia per a ús fora de línia"
-                        style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 9px', fontSize: '11px', fontWeight: 700, background: 'var(--surface-2)', color: 'var(--text-soft)', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)', opacity: (actionLoadingId !== null || !(params.data.audio_url || params.data.video_url)) ? 0.5 : 1, cursor: (actionLoadingId !== null || !(params.data.audio_url || params.data.video_url)) ? 'not-allowed' : 'pointer' }}
-                    ><span style={{ color: 'var(--text-muted)', display: 'flex' }}><FaSave /></span> Desa</button>
-                </div>
-            )
+            width: 150,
+            cellRenderer: (params: any) => {
+                const d: Drill = params.data;
+                const media = d.audio_url || d.video_url;
+                const transcribe = () => {
+                    if (d.audio_url && d.video_url) {
+                        handleTranscribe(d, confirm('Transcripció des de VÍDEO? (Cancel·la per ÀUDIO)') ? 'video' : 'audio');
+                    } else {
+                        handleTranscribe(d, d.video_url ? 'video' : 'audio');
+                    }
+                };
+                const save = async () => {
+                    if (!media) return;
+                    setActionLoadingId(`down-${d.id}`);
+                    await syncManager.downloadAndCacheMedia(media, d.audio_url ? 'audio' : 'video');
+                    setActionLoadingId(null);
+                    toast.success('Mèdia descarregat per a ús fora de línia!');
+                };
+                return (
+                    <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                        <AiToolsMenu busy={actionLoadingId !== null} tools={[
+                            { key: 'explain', icon: '💡', title: "Explica'm la frase", description: 'Paraula per paraula, com està construïda i altres drills amb les mateixes paraules.', run: () => setExplainDrill(d), disabled: !(d.text_tachelhit || d.text_tachelhit_suggested || d.text_tachelhit_latin) },
+                            { key: 'ask', icon: '💬', title: "Pregunta a l'assistent", description: 'Xat sobre aquest drill: gramàtica, pronunciació, variants. Es basa en el compendi amazic.', run: () => setAskDrill(d) },
+                            { key: 'ca-ta', icon: <span style={{ color: 'var(--brand-1)', display: 'flex' }}><FaLanguage /></span>, title: 'Tradueix català → taixelhit', description: 'Proposa la frase en taixelhit. Si ja hi ha text, la proposta es desa com a suggeriment i no el toca.', run: () => handleTranslate(d, 'ca', 'shi'), disabled: !d.text_catalan },
+                            { key: 'ta-ca', icon: <span style={{ color: 'var(--emerald)', display: 'flex' }}><FaLanguage /></span>, title: 'Tradueix taixelhit → català', description: 'Proposa la traducció catalana. Si ja n\'hi ha, va com a suggeriment.', run: () => handleTranslate(d, 'shi', 'ca'), disabled: !d.text_tachelhit },
+                            { key: 'transcribe', icon: <span style={{ color: 'var(--sky)', display: 'flex' }}><FaMagic /></span>, title: "Transcriu l'àudio", description: 'La màquina escolta la gravació i escriu el que sent. Va com a esborrany; el text del parlant es manté.', run: transcribe, disabled: !media },
+                            { key: 'tts', icon: <span style={{ color: 'var(--saffron)', display: 'flex' }}><FaVolumeUp /></span>, title: 'Genera una veu sintètica', description: 'Llegeix el taixelhit amb veu artificial, marcada com a sintètica. Útil quan no hi ha gravació.', run: () => handleTachelhitTTS(d), disabled: !d.text_tachelhit },
+                            { key: 'voices', icon: <span style={{ color: 'var(--rose)', display: 'flex' }}><FaMicrophone /></span>, title: 'Veus del drill', description: 'Escolta o grava parlants reals dient aquesta frase, cadascú amb la seva varietat.', run: () => setRecordDrill(d) },
+                            { key: 'save', icon: <span style={{ color: 'var(--text-muted)', display: 'flex' }}><FaSave /></span>, title: 'Desa fora de línia', description: 'Guarda l\'àudio o el vídeo al dispositiu per practicar sense connexió.', run: save, disabled: !media },
+                        ]} />
+                    </div>
+                );
+            }
         },
         {
             headerName: 'Accions',
@@ -919,6 +920,14 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                         checkboxes: true,
                         headerCheckbox: true
                     }}
+                    onRowDoubleClicked={(event: any) => {
+                        // Double-click opens the drill's card (listen, read, meaning, next),
+                        // except on the text cells, where a double-click still edits the text.
+                        const d: Drill | undefined = event.data;
+                        const col = event.column;
+                        if (!d || (col && col.getColDef().editable)) return;
+                        if (d.video_url || d.audio_url) openPreviewOf(d); else onEditDrill?.(d);
+                    }}
                     onSelectionChanged={(event) => {
                         const rows = event.api.getSelectedRows();
                         setSelectedRows(rows);
@@ -951,6 +960,8 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                     </div>
                 </div>
             )}
+            {explainDrill && <AiAssistant drillId={explainDrill.id} drillLabel={explainDrill.text_catalan || explainDrill.text_tachelhit || `#${explainDrill.id}`} autoAction="explain" onClose={() => setExplainDrill(null)} />}
+            {askDrill && <AiAssistant drillId={askDrill.id} drillLabel={askDrill.text_catalan || askDrill.text_tachelhit || `#${askDrill.id}`} onClose={() => setAskDrill(null)} />}
             {recordDrill && (
                 <RecordAudioModal
                     drill={recordDrill}
