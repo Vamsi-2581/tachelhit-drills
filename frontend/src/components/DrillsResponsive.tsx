@@ -107,6 +107,15 @@ export default function DrillsResponsive() {
   const [searchCategory, setSearchCategory] = useState(initialParams.get('in') || 'all');
   const [filteredDrills, setFilteredDrills] = useState<Drill[]>([]);
   const [varietyFilter, setVarietyFilter] = useState(initialParams.get('variety') || '');
+  // Order: oldest first by default (the course order); newest first right after you create a
+  // drill, so you see it; the toggle changes it and the choice is remembered.
+  const [newestFirst, setNewestFirstState] = useState<boolean>(() => {
+    try { return localStorage.getItem('drills.order') === 'newest'; } catch { return false; }
+  });
+  const setNewestFirst = (v: boolean) => {
+    setNewestFirstState(v);
+    try { localStorage.setItem('drills.order', v ? 'newest' : 'oldest'); } catch { /* private mode */ }
+  };
   const newDrillOptionsRef = useRef<HTMLDivElement>(null);
 
   // Dismiss the "Més" dropdown on outside-click or Escape
@@ -177,10 +186,13 @@ export default function DrillsResponsive() {
     if (filtering && result.length > 1 && sources.size === 1 && !sources.has('') && timed >= result.length * 0.5) {
       result = [...result].sort((a: Drill, b: Drill) =>
         (a.video_start_time ?? Number.MAX_SAFE_INTEGER) - (b.video_start_time ?? Number.MAX_SAFE_INTEGER) || a.id - b.id);
+    } else {
+      const t = (d: Drill) => new Date(d.date_created).getTime() || 0;
+      result = [...result].sort((a: Drill, b: Drill) => (newestFirst ? t(b) - t(a) || b.id - a.id : t(a) - t(b) || a.id - b.id));
     }
 
     setFilteredDrills(result);
-  }, [drills, searchQuery, searchCategory, varietyFilter, location.search]);
+  }, [drills, searchQuery, searchCategory, varietyFilter, location.search, newestFirst]);
 
   const collections = useMemo(() => {
     const counts = new Map<string, number>();
@@ -409,6 +421,14 @@ export default function DrillsResponsive() {
               <option value="">Totes les varietats</option>
               {VARIETIES.map((v) => <option key={v.code} value={v.code}>{v.label}</option>)}
             </select>
+            <button
+              onClick={() => setNewestFirst(!newestFirst)}
+              aria-label={newestFirst ? 'Ordre: més nous primer (canvia a més antics primer)' : 'Ordre: més antics primer (canvia a més nous primer)'}
+              title={newestFirst ? 'Més nous primer · clica per veure els més antics primer' : 'Més antics primer · clica per veure els més nous primer'}
+              style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-soft)', borderRadius: 'var(--r-sm)', padding: '6px 9px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
+            >
+              {newestFirst ? '↓ Més nous' : '↑ Més antics'}
+            </button>
             {searchQuery && <button onClick={() => setSearchQuery('')} aria-label="Esborra la cerca" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '16px', cursor: 'pointer', padding: '0 6px', flexShrink: 0 }}>✕</button>}
           </div>
         </div>
@@ -493,7 +513,7 @@ export default function DrillsResponsive() {
               </div>
               <button onClick={() => setShowVoiceCreator(false)} style={{ background: 'var(--surface-2)', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-soft)' }}><FaTimes size={20} /></button>
             </div>
-            <VoiceDrillCreator onClose={() => setShowVoiceCreator(false)} onDrillCreated={() => { fetchDrills(); setShowVoiceCreator(false); }} />
+            <VoiceDrillCreator onClose={() => setShowVoiceCreator(false)} onDrillCreated={() => { setNewestFirst(true); fetchDrills(); setShowVoiceCreator(false); }} />
           </div>
         </div>
       )}
@@ -501,7 +521,7 @@ export default function DrillsResponsive() {
       {showGlossary && <GlossaryModal onClose={() => setShowGlossary(false)} />}
 
       {showMobileDrillCreator && (
-        <MobileDrillCreator onClose={() => setShowMobileDrillCreator(false)} onDrillCreated={() => { fetchDrills(); setShowMobileDrillCreator(false); }} />
+        <MobileDrillCreator onClose={() => setShowMobileDrillCreator(false)} onDrillCreated={() => { setNewestFirst(true); fetchDrills(); setShowMobileDrillCreator(false); }} />
       )}
     </>
   );
