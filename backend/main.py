@@ -4484,7 +4484,7 @@ def _drill_context(drill) -> str:
         ("Taixelhit (tifinag)", drill.text_tachelhit),
         ("Taixelhit (llatí)", drill.text_tachelhit_latin),
         ("Àrab", drill.text_arabic),
-        ("Etiqueta", drill.tag),
+        ("Etiqueta de catàleg (nom del vídeo o de la col·lecció; NO és text del drill)", drill.tag),
         ("Varietat", drill.variety),
         ("Regió", drill.region),
     ]
@@ -4494,6 +4494,7 @@ def _drill_context(drill) -> str:
         lines.append(f"- Esborrany automàtic (lectura de màquina, NO confirmada per cap parlant; «[? a | b]» = insegur): {sug}")
     if not (drill.text_tachelhit or "").strip() and not sug:
         lines.append("- Taixelhit: encara no hi ha transcripció d'aquest drill")
+    lines.append("La FRASE del drill és la del camp Taixelhit (o, si no n'hi ha, l'esborrany); el català n'és el significat.")
     lines.append("REGLA: explica només el text que hi ha. Si només hi ha l'esborrany, treballa sobre l'esborrany i digues que és "
                  "un esborrany. MAI inventis ni proposis una frase en taixelhit com si fos la del drill.")
     return "DRILL SELECCIONAT:\n" + "\n".join(lines) if lines else ""
