@@ -75,6 +75,7 @@ class DrillBase(BaseModel):
     # Documentation / variation layer (auditor Phase 2)
     text_tachelhit_latin: Optional[str] = None
     text_tachelhit_suggested: Optional[str] = None  # machine/AI draft (not gold)
+    draft_check: Optional[str] = None  # JSON verdict of the draft's meaning check (draft_check.py)
     text_catalan_suggested: Optional[str] = None
     variety: Optional[str] = None
     region: Optional[str] = None

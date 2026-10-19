@@ -18,6 +18,7 @@ declare global {
 
 import type { Drill } from '../types';
 import { useIsMobileLayout } from '../utils/layout';
+import { draftUsable } from '../utils/drafts';
 
 /** The unconfirmed reading to show when a drill has no speaker-confirmed text: the
  *  subtitle/AI draft in the suggestion field unless it is a machine listening bracket. */
@@ -52,6 +53,7 @@ const KaraokeLine = ({ text, frac, muted }: { text: string; frac: number; muted?
 
 const draftText = (d?: Drill | null): string => {
   if (!d) return '';
+  if (!draftUsable(d)) return '';  // the meaning check rejected it: not for learners
   const sug = (d.text_tachelhit_suggested || '').trim();
   if (sug && !sug.startsWith('[')) return sug;
   return (d.text_tachelhit_latin || '').trim();
