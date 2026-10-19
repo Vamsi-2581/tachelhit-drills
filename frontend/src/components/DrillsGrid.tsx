@@ -545,7 +545,9 @@ export default function DrillsGrid({ rowData, refreshData, onEditDrill, loadErro
                         {/* Content text blocks */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             <div style={{ fontSize: '16px', color: 'var(--text)', fontWeight: 600, lineHeight: 1.4 }}>{drill.text_catalan || <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>Sense català</span>}</div>
-                            <div style={{ fontSize: '17px', color: 'var(--brand-1)', fontWeight: 700, fontFamily: 'var(--font-tifinagh)', lineHeight: 1.5 }}>{drill.text_tachelhit || <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontFamily: 'var(--font-sans)' }}>Sense taixelhit</span>}</div>
+                            <div style={{ fontSize: '17px', color: 'var(--brand-1)', fontWeight: 700, fontFamily: 'var(--font-tifinagh)', lineHeight: 1.5 }}>{drill.text_tachelhit || (drill.text_tachelhit_suggested
+                              ? <span title="Esborrany automàtic (no verificat)" style={{ color: 'var(--text-muted)', fontWeight: 500, fontStyle: 'italic' }}>{drill.text_tachelhit_suggested}<span style={{ display: 'block', fontSize: 10, letterSpacing: '0.04em', textTransform: 'uppercase', fontStyle: 'normal', fontFamily: 'var(--font-sans)' }}>esborrany</span></span>
+                              : <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontFamily: 'var(--font-sans)' }}>Sense taixelhit</span>)}</div>
                             {drill.text_arabic && (
                                 <div style={{ fontSize: '16px', color: 'var(--emerald)', direction: 'rtl', textAlign: 'right', fontWeight: 600, lineHeight: 1.5 }}>{drill.text_arabic}</div>
                             )}
