@@ -4912,6 +4912,19 @@ def corpus_stats(db: Session = Depends(get_db)):
         "by_region": by_region,
     }
 
+_TITLE_NOISE = re.compile(r"\s*[\(\[][^()\[\]]*(subtit|lyrics|paroles|official (music )?video|official clip|translated)[^()\[\]]*[\)\]]", re.I)
+
+
+def display_title(title: Optional[str]) -> Optional[str]:
+    """The source title for the catalog: provenance keeps the uploader's exact title,
+    the catalog drops boilerplate such as "(With English, French … subtitles)"."""
+    if not title:
+        return title
+    t = _TITLE_NOISE.sub("", title)
+    t = re.sub(r"\s{2,}", " ", t).strip(" -|·")
+    return t or title
+
+
 @app.get("/corpus/sources")
 def corpus_sources(db: Session = Depends(get_db)):
     """The catalog: every source video the drills came from, grouped
@@ -4927,7 +4940,7 @@ def corpus_sources(db: Session = Depends(get_db)):
             "from_s": None, "to_s": None, "ids": []})
         v["drills"] += 1
         v["ids"].append(d.id)
-        v["title"] = v["title"] or d.source_title
+        v["title"] = v["title"] or display_title(d.source_title)
         v["channel"] = v["channel"] or d.source_channel
         v["playlist"] = v["playlist"] or d.source_playlist
         v["license"] = v["license"] or d.license
@@ -4963,7 +4976,9 @@ def _gap_filters():
     empty = lambda col: or_(col == None, col == '')
     return {
         "no_audio":   ("Sense àudio (cal una gravació)", and_(has_tachelhit, empty(DrillModel.audio_url))),
-        "no_latin":   ("Sense romanització llatina", and_(has_tachelhit, empty(DrillModel.text_tachelhit_latin))),
+        # only meaningful when the text itself is in Tifinagh (Latin text IS the romanization)
+        "no_latin":   ("Sense romanització llatina", and_(has_tachelhit, empty(DrillModel.text_tachelhit_latin),
+                                                          DrillModel.text_tachelhit.regexp_match("[ⴰ-⵿]"))),
         "no_catalan": ("Sense traducció catalana", and_(has_tachelhit, empty(DrillModel.text_catalan))),
         "no_arabic":  ("Sense àrab", and_(has_tachelhit, empty(DrillModel.text_arabic))),
         "no_variety": ("Sense varietat/regió", and_(has_tachelhit, empty(DrillModel.variety))),

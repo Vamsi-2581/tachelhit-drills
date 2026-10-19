@@ -733,3 +733,13 @@ def test_verify_queue_reasons_and_resolve():
     assert (d["text_tachelhit"], d["text_tachelhit_latin"], d["text_tachelhit_suggested"]) == ("ⴽⴰⴷ ⵍⴳⵓⴷⵉⵏⵓ", "kad lgudinu", None)
     left = {x["id"] for x in client.get("/corpus/verify-queue", params={"limit": 500}).json()["drills"]}
     assert not ({contested, differs, subtitle} & left) and empty in left
+
+
+def test_catalog_display_title_and_no_latin_gap():
+    assert main.display_title("Inerzaf - Ha l3ar a bu R12 (With English, French, Arabic and Tachelhit subtitles)") == "Inerzaf - Ha l3ar a bu R12"
+    assert main.display_title("Tasuta N-Imal (ⵜⵏⵉ) - Fadma - ⴼⴰⴹⵎⴰ (official music video 2021 )") == "Tasuta N-Imal (ⵜⵏⵉ) - Fadma - ⴼⴰⴹⵎⴰ"
+    assert main.display_title("Learn Tamazight Language - Lesson #02 (Alphabets#02)") == "Learn Tamazight Language - Lesson #02 (Alphabets#02)"
+    latin_only = client.post("/drills/", json={"text_tachelhit": "azul fellawn", "text_catalan": "gap latin a"}).json()["id"]
+    tifinagh = client.post("/drills/", json={"text_tachelhit": "ⴰⵣⵓⵍ", "text_catalan": "gap latin b"}).json()["id"]
+    ids = {d["id"] for d in client.get("/corpus/gaps", params={"kind": "no_latin", "limit": 500}).json()["drills"]}
+    assert tifinagh in ids and latin_only not in ids
