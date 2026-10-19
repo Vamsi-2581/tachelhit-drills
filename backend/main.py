@@ -1291,14 +1291,16 @@ def merge_subtitle_frames(items: List[Dict[str, Any]], every: float = 1.0, min_l
 def detect_text_mode(frames: List[Tuple[float, str]]) -> str:
     """Sample a few frames and ask what kind of on-screen text the video has:
     'subtitles' (burned-in lines, usually at the bottom), 'lesson' (vocabulary / letters
-    shown as teaching material) or 'none'."""
+    shown as teaching material), 'page' (a whole page or paragraph of Amazigh text that stays
+    on screen while it is read: a text, a tale, a poem) or 'none'."""
     import base64
     from gemini_client import _generate_content
     sample = frames[:: max(1, len(frames) // 6)][:6]
     parts: List[Dict[str, Any]] = [{"text": (
         "Look at these sample frames from one video and answer with ONE word: 'subtitles' if the video has subtitle "
         "lines burned into the picture (text that changes with the speech/singing, often several languages), 'lesson' if "
-        "it shows vocabulary, letters or words as teaching material, or 'none'.")}]
+        "it shows vocabulary, letters or words as teaching material, 'page' if it shows a whole page or paragraph of "
+        "running text (several lines of Tifinagh or Latin Amazigh, a text or a story being read aloud), or 'none'.")}]
     for t, path in sample:
         with open(path, "rb") as fh:
             parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(fh.read()).decode()}})
@@ -1308,12 +1310,98 @@ def detect_text_mode(frames: List[Tuple[float, str]]) -> str:
     try:
         data = _generate_content(payload, 120)
         ans = "".join(pp.get("text", "") for pp in data["candidates"][0]["content"]["parts"]).strip().lower()
-        for k in ("subtitles", "lesson", "none"):
+        for k in ("subtitles", "lesson", "page", "none"):
             if k in ans:
                 return k
     except Exception as e:
         print(f"[TEXTMODE] detection failed: {e}")
     return "none"
+
+
+def _space_transcribe_text(media_path: str) -> str:
+    """Whole-file transcription by the ASR Space (NeMo, Tifinagh); '' on any failure."""
+    try:
+        space = os.getenv("HUGGINGFACE_ASR_SPACE_URL", ASR_SPACE_DEFAULT)
+        hf_token = os.getenv("HUGGINGFACE_API_KEY")
+        headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
+        with open(media_path, "rb") as f:
+            r = requests.post(resolve_hf_space_host(space) + "/transcribe",
+                              files={"audio_file": (os.path.basename(media_path), f, "application/octet-stream")},
+                              headers=headers, timeout=900)
+        return (r.json().get("text") or "").strip() if r.status_code == 200 else ""
+    except Exception as e:
+        print(f"[PAGE] narration transcription failed: {e}")
+        return ""
+
+
+_REPEATED_WORD = re.compile(r"^(\S+)(\s+\1){2,}$")
+
+
+def read_page_text(video_path: str, tmp_dir: str, frame_at: float = 0.4) -> List[str]:
+    """A narrated page -> «unit | Catalan meaning» lines (units of <= 10 words).
+    The narration is transcribed by the ASR Space (the WORDS); Gemini then reads the page
+    frame holding that transcript as a prior (the LETTERS). Measured on «La cavalleria»
+    (Tamazight For All, 2026-10-19): 10 units, aligned, vs. garbage from the page alone.
+    Lines are machine output and become DRAFT drills."""
+    if not gemini_available():
+        return []
+    import base64
+    from gemini_client import _generate_content
+    asr_text = _space_transcribe_text(video_path)
+    if not asr_text:
+        print("[PAGE] no narration transcript: page reading skipped")
+        return []
+    try:
+        dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", video_path],
+                                   capture_output=True, text=True, timeout=60).stdout.strip() or 0)
+    except Exception:
+        dur = 0.0
+    frame = os.path.join(tmp_dir, "page_frame.jpg")
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-ss", f"{max(0.0, dur * frame_at):.2f}", "-i", video_path,
+                    "-frames:v", "1", "-vf", "scale=1280:-2", frame], check=True, capture_output=True, timeout=120)
+    with open(frame, "rb") as fh:
+        img = base64.b64encode(fh.read()).decode()
+    prompt = ("This frame shows a page of Amazigh (Tamazight) text in Tifinagh that a narrator reads aloud. A speech "
+              "recogniser heard the narration as:\n«" + asr_text[:4000] + "»\n\nUsing the page as the authority for the "
+              "LETTERS and the recognised speech as a guide to the WORDS, write the page's text exactly, in standard IRCAM "
+              "Tifinagh orthography, split into short units of at most 10 words (break at sentence ends and commas), one "
+              "per line, each followed by ' | ' and its Catalan meaning. Keep every word of the page in reading order; do "
+              "not invent words that are on neither the page nor the recording; skip titles, logos and watermarks. "
+              "Answer with the lines only.")
+    payload = {"systemInstruction": {"parts": [{"text": "You read Tifinagh pages carefully and never invent text."}]},
+               "contents": [{"role": "user", "parts": [{"inline_data": {"mime_type": "image/jpeg", "data": img}}, {"text": prompt}]}],
+               "generationConfig": {"maxOutputTokens": 4000, "temperature": 0.0, "thinkingConfig": {"thinkingBudget": 0}}}
+    try:
+        data = _generate_content(payload, 240)
+        text = "".join(pp.get("text", "") for pp in data["candidates"][0]["content"]["parts"])
+    except Exception as e:
+        print(f"[PAGE] page reading failed: {e}")
+        return []
+    lines, seen = [], set()
+    for raw in text.splitlines():
+        l = raw.strip().strip("-•*").strip()
+        if "|" not in l:
+            continue
+        unit = l.split("|", 1)[0].strip()
+        if not unit or unit in seen or not re.search(r"[\u2D30-\u2D7F]", unit) or _REPEATED_WORD.match(unit):
+            continue
+        seen.add(unit)
+        lines.append(unit + " | " + l.split("|", 1)[1].strip())
+    print(f"[PAGE] narration {len(asr_text)} chars + page frame -> {len(lines)} units")
+    return lines
+
+
+def page_segments_to_drafts(segments: List[Dict]) -> List[Dict]:
+    """Page units are machine output: the Tamazight goes to the suggestion field, the Catalan
+    meaning stays; nothing is written as confirmed text."""
+    for seg in segments:
+        tz = (seg.get("text_tachelhit") or seg.get("text") or "").strip()
+        if tz:
+            seg["text_tachelhit_suggested"] = tz
+        seg["text_tachelhit"] = None
+        seg["text"] = ""
+        seg["page_draft"] = True
+    return segments
 
 
 def read_burned_subtitles(video_path: str, tmp_dir: str, every: float = 1.0, batch: int = 10) -> List[Dict[str, Any]]:
@@ -3545,6 +3633,7 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
         # lesson text do we fall back to speech recognition.
         lesson_segments: List[Dict[str, Any]] = []
         lesson_lines_untimed: List[Dict[str, Any]] = []
+        page_mode = False
         # With lyrics given, the lines are known and only their TIMES are needed: those
         # come from speech recognition. The frame reader would return the lesson text
         # with no times for clips that show no text (a speaker on camera), and the
@@ -3556,9 +3645,17 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
                 probe_frames = await asyncio.to_thread(extract_frames, video_path, os.path.join(tmp_dir, "probe"), 10.0, 640)
                 mode = await asyncio.to_thread(detect_text_mode, probe_frames) if probe_frames else "none"
                 print(f"[AUTO] on-screen text mode: {mode}")
+                if mode == "page":
+                    # A narrated page: narration ASR + the page frame give known units with
+                    # their meaning; forced alignment gives their times; drills are DRAFTS.
+                    page_lines = await asyncio.to_thread(read_page_text, video_path, tmp_dir)
+                    if page_lines:
+                        lyrics = "\n".join(page_lines)
+                        page_mode = True
+                        print(f"[AUTO] page text: {len(page_lines)} units -> aligned like lyrics, as drafts")
                 if mode == "subtitles":
                     lesson_segments = await asyncio.to_thread(read_burned_subtitles, video_path, tmp_dir)
-                if not lesson_segments:
+                if not lesson_segments and not (lyrics and lyrics.strip()):
                     lesson_segments = await asyncio.to_thread(read_onscreen_vocabulary, video_path, tmp_dir,
                                                               2.0, 12, meta.get("channel"))
             except Exception as e:
@@ -3752,6 +3849,8 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
 
         # A chorus repeats: one drill per distinct line (the first occurrence keeps its clip).
         segments = dedupe_repeated_lines(segments)
+        if page_mode:
+            segments = page_segments_to_drafts(segments)
 
         # Phase 4: create drills with clipped media
         job.status = "CREATING_DRILLS"
