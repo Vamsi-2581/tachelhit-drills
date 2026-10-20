@@ -30,6 +30,7 @@ import topics as topics_catalog
 from gemini_client import gemini_generate, gemini_available, gemini_agent, BudgetExceeded
 import gemini_client
 import ai_budget
+import dialect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import create_engine, func as sa_func
@@ -1168,11 +1169,47 @@ def transcribe_narration(video_path: str, tmp_dir: str, cues: List[Dict[str, Any
     return out
 
 
-def _transcribe_short_clip_with_gemini(audio_url: str) -> Optional[Dict[str, str]]:
+def _dialect_examples(db, variety: Optional[str], n: int = 20) -> List[str]:
+    """Sentences by speakers of this variety already in the corpus (speaker-typed Latin, verified
+    first), as few-shot context for the listener. Empty for unknown varieties."""
+    if not variety or db is None:
+        return []
+    try:
+        rows = (db.query(DrillModel).filter(DrillModel.variety == variety, DrillModel.text_tachelhit != None,
+                                             DrillModel.text_tachelhit != "")
+                .order_by(DrillModel.verified.desc().nullslast(), DrillModel.id.asc()).limit(200).all())
+    except Exception:
+        rows = db.query(DrillModel).filter(DrillModel.variety == variety, DrillModel.text_tachelhit != None).limit(200).all()
+    out = []
+    for r in rows:
+        t = (r.text_tachelhit or "").strip()
+        if not t or t.lower() == "text" or re.search(r"[\u2D30-\u2D7F]", t) or len(t) > 90:
+            continue
+        out.append(f"{t} — {r.text_catalan}" if r.text_catalan else t)
+        if len(out) >= n:
+            break
+    return out
+
+
+def _transcribe_short_clip_with_gemini(audio_url: str, variety: Optional[str] = None, meaning: Optional[str] = None,
+                                       speaker_text: Optional[str] = None, examples: Optional[List[str]] = None) -> Optional[Dict[str, str]]:
     """Word/short-phrase ASR with Gemini (bake-off winner for isolated words,
     docs/ASR_BAKEOFF_2026-10-17.md). Returns {"latin", "tifinagh"} or None when
     Gemini is unavailable, the clip is longer than ASR_GEMINI_MAX_SECS, or the
-    call fails (the caller then uses the Space)."""
+    call fails (the caller then uses the Space).
+
+    With a known variety the dialect-aware listener runs instead (dialect.py: profile of the
+    variety, the corpus's own sentences, the NeMo hypothesis as a hint, dictionary candidates)."""
+    if variety and dialect.profile(variety):
+        try:
+            out = dialect.transcribe(audio_url, variety, meaning=meaning, speaker_text=speaker_text, examples=examples,
+                                     max_secs=float(os.getenv("ASR_GEMINI_MAX_SECS", "30")))
+        except Exception as e:
+            print(f"[ASR] dialect path failed ({e}); falling back")
+            out = None
+        if out:
+            print(f"[ASR] {variety} via {out['engine']}: {out['latin']!r}")
+            return {"latin": out["latin"], "tifinagh": out["tifinagh"]}
     if not gemini_available():
         return None
     import base64
@@ -2041,6 +2078,46 @@ class TtsRequest(BaseModel):
     text: str
     drill_id: Optional[int] = 0
     meaning: Optional[str] = None  # Catalan meaning: lets the spelling be normalised for the voice
+
+def _needs_tts(drill) -> bool:
+    """A confirmed text without a current (v2) synthetic voice."""
+    t = (drill.text_tachelhit or "").strip()
+    return bool(t) and t.lower() != "text" and f"tts_{VOICE_VERSION}_" not in (drill.audio_tts_shi_url or "")
+
+
+def prefill_tts(drill, db) -> Optional[str]:
+    """Make and store the synthetic voice of a drill whose text is confirmed. Best effort:
+    returns the url or None; never raises (the drill is fine without a voice)."""
+    try:
+        if not _needs_tts(drill):
+            return drill.audio_tts_shi_url
+        spoken, _how = tts_text(drill.text_tachelhit, drill.text_catalan)
+        if not spoken:
+            return None
+        url = generate_tachelhit_tts_hf(spoken, drill.id)
+        drill.audio_tts_shi_url = url
+        db.commit()
+        return url
+    except Exception as e:
+        print(f"[TTS-PREFILL] drill {getattr(drill, 'id', '?')}: {e}")
+        return None
+
+
+@app.post("/tts/prefill")
+async def tts_prefill(limit: int = Body(25, embed=True), tag: Optional[str] = Body(None, embed=True),
+                      db: Session = Depends(get_db), _admin: UserModel = Depends(require_admin)):
+    """Admin: produce the synthetic voice of up to `limit` drills with confirmed text that
+    still lack one (oldest first; `tag` narrows). Call repeatedly until `remaining` is 0."""
+    q = db.query(DrillModel).filter(DrillModel.text_tachelhit != None, DrillModel.text_tachelhit != "")
+    if tag:
+        q = q.filter(DrillModel.tag.ilike(f"%{tag}%"))
+    todo = [d for d in q.order_by(DrillModel.id.asc()).all() if _needs_tts(d)]
+    done, failed = [], []
+    for d in todo[:max(1, min(limit, 100))]:
+        url = await asyncio.to_thread(prefill_tts, d, db)
+        (done if url else failed).append(d.id)
+    return {"made": done, "failed": failed, "remaining": max(0, len(todo) - len(done) - len(failed))}
+
 
 @app.post("/tts/tachelhit")
 @app.post("/tts/tachelhit/")
@@ -4038,6 +4115,10 @@ async def auto_drills_pipeline_task(job_id: int, url: Optional[str], video_path:
             # Count the drill now — a text drill is valid even if media clipping
             # fails; the audio/video clip is best-effort enrichment on top.
             drills_created.append(db_drill.id)
+            if drill_tachelhit and os.getenv("TTS_PREFILL", "1") != "0":
+                # confirmed words (a subtitle track, a known lesson line): the synthetic voice is
+                # made now and stored, so the player never has to wait for it
+                await asyncio.to_thread(prefill_tts, db_drill, db)
             try:
                 if seg.get("no_media") or seg.get("start") is None:
                     media_errors.append(f"{seg.get('latin') or seg.get('text')}: spoken but not shown on screen (no clip)")
@@ -4914,6 +4995,7 @@ _register_attempts: Dict[str, List[float]] = {}
 VARIETIES = [
     {"code": "shi", "label": "Taixelhit (Tashelhit)"},
     {"code": "tzm", "label": "Tamazight de l'Atles Central"},
+    {"code": "tdl", "label": "Taixelhit de transició (Tadla–Azilal: Beni Mellal, Azilal, Demnate)"},
     {"code": "rif", "label": "Tarifit (Rif)"},
     {"code": "zgh", "label": "Amazic estàndard marroquí (IRCAM)"},
     {"code": "kab", "label": "Cabilenc (Kabyle)"},
@@ -5143,15 +5225,23 @@ async def add_recording(
     file: UploadFile = File(...),
     variety: Optional[str] = Form(None),
     region: Optional[str] = Form(None),
+    text: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     user: Optional[UserModel] = Depends(get_current_user),
 ):
     """Add one speaker's audio take of a drill. The take keeps the speaker's
     variety/region (defaulting to their declared profile), so the same drill can
-    hold recordings from different people/varieties."""
+    hold recordings from different people/varieties. `text` is the sentence as this
+    speaker says it: kept only when it differs from the drill's own words, so the drill
+    shows the sentence in every dialect that recorded it."""
     drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
     if not drill:
         raise HTTPException(status_code=404, detail="Drill not found")
+    own_words = (text or "").strip()
+    if own_words and own_words == (drill.text_tachelhit or "").strip():
+        own_words = ""
+    if variety and variety not in _VARIETY_CODES:
+        raise HTTPException(status_code=400, detail="Varietat desconeguda")
     content = await file.read()
     up = await run_in_threadpool(
         cloudinary.uploader.upload,
@@ -5166,6 +5256,7 @@ async def add_recording(
         variety=(variety or (user.variety if user else None)),
         region=((region or "").strip() or (user.region if user else None)),
         speaker=((user.display_name or user.username) if user else None),
+        text=own_words or None,
     )
     db.add(rec)
     # promote to the drill's primary audio if it has none yet
@@ -5174,7 +5265,7 @@ async def add_recording(
     db.commit()
     db.refresh(rec)
     return {"id": rec.id, "audio_url": rec.audio_url, "variety": rec.variety,
-            "region": rec.region, "speaker": rec.speaker,
+            "region": rec.region, "speaker": rec.speaker, "text": rec.text,
             "date_created": rec.date_created.isoformat()}
 
 
@@ -5185,8 +5276,32 @@ def list_recordings(drill_id: int, db: Session = Depends(get_db)):
             .filter(RecordingModel.drill_id == drill_id)
             .order_by(RecordingModel.date_created.asc()).all())
     return [{"id": r.id, "audio_url": normalize_media_url(r.audio_url),
-             "variety": r.variety, "region": r.region, "speaker": r.speaker,
+             "variety": r.variety, "region": r.region, "speaker": r.speaker, "text": r.text,
              "license": r.license, "date_created": r.date_created.isoformat()} for r in recs]
+
+
+@app.patch("/recordings/{recording_id}")
+def update_recording(recording_id: int, text: Optional[str] = Body(None, embed=True),
+                     variety: Optional[str] = Body(None, embed=True), region: Optional[str] = Body(None, embed=True),
+                     db: Session = Depends(get_db), user: Optional[UserModel] = Depends(get_current_user)):
+    """Fix a take's own wording, variety or town. The recorder (or an admin) only."""
+    r = db.query(RecordingModel).filter(RecordingModel.id == recording_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    if r.user_id and not (user and (user.id == r.user_id or user.is_admin)):
+        raise HTTPException(status_code=403, detail="Només qui va gravar la veu (o un administrador) la pot editar")
+    if text is not None:
+        drill = db.query(DrillModel).filter(DrillModel.id == r.drill_id).first()
+        t = text.strip()
+        r.text = t if t and t != ((drill.text_tachelhit or "").strip() if drill else "") else None
+    if variety is not None:
+        if variety and variety not in _VARIETY_CODES:
+            raise HTTPException(status_code=400, detail="Varietat desconeguda")
+        r.variety = variety or None
+    if region is not None:
+        r.region = region.strip() or None
+    db.commit()
+    return {"id": r.id, "text": r.text, "variety": r.variety, "region": r.region}
 
 
 @app.delete("/recordings/{recording_id}")
@@ -6974,9 +7089,25 @@ async def transcribe_audio(
     # Short clips (a word, a short phrase): Gemini measured a 0.19 character error
     # rate on the 2026-10-17 bake-off against 0.76 for the NeMo Space, so it is the
     # engine for clips up to ASR_GEMINI_MAX_SECS (20 s; the bake-off clips went to 18 s). Longer audio keeps the Space.
-    short = await asyncio.to_thread(_transcribe_short_clip_with_gemini, audio_url)
+    # When the drill is known, its variety picks the listener (dialect.py) and its meaning,
+    # the speaker's own spelling and the corpus's sentences in that variety guide it.
+    variety, meaning, speaker_text, examples = request.variety, None, None, None
+    if request.drill_id:
+        drill = db.query(DrillModel).filter(DrillModel.id == request.drill_id).first()
+        if drill is not None:
+            variety = variety or drill.variety
+            meaning = drill.text_catalan
+            gold = (drill.text_tachelhit or "").strip()
+            speaker_text = gold if gold and gold.lower() != "text" else None
+            examples = _dialect_examples(db, variety)
+    short = await asyncio.to_thread(_transcribe_short_clip_with_gemini, audio_url, variety, meaning, speaker_text, examples)
     if short is not None:
-        return TranscribeResponse(rough_transcription=short["latin"], corrected_transcription=short["tifinagh"], similarity_score=0.0)
+        # A speaker who typed Latin gets the reading in Latin (academic); otherwise Tifinagh, as before.
+        latin_gold = bool(speaker_text) and not re.search(r"[ⴰ-⵿]", speaker_text or "")
+        reading = short["latin"] if latin_gold else short["tifinagh"]
+        if len(re.sub(r"[^\w]", "", reading or "")) < 3:
+            raise HTTPException(status_code=502, detail="No s'ha entès res de la gravació")
+        return TranscribeResponse(rough_transcription=short["latin"], corrected_transcription=reading, similarity_score=0.0)
 
     # Call HF Space
     asr_space_url = os.getenv("HUGGINGFACE_ASR_SPACE_URL", ASR_SPACE_DEFAULT)
@@ -7101,6 +7232,34 @@ async def evaluate_dataset(
             })
 
     return results
+
+@app.post("/drills/{drill_id}/retranscribe")
+async def retranscribe_drill(drill_id: int, variety: Optional[str] = Body(None, embed=True), db: Session = Depends(get_db)):
+    """Listen to the drill's recording again with the listener of its variety and write the
+    reading to text_tachelhit_suggested (machine output; the speaker's text is never touched).
+    `variety` overrides the drill's own for this call."""
+    drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
+    if not drill:
+        raise HTTPException(status_code=404, detail="Drill not found")
+    source = drill.audio_url or drill.video_url
+    if not source:
+        raise HTTPException(status_code=400, detail="Aquest drill no té cap gravació")
+    v = (variety or drill.variety or "").strip().lower()
+    if not dialect.profile(v):
+        raise HTTPException(status_code=400, detail="Cal una varietat coneguda (shi, tzm, tdl, zgh, rif, kab) per triar el transcriptor")
+    gold = (drill.text_tachelhit or "").strip()
+    speaker_text = gold if gold and gold.lower() != "text" and not re.search(r"[\u2D30-\u2D7F]", gold) else None
+    examples = [e for e in _dialect_examples(db, v) if not speaker_text or not e.startswith(speaker_text)]
+    out = await asyncio.to_thread(dialect.transcribe, get_media_url(source) if callable(globals().get("get_media_url")) else source, v,
+                                  meaning=drill.text_catalan, speaker_text=speaker_text, examples=examples,
+                                  max_secs=float(os.getenv("ASR_GEMINI_MAX_SECS", "30")))
+    if not out:
+        raise HTTPException(status_code=502, detail="No s'ha pogut transcriure la gravació")
+    drill.text_tachelhit_suggested = out["latin"]
+    drill.updated_at = datetime.utcnow()
+    db.commit()
+    return {"id": drill.id, "variety": v, **out}
+
 
 @app.post("/drills/{drill_id}/trim-audio")
 def trim_drill_audio(

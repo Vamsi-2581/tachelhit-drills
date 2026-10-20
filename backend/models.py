@@ -20,6 +20,7 @@ class Drill(Base):
     audio_tts_shi_url = Column(String, nullable=True)  # Synthesized Tachelhit voice (fallback when no recording)
     video_url = Column(String, nullable=True)
     image_url = Column(String, nullable=True)
+    image_credit = Column(String, nullable=True)  # «title · author · licence · source» for a free-licensed picture
     is_correction_dataset = Column(Boolean, default=False, nullable=False)
     # Timestamp fields for video segments
     video_start_time = Column(Float, nullable=True)  # Start time in seconds
@@ -240,6 +241,7 @@ class Recording(Base):
     region = Column(String, nullable=True)
     speaker = Column(String, nullable=True)                 # display label
     license = Column(String, nullable=True, default="CC-BY-SA")
+    text = Column(Text, nullable=True)       # the sentence as THIS speaker says it, when their dialect's words differ
     date_created = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 class ReviewLog(Base):

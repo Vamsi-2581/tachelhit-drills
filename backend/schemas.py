@@ -69,6 +69,7 @@ class DrillBase(BaseModel):
     audio_tts_shi_url: Optional[str] = None  # Synthesized Tachelhit voice (fallback)
     video_url: Optional[str] = None
     image_url: Optional[str] = None
+    image_credit: Optional[str] = None  # attribution of a free-licensed picture (Wikimedia Commons)
     is_correction_dataset: Optional[bool] = None
     video_start_time: Optional[float] = None  # Start time in seconds
     video_end_time: Optional[float] = None    # End time in seconds
@@ -253,6 +254,8 @@ class TranscribeRequest(BaseModel):
     audio_url: Optional[str] = None
     selected_pair_ids: List[int] = []
     model_id: Optional[str] = None # New: to select ASR model
+    drill_id: Optional[int] = None   # the drill the audio belongs to: its variety, meaning and speaker text guide the listener
+    variety: Optional[str] = None    # override / for a drill that does not exist yet
 
 class TranscribeResponse(BaseModel):
     rough_transcription: str
