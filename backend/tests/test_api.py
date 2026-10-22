@@ -7,6 +7,7 @@ are not exercised here).
 """
 import os
 import sys
+import time
 
 # Isolated DB — must be set before importing main (module reads env at import)
 TEST_DB = "test_drills.db"
@@ -545,8 +546,17 @@ def test_looks_like_junk_asr():
 
 
 def test_capture_agent_liveness():
-    """The web app asks whether a local capture agent is polling before it queues a URL."""
+    """The web app asks whether a local capture agent is polling before it queues a URL.
+
+    Polling /capture/pending CLAIMS a request, so this starts from an empty queue: otherwise it
+    takes a request another test left waiting and asserts on it by accident (#191).
+    """
+    from models import CaptureRequest
+
     main._capture_agent_seen.update({"at": None, "version": None})
+    db = main.SessionLocal()
+    db.query(CaptureRequest).filter(CaptureRequest.status == "pending").delete()
+    db.commit(); db.close()
     r = client.get("/capture/agent")
     assert r.status_code == 200 and r.json()["online"] is False
     # an agent poll (with its version header) marks it online
@@ -879,3 +889,94 @@ def test_asking_for_one_drill_does_not_return_the_whole_library():
     wanted = everything[0]["id"]
     one = client.get(f"/drills/?ids={wanted}").json()
     assert [d["id"] for d in one] == [wanted]
+
+
+def test_the_credits_are_readable_from_inside_the_app():
+    """Some of what this app is built on asks to be named where the work is used (CC BY, and the
+    Awal set says it outright). A file in a repository nobody opens does not do that, so the app
+    serves the same file — one source, so the two can never drift apart."""
+    r = client.get("/credits")
+    assert r.status_code == 200
+    md = r.json()["markdown"]
+    for owed in ("CIEMEN", "Awal", "IRCAM", "Common Voice", "amazic.cat"):
+        assert owed in md, f"els crèdits no nomenen {owed}"
+    assert r.json()["source"] == "docs/CREDITS.md", "s'ha llegit el fitxer de debò, no el text de reserva"
+
+
+def test_a_newcomer_who_adds_something_is_told_what_to_do():
+    """#202: since #184 adding needs a name, and a first-time visitor has none. The answer was
+    401 «Sign in first (X-User-Token)» — in English, from a server, to somebody who pressed a
+    button. The app asks first now, and if a path is ever missed, this is what they read."""
+    with as_stranger():
+        r = client.post("/drills/", json={"text_catalan": "aigua", "text_tachelhit": "aman"})
+    assert r.status_code == 401
+    said = r.json()["detail"]
+    assert "perfil" in said.lower(), said
+    assert "X-User-Token" not in said, "no li expliquem capçaleres a qui acaba d'arribar"
+
+
+def test_a_failed_capture_can_be_retried_and_a_finished_one_forgotten():
+    """#197: the queue could only be watched. A capture fails for reasons that pass — a video
+    private for an hour, an old agent, the network — and the only way back was to paste the URL
+    again. What is still running stays: forgetting it would leave the agent working for nobody."""
+    from models import CaptureRequest
+
+    db = main.SessionLocal()
+    failed = CaptureRequest(url="https://youtu.be/failed-one", tag="prova", status="failed",
+                            error="HTTP Error 403: Forbidden")
+    running = CaptureRequest(url="https://youtu.be/running-one", tag="prova", status="processing")
+    db.add(failed); db.add(running); db.commit()
+    failed_id, running_id = failed.id, running.id
+    db.close()
+
+    rows = client.get("/capture/queue").json()
+    assert rows["agent"]["latest"], "no sabem quina versió de l'agent s'ha publicat"
+    mine = next(r for r in rows["requests"] if r["id"] == failed_id)
+    assert mine["url"].endswith("failed-one"), "la fila ha de dir QUIN vídeo és"
+    assert mine["error"] == "HTTP Error 403: Forbidden"
+
+    assert client.post(f"/capture/{failed_id}/retry").json()["status"] == "pending"
+    back = next(r for r in client.get("/capture/queue").json()["requests"] if r["id"] == failed_id)
+    assert back["status"] == "pending" and not back["error"]
+
+    assert client.delete(f"/capture/{failed_id}").status_code == 200
+    assert client.delete(f"/capture/{running_id}").status_code == 409   # encara s'està fent
+
+    db = main.SessionLocal()
+    db.query(CaptureRequest).filter(CaptureRequest.id == running_id).delete()
+    db.commit(); db.close()
+
+
+def test_drafting_the_missing_words_never_touches_the_speakers_own_text(monkeypatch):
+    """101 recordings have a voice and a meaning but nobody has written what is said, which is
+    what blocks whole stories from becoming lessons. The listener can DRAFT them; it cannot
+    decide them. A machine reading goes to text_tachelhit_suggested and waits for a person."""
+    import dialect
+
+    hdr = {"X-User-Token": register("text_drafter")}
+    db = main.SessionLocal()
+    me = db.query(main.UserModel).filter(main.UserModel.username == "text_drafter").first()
+    me.is_admin = True
+    db.commit(); db.close()
+
+    mute = client.post("/drills/", headers=hdr, json={
+        "text_catalan": "El llop i la seva ombra", "text_tachelhit": "",
+        "audio_url": "https://res.cloudinary.com/x/video/upload/v1/wolf.mp3", "variety": "tzm"}).json()
+    spoken = client.post("/drills/", headers=hdr, json={
+        "text_catalan": "aigua", "text_tachelhit": "aman",   # a speaker wrote this one
+        "audio_url": "https://res.cloudinary.com/x/video/upload/v1/aman.mp3", "variety": "tzm"}).json()
+
+    monkeypatch.setattr(dialect, "transcribe", lambda *a, **k: {"latin": "uššn d umalu nns", "tifinagh": ""})
+    assert client.post("/drills/transcribe-missing?limit=5", headers=hdr).json()["status"] == "started"
+    for _ in range(100):                      # it runs on a thread
+        if not client.get("/drills/transcribe-missing/status").json()["running"]:
+            break
+        time.sleep(0.05)
+
+    drafted = client.get(f"/drills/{mute['id']}").json()
+    assert drafted["text_tachelhit_suggested"] == "uššn d umalu nns"
+    assert not (drafted.get("text_tachelhit") or ""), "la paraula del parlant no la toca cap màquina"
+
+    kept = client.get(f"/drills/{spoken['id']}").json()
+    assert kept["text_tachelhit"] == "aman"
+    assert not kept.get("text_tachelhit_suggested"), "qui ja té paraules escrites no es toca"

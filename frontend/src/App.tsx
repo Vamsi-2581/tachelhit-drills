@@ -28,6 +28,8 @@ const VideoLibraryPage = lazy(() => import('./components/VideoLibraryPage'));
 const ProfilePage = lazy(() => import('./components/ProfilePage'));
 const AuthPage = lazy(() => import('./components/AuthPage'));
 const CorpusPage = lazy(() => import('./components/CorpusPage'));
+const CreditsPage = lazy(() => import('./components/CreditsPage'));
+const LessonEditor = lazy(() => import('./components/LessonEditor'));
 const GrammarPage = lazy(() => import('./components/GrammarPage'));
 const PracticeEditor = lazy(() => import('./components/PracticeEditor'));
 const VerifyQueue = lazy(() => import('./components/VerifyQueue'));
@@ -139,7 +141,7 @@ function App() {
     { to: '/video-creator', label: 'Captura', Icon: FaVideo },
     { to: '/grammar', label: 'Gramàtica', Icon: FaBook },
     { to: '/tests', label: 'Pràctica', Icon: FaGraduationCap },
-    { to: '/veus', label: 'Veus', Icon: FaMicrophone },
+    { to: '/veus', label: 'Posa-hi veu', Icon: FaMicrophone },   // the route keeps its old name: links point at it
   ];
   const navBtn = (active: boolean): React.CSSProperties => ({
     flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: '6px',
@@ -199,8 +201,10 @@ function App() {
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/signin" element={<AuthPage />} />
         <Route path="/corpus" element={<CorpusPage />} />
+        <Route path="/credits" element={<CreditsPage />} />
         <Route path="/grammar" element={<GrammarPage />} />
         <Route path="/grammar/:slug" element={<GrammarPage />} />
+        <Route path="/grammar/:slug/editor" element={<LessonEditor />} />
         <Route path="/grammar/:slug/a-fons" element={<GrammarPage deep />} />
         <Route path="/verify" element={<VerifyQueue />} />
         {/* An unknown path (old link, typo, stale app shell) used to render an empty page. */}

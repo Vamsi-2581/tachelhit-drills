@@ -30,6 +30,7 @@ import topics as topics_catalog
 import grammar as grammar_course
 import practice_steps
 import practice as practice_mod
+import word_audio
 import transliteration
 from gemini_client import gemini_generate, gemini_available, gemini_agent, BudgetExceeded
 import gemini_client
@@ -1577,6 +1578,7 @@ async def lifespan(app: FastAPI):
     try:
         practice_steps.convert_missing(SessionLocal)
         practice_steps.retire_spoken_steps(SessionLocal)
+        practice_steps.repair_pointless_steps(SessionLocal)
     except Exception as e:
         print(f"[PRACTICE] conversion skipped: {e}")
 
@@ -1945,7 +1947,10 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> Optiona
 
 def require_user(user: Optional[UserModel] = Depends(get_current_user)) -> UserModel:
     if user is None:
-        raise HTTPException(status_code=401, detail="Sign in first (X-User-Token)")
+        raise HTTPException(
+            status_code=401,
+            detail="Per afegir coses a la biblioteca cal un nom: fes-te'n un al teu perfil (és gratis i "
+                   "triga un moment).")
     return user
 
 
@@ -3273,10 +3278,15 @@ def create_test(test: TestCreate, db: Session = Depends(get_db),
     return db_test
 
 @app.put("/tests/{test_id}", response_model=Test)
-def update_test(test_id: int, update_data: TestUpdate, db: Session = Depends(get_db)):
+def update_test(test_id: int, update_data: TestUpdate, db: Session = Depends(get_db),
+                user: Optional[UserModel] = Depends(get_current_user)):
+    """Change a practice: its name, its description, whatever is sent. Whoever made it, or an
+    admin -- the same rule as its steps and as a drill. Until 2026-10-22 ANY visitor could rename
+    or empty anyone's practice."""
     test = db.query(TestModel).filter(TestModel.id == test_id).first()
     if not test:
         raise HTTPException(status_code=404, detail="Test not found")
+    owner_or_admin(test, user)
 
     update_dict = update_data.model_dump(exclude_unset=True)
     for key, value in update_dict.items():
@@ -3288,10 +3298,13 @@ def update_test(test_id: int, update_data: TestUpdate, db: Session = Depends(get
     return test
 
 @app.delete("/tests/{test_id}")
-def delete_test(test_id: int, db: Session = Depends(get_db)):
+def delete_test(test_id: int, db: Session = Depends(get_db),
+                user: Optional[UserModel] = Depends(get_current_user)):
+    """Throw a practice away. Whoever made it, or an admin."""
     test = db.query(TestModel).filter(TestModel.id == test_id).first()
     if not test:
         raise HTTPException(status_code=404, detail="Test not found")
+    owner_or_admin(test, user)
     db.delete(test)
     db.commit()
     return {"detail": "Deleted"}
@@ -4710,6 +4723,66 @@ def _drills_created_count(value) -> Optional[int]:
         return None
 
 
+_agent_latest_cache: Dict[str, Any] = {}
+
+
+def _published_agent_version() -> Optional[str]:
+    """The version the release is built from: tools/capture_agent.py's own `__version__`.
+
+    An old agent fails in ways that look like a broken video, so it is worth saying out loud when
+    the one connected is behind. Read once; a deploy is what changes it.
+    """
+    if "v" in _agent_latest_cache:
+        return _agent_latest_cache["v"]
+    found = None
+    here = os.path.dirname(os.path.abspath(__file__))
+    for path in (os.path.join(here, "..", "tools", "capture_agent.py"),
+                 os.path.join(here, "tools", "capture_agent.py")):
+        try:
+            with open(os.path.normpath(path), encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("__version__"):
+                        found = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        break
+        except OSError:
+            continue
+        if found:
+            break
+    _agent_latest_cache["v"] = found
+    return found
+
+
+@app.post("/capture/{request_id}/retry")
+def capture_retry(request_id: int, db: Session = Depends(get_db),
+                  user: UserModel = Depends(require_user)):
+    """Put a request back in the queue. A capture fails for reasons that pass: the video was
+    private for an hour, the agent was an old one, the network went. Retrying is the obvious
+    thing, and until now the only way was to paste the URL again."""
+    req = db.query(CaptureRequestModel).filter(CaptureRequestModel.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Aquesta captura no existeix")
+    req.status = "pending"
+    req.error = None
+    req.claimed_at = None
+    db.commit()
+    return {"id": req.id, "status": req.status}
+
+
+@app.delete("/capture/{request_id}")
+def capture_forget(request_id: int, db: Session = Depends(get_db),
+                   user: UserModel = Depends(require_user)):
+    """Take a finished or failed request out of the list. What is still being worked on stays:
+    forgetting a running job would leave the agent working on something nobody is waiting for."""
+    req = db.query(CaptureRequestModel).filter(CaptureRequestModel.id == request_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Aquesta captura no existeix")
+    if req.status in ("claimed", "processing"):
+        raise HTTPException(status_code=409, detail="Aquesta encara s\u2019est\u00e0 fent; espera que acabi")
+    db.delete(req)
+    db.commit()
+    return {"id": request_id, "forgotten": True}
+
+
 @app.get("/capture/queue")
 def capture_queue(limit: int = 40, db: Session = Depends(get_db)):
     """The last `limit` capture requests, newest first, with state, drill count and error:
@@ -4735,8 +4808,10 @@ def capture_queue(limit: int = 40, db: Session = Depends(get_db)):
                     "created_at": iso_z(r.created_at) if r.created_at else None,
                     "claimed_at": iso_z(r.claimed_at) if r.claimed_at else None})
     agent_at = _capture_agent_seen.get("at")
-    return {"requests": out, "agent": {"online": bool(agent_at and (datetime.utcnow() - agent_at).total_seconds() < 45),
-                                       "version": _capture_agent_seen.get("version")}}
+    return {"requests": out,
+            "agent": {"online": bool(agent_at and (datetime.utcnow() - agent_at).total_seconds() < 45),
+                      "version": _capture_agent_seen.get("version"),
+                      "latest": _published_agent_version()}}
 
 
 @app.get("/capture/{request_id}")
@@ -6109,6 +6184,73 @@ def decide_lesson_proposal(proposal_id: int, accept: bool = Body(..., embed=True
 
 
 # ===================== PRÀCTICA (pronunciation sessions) =====================
+# ===================== UNA PARAULA, DITA ====================
+@app.get("/words/audio")
+def word_audio_clips(word: str, limit: int = 6, db: Session = Depends(get_db)):
+    """Where this word can be heard: a recording, and the two times it sits between.
+
+    No new sound files. A word is a drill id and a span inside the recording that already exists,
+    so the player seeks there. The people we can name come first; the open corpus only fills the
+    gaps they leave, and every clip says which it is.
+    """
+    clips = word_audio.clips_for(db, word, limit=max(1, min(limit, 20)))
+    return {"word": word, "count": len(clips), "clips": clips}
+
+
+@app.get("/words/align/status")
+def word_align_status():
+    """How the alignment pass is going."""
+    from models import WordAudio
+    db = SessionLocal()
+    try:
+        return {**word_audio.state(),
+                "stored": db.query(WordAudio).count(),
+                "recordings": db.query(WordAudio.drill_id).distinct().count()}
+    finally:
+        db.close()
+
+
+@app.post("/words/align/run")
+def word_align_run(limit: int = 200, redo: bool = False, _admin: UserModel = Depends(require_admin)):
+    """Align recorded sentences so their words can be played one by one.
+
+    On a thread: the Space is one CPU and takes one request at a time, and nobody should sit in
+    front of a spinner while a few hundred recordings are listened to.
+    """
+    word_audio.run(SessionLocal, limit=limit, redo=redo)
+    return {"started": True, **word_audio.state()}
+
+
+# ===================== CREDITS =====================
+_CREDITS_FALLBACK = (
+    "# Cr\u00e8dits i fonts\n\n"
+    "Aquesta app s'aguanta en feina d'altri: el **Compendi de Gram\u00e0tica Amaziga** d'amazic.cat "
+    "(Carles M\u00farcia i Salem Zenia), el l\u00e8xic de l'**IRCAM** (DGLAI i les conjugacions, CC BY-NC 4.0), "
+    "el transcriptor **ayymen/stt_zgh_fastconformer_ctc_small** (CC BY 4.0) amb l'alineador de "
+    "**NVIDIA NeMo** (Apache 2.0), i els corpus de **Mozilla Common Voice** (CC0), **Tamazight NLP** "
+    "(Apache 2.0) i el **projecte Awal / CIEMEN** (CC BY 4.0).\n\n"
+    "La llista sencera, amb cada llic\u00e8ncia i la citaci\u00f3 que demana, \u00e9s a `docs/CREDITS.md` del "
+    "repositori.\n"
+)
+
+
+@app.get("/credits")
+def credits():
+    """What the project owes to other people, read from docs/CREDITS.md.
+
+    One file, one truth: a copy inside the app would drift away from the one that is maintained.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    for path in (os.path.join(here, "..", "docs", "CREDITS.md"),
+                 os.path.join(here, "docs", "CREDITS.md")):
+        try:
+            with open(os.path.normpath(path), encoding="utf-8") as f:
+                return {"markdown": f.read(), "source": "docs/CREDITS.md"}
+        except OSError:
+            continue
+    return {"markdown": _CREDITS_FALLBACK, "source": "fallback"}
+
+
 @app.get("/practice/collections")
 def practice_collections(db: Session = Depends(get_db)):
     """How the library is offered for practice: by recording day (our speakers' sessions), by
@@ -6272,7 +6414,61 @@ def grammar_lesson(slug: str, db: Session = Depends(get_db)):
     lesson = grammar_course.get_lesson(db, slug, _load_grammar() if gemini_available() else "", examples,
                                        unit_ids={d.id for d in rows}, session_factory=SessionLocal,
                                        tables=grammar_course.paradigms(rows))
-    return {"slug": slug, "lesson": lesson, "writing": slug in grammar_course.writing()}
+    from models import GrammarLesson
+    row = db.query(GrammarLesson).filter(GrammarLesson.id == slug).first()
+    return {"slug": slug, "lesson": lesson, "writing": slug in grammar_course.writing(),
+            "hand_written": bool(row is not None and getattr(row, "hand_written", False))}
+
+
+@app.put("/grammar/{slug}/lesson")
+def put_grammar_lesson(slug: str, lesson: Dict[str, Any] = Body(..., embed=True),
+                       db: Session = Depends(get_db), _admin: UserModel = Depends(require_admin)):
+    """Write a unit's lesson by hand (#187). From now on the writer leaves it alone.
+
+    A lesson is `{"intro": str, "steps": [...]}`. Steps must be the kinds the course knows how to
+    show, because a step nobody can draw is a blank page for whoever is learning.
+    """
+    from models import GrammarLesson
+    steps = lesson.get("steps")
+    if not isinstance(steps, list) or not steps:
+        raise HTTPException(status_code=400, detail="Una lliçó necessita com a mínim un pas")
+    allowed = {"explain", "pattern", "quiz", "tip", "dialect", "end"}
+    for i, step in enumerate(steps):
+        if not isinstance(step, dict) or step.get("type") not in allowed:
+            raise HTTPException(status_code=400,
+                                detail=f"El pas {i + 1} no és d'un tipus que el curs sàpiga ensenyar")
+        if step.get("type") == "quiz":
+            options = step.get("options")
+            if not isinstance(options, list) or len(options) < 2:
+                raise HTTPException(status_code=400, detail=f"La pregunta del pas {i + 1} no té respostes")
+            if not isinstance(step.get("answer"), int) or not (0 <= step["answer"] < len(options)):
+                raise HTTPException(status_code=400, detail=f"La pregunta del pas {i + 1} no diu quina és la bona")
+
+    body = json.dumps({k: v for k, v in lesson.items() if k not in ("writing", "stale")},
+                      ensure_ascii=False)
+    row = db.query(GrammarLesson).filter(GrammarLesson.id == slug).first()
+    if row is None:
+        row = GrammarLesson(id=slug, body=body, version=grammar_course.LESSON_VERSION)
+        db.add(row)
+    row.body = body
+    row.version = grammar_course.LESSON_VERSION
+    row.hand_written = True
+    row.updated_at = datetime.utcnow()
+    db.commit()
+    return {"slug": slug, "hand_written": True, "steps": len(steps)}
+
+
+@app.post("/grammar/{slug}/lesson/release")
+def release_grammar_lesson(slug: str, db: Session = Depends(get_db),
+                           _admin: UserModel = Depends(require_admin)):
+    """Hand a hand-written lesson back to the writer: the next open writes it again (#187)."""
+    from models import GrammarLesson
+    row = db.query(GrammarLesson).filter(GrammarLesson.id == slug).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Aquesta unitat no té cap lliçó desada")
+    row.hand_written = False
+    db.commit()
+    return {"slug": slug, "hand_written": False}
 
 
 @app.get("/grammar/{slug}")
@@ -6615,6 +6811,55 @@ AGENT_TOOLS = [
         }, "required": ["query"]},
     },
     {
+        "name": "what_can_a_practice_be_about",
+        "description": ("Què pot oferir la biblioteca per a una pràctica: unitats de gramàtica, temes, "
+                        "qui parla, dies de gravació i etiquetes, amb quantes frases té cadascun. "
+                        "Crida-la abans de triar frases si no saps què hi ha."),
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "find_sentences_for_practice",
+        "description": ("Frases que es poden posar en una pràctica. Només en torna de SENCERES: amb veu, "
+                        "amb el text amazic escrit i amb el significat en català. Van de més curta a més "
+                        "llarga, que és l'ordre en què s'aprenen. Filtra per text lliure o per una "
+                        "col·lecció (unit, topic, person, tag, day)."),
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "text lliure, en qualsevol de les llengües"},
+            "unit": {"type": "string", "description": "slug d'una unitat de gramàtica"},
+            "topic": {"type": "string", "description": "slug d'un tema"},
+            "person": {"type": "string", "description": "qui parla, p. ex. Halima"},
+            "tag": {"type": "string"},
+            "limit": {"type": "integer"},
+        }},
+    },
+    {
+        "name": "read_practice",
+        "description": "Què té ara mateix una pràctica: el seu nom i els seus passos en ordre.",
+        "parameters": {"type": "object", "properties": {
+            "test_id": {"type": "integer"},
+        }, "required": ["test_id"]},
+    },
+    {
+        "name": "build_practice",
+        "description": ("Escriu la seqüència d'una pràctica, substituint la que hi hagi. Cada pas té una "
+                        "eina (kind) i, si l'eina demana una frase, el seu drill_id. Eines: listen_pick "
+                        "(escolta i tria), write_heard (escolta i escriu), say_it (digues-ho i compara't), "
+                        "look_say (mira la imatge i digues-ho), fill_gap (omple el buit), word_by_word, "
+                        "script_swap (tifinag o llatí), pick_spelling, i note (una explicació, sense "
+                        "frase: posa-li heading i text). Comença amb una nota que digui què s'hi aprèn, "
+                        "i no repeteixis sempre la mateixa eina."),
+        "parameters": {"type": "object", "properties": {
+            "test_id": {"type": "integer"},
+            "steps": {"type": "array", "description": "els passos, en ordre", "items": {
+                "type": "object", "properties": {
+                    "kind": {"type": "string"},
+                    "drill_id": {"type": "integer"},
+                    "heading": {"type": "string", "description": "només per a kind=note"},
+                    "text": {"type": "string", "description": "només per a kind=note"},
+                }, "required": ["kind"]}},
+        }, "required": ["test_id", "steps"]},
+    },
+    {
         "name": "speak_tachelhit",
         "description": "Sintetitza veu en taixelhit d'un text perquè l'usuari el pugui escoltar. Retorna una URL d'àudio.",
         "parameters": {"type": "object", "properties": {
@@ -6623,8 +6868,11 @@ AGENT_TOOLS = [
     },
 ]
 
-def _agent_executor(db):
-    """Return a function(name, args)->dict that runs the agent's tool calls."""
+def _agent_executor(db, user=None):
+    """Return a function(name, args)->dict that runs the agent's tool calls.
+
+    `user` is whoever is talking to the copilot. It matters for the tools that write a practice:
+    a copilot is not a way around permissions."""
     ALLOWED = {"text_catalan", "text_tachelhit", "text_tachelhit_latin", "text_arabic", "variety", "region", "tag"}
 
     def run(name, args):
@@ -6658,6 +6906,53 @@ def _agent_executor(db):
             return {"count": len(rows), "drills": [
                 {"id": r.id, "catalan": r.text_catalan, "tachelhit": r.text_tachelhit,
                  "latin": r.text_tachelhit_latin} for r in rows]}
+        if name == "what_can_a_practice_be_about":
+            c = practice_mod.collections(db)
+            return {k: c.get(k, [])[:40] for k in ("units", "topics", "people", "tags", "days")}
+        if name == "find_sentences_for_practice":
+            lim = min(int(args.get("limit") or 12), 40)
+            picked = []
+            if (args.get("query") or "").strip():
+                from sqlalchemy import or_
+                like = f"%{args['query'].strip()}%"
+                rows = (grammar_course.not_excluded(db.query(DrillModel), DrillModel).filter(or_(
+                    DrillModel.text_tachelhit.ilike(like), DrillModel.text_tachelhit_latin.ilike(like),
+                    DrillModel.text_catalan.ilike(like), DrillModel.tag.ilike(like))).limit(300).all())
+                picked = [r for r in rows if practice_mod.practicable(r)]
+            else:
+                picked = practice_mod.session_rows(
+                    db, unit=args.get("unit"), topic=args.get("topic"), person=args.get("person"),
+                    tag=args.get("tag"), day=args.get("day"), with_voice=True, limit=300)
+            # shortest first: that is the order they are learned in
+            picked.sort(key=lambda d: (len((d.text_tachelhit or "").split()), len(d.text_tachelhit or "")))
+            return {"count": len(picked[:lim]), "sentences": [
+                {"drill_id": r.id, "tachelhit": r.text_tachelhit, "catalan": r.text_catalan,
+                 "has_picture": bool(r.image_url), "speaker": r.speaker or r.author}
+                for r in picked[:lim]]}
+        if name == "read_practice":
+            t = db.query(TestModel).filter(TestModel.id == args.get("test_id")).first()
+            if not t:
+                return {"error": f"no existeix la pr\u00e0ctica {args.get('test_id')}"}
+            return {"test_id": t.id, "title": t.title, "steps": practice_steps.steps_of(db, t.id)}
+        if name == "build_practice":
+            t = db.query(TestModel).filter(TestModel.id == args.get("test_id")).first()
+            if not t:
+                return {"error": f"no existeix la pr\u00e0ctica {args.get('test_id')}"}
+            if not may_change(t, user):
+                return {"error": "aquesta pr\u00e0ctica no \u00e9s teva; dem-ho a qui l'administra"}
+            steps = []
+            for raw_step in (args.get("steps") or []):
+                kind = (raw_step or {}).get("kind")
+                step = {"kind": kind, "drill_id": raw_step.get("drill_id")}
+                if kind == "note":
+                    step["payload"] = {k: raw_step.get(k) for k in ("heading", "text") if raw_step.get(k)}
+                steps.append(step)
+            try:
+                written = practice_steps.replace_steps(db, t.id, steps)
+            except practice_steps.StepError as e:
+                return {"error": str(e)}
+            return {"test_id": t.id, "written": len(written),
+                    "steps": [{"kind": x["kind"], "drill_id": x["drill_id"]} for x in written]}
         if name == "speak_tachelhit":
             text = (args.get("text") or "").strip()
             if not text:
@@ -6675,7 +6970,9 @@ def ai_agent(
     message: str = Body(..., embed=True),
     drill_ids: Optional[List[int]] = Body(None, embed=True),
     history: Optional[List[Dict]] = Body(None, embed=True),
+    test_id: Optional[int] = Body(None, embed=True),
     db: Session = Depends(get_db),
+    user: Optional[UserModel] = Depends(get_current_user),
     _gate: Dict[str, Any] = Depends(_ai_gate("agent")),
 ):
     """
@@ -6695,6 +6992,15 @@ def ai_agent(
         "cerca/filtra, fes exemples per escoltar). Per a traduir i desar, actualitza el drill. "
         "Per a exemples parlats, crida speak_tachelhit. Confirma breument què has fet."
     )
+    if test_id:
+        system += (
+            f"\n\nAra MATEIX l'usuari està fent la pràctica número {test_id} al taller. Quan et demani "
+            "muntar-la, canviar-la o afegir-hi frases: mira què hi ha amb read_practice, busca les frases "
+            "amb find_sentences_for_practice (o what_can_a_practice_be_about si no saps què hi ha a la "
+            "biblioteca) i escriu-la amb build_practice. NOMÉS frases que t'hagin tornat aquelles eines: "
+            "no te n'inventis cap id. Si vols afegir-ne a les que ja hi són, torna a escriure la "
+            "seqüència sencera, perquè build_practice la substitueix."
+        )
 
     contents = []
     for turn in (history or [])[-8:]:
@@ -6713,7 +7019,7 @@ def ai_agent(
     contents.append({"role": "user", "text": msg})
 
     try:
-        result = gemini_agent(system, contents, AGENT_TOOLS, _agent_executor(db))
+        result = gemini_agent(system, contents, AGENT_TOOLS, _agent_executor(db, user))
         return {"answer": result["text"], "actions": result["actions"]}
     except BudgetExceeded as e:
         raise HTTPException(status_code=429, detail=str(e))
@@ -8004,6 +8310,84 @@ async def evaluate_dataset(
             })
 
     return results
+
+_text_fill_job = {"running": False, "total": 0, "done": 0, "failed": 0, "last": None}
+
+
+def _run_text_fill(variety: str, limit: int) -> None:
+    """Ask the listener for a reading of every recording whose words nobody has written."""
+    db = SessionLocal()
+    try:
+        rows = (db.query(DrillModel)
+                .filter(DrillModel.audio_url.isnot(None), DrillModel.audio_url != "")
+                .order_by(DrillModel.id.desc()).all())
+        todo = [d for d in rows
+                if not (d.text_tachelhit or "").strip()
+                and not (d.text_tachelhit_suggested or "").strip()][:max(1, limit)]
+        _text_fill_job["total"] = len(todo)
+        for drill in todo:
+            if not _text_fill_job["running"]:
+                break
+            v = (drill.variety or variety or "").strip().lower()
+            if not dialect.profile(v):
+                _text_fill_job["failed"] += 1
+                continue
+            try:
+                out = dialect.transcribe(drill.audio_url, v, meaning=drill.text_catalan,
+                                         speaker_text=None, examples=[],
+                                         max_secs=float(os.getenv("ASR_GEMINI_MAX_SECS", "30")))
+            except Exception as e:
+                print(f"[TEXT-FILL] drill {drill.id}: {str(e)[:120]}")
+                out = None
+            if not out or not (out.get("latin") or "").strip():
+                _text_fill_job["failed"] += 1
+                continue
+            drill.text_tachelhit_suggested = out["latin"]
+            drill.updated_at = datetime.utcnow()
+            db.commit()
+            _text_fill_job["done"] += 1
+            _text_fill_job["last"] = out["latin"][:60]
+        print(f"[TEXT-FILL] drafted {_text_fill_job['done']} of {_text_fill_job['total']} "
+              f"({_text_fill_job['failed']} could not be read)")
+    except Exception as e:
+        print(f"[TEXT-FILL] stopped: {e}")
+    finally:
+        db.close()
+        _text_fill_job["running"] = False
+
+
+@app.post("/drills/transcribe-missing")
+def transcribe_missing_text(variety: str = "tzm", limit: int = 120,
+                            _admin: UserModel = Depends(require_admin)):
+    """Draft the words of every recording that has none (#189 is blocked on exactly this).
+
+    The reading goes to `text_tachelhit_suggested` and waits for a person in the verification
+    queue. The speaker's own field is never touched by a machine — that rule does not bend for a
+    hundred recordings any more than it bends for one.
+    """
+    if _text_fill_job["running"]:
+        return {"status": "already_running", **_text_fill_job}
+    import threading
+    _text_fill_job.update({"running": True, "total": 0, "done": 0, "failed": 0, "last": None})
+    threading.Thread(target=_run_text_fill, args=(variety, limit), daemon=True).start()
+    return {"status": "started", "variety": variety, "limit": limit}
+
+
+@app.get("/drills/transcribe-missing/status")
+def transcribe_missing_status(db: Session = Depends(get_db)):
+    """How the drafting is going, and how many recordings are still mute on paper."""
+    waiting = (db.query(DrillModel)
+               .filter(DrillModel.audio_url.isnot(None), DrillModel.audio_url != "")
+               .filter((DrillModel.text_tachelhit.is_(None)) | (DrillModel.text_tachelhit == ""))
+               .count())
+    return {**_text_fill_job, "recordings_without_words": waiting}
+
+
+@app.post("/drills/transcribe-missing/stop")
+def transcribe_missing_stop():
+    _text_fill_job["running"] = False
+    return {"status": "stopping"}
+
 
 @app.post("/drills/{drill_id}/retranscribe")
 async def retranscribe_drill(drill_id: int, variety: Optional[str] = Body(None, embed=True), db: Session = Depends(get_db)):

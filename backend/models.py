@@ -222,6 +222,30 @@ class GrammarLesson(Base):
     id = Column(String, primary_key=True)          # the unit slug
     body = Column(Text, nullable=False)            # JSON: {"intro": str, "steps": [...]}
     version = Column(Integer, nullable=True, default=1)
+    # Somebody edited this lesson by hand. The writer then leaves it alone for good: a version
+    # bump, a reclassified unit or a grown unit must not throw a person's work away (#187).
+    hand_written = Column(Boolean, nullable=True, default=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=True)
+
+
+class WordAudio(Base):
+    """When one word is spoken inside one recording (#  hear a word on its own).
+
+    Not a sound file: a drill id and two times. The recording already exists and already carries
+    who said it and where they are from; this says where in it the word lives, so the player can
+    seek there. Written by the alignment pass (word_audio.py), which asks the ASR Space's /align
+    for the times of a text we already know.
+    """
+    __tablename__ = "word_audio"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, index=True, nullable=False)     # the word, matched across spellings
+    word = Column(String, nullable=False)                # as it is written in that sentence
+    drill_id = Column(Integer, index=True, nullable=False)
+    start_ms = Column(Integer, nullable=False)
+    end_ms = Column(Integer, nullable=False)
+    speaker = Column(String, nullable=True)              # who says it, when we know
+    source = Column(String, nullable=True)               # 'library' | 'tosd'
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=True)
 
 

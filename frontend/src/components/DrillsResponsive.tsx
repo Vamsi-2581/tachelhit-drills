@@ -1,14 +1,15 @@
 import '../agGridSetup';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { VARIETIES } from '../varieties';
-import { FaMicrophone, FaPlus, FaTimes, FaLink, FaChevronDown, FaSearch, FaBook, FaTrash, FaFileImport, FaFilm, FaBookOpen } from 'react-icons/fa';
+import { FaMicrophone, FaPlay, FaPlus, FaTimes, FaLink, FaChevronDown, FaSearch, FaBook, FaTrash, FaFileImport, FaFilm, FaBookOpen } from 'react-icons/fa';
 import axios from 'axios';
-import { API_BASE } from '../config';
+import { API_BASE, hasIdentity } from '../config';
 import { syncManager } from '../services/OfflineSyncManager';
 import { AgGridReact } from 'ag-grid-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import MobileDrillEditor from './MobileDrillEditor';
+import DrillPlayer from './DrillPlayer';
 import DrillsGrid from './DrillsGrid';
 import { parseTopics, topicLabel, topicsSearchText, topicsMatch } from '../utils/topics';
 import VoiceDrillCreator from './VoiceDrillCreator';
@@ -106,6 +107,10 @@ export default function DrillsResponsive() {
   const [searchQuery, setSearchQuery] = useState(initialParams.get('q') || '');
   const [searchCategory, setSearchCategory] = useState(initialParams.get('in') || 'all');
   const [filteredDrills, setFilteredDrills] = useState<Drill[]>([]);
+  // What to play when you press «Reprodueix-ne N» (#201): the rows you ticked if you ticked
+  // any, otherwise everything the current filter left on screen.
+  const [selectedDrills, setSelectedDrills] = useState<Drill[]>([]);
+  const [playing, setPlaying] = useState<Drill[] | null>(null);
   const [varietyFilter, setVarietyFilter] = useState(initialParams.get('variety') || '');
   // Order: oldest first by default (the course order); newest first right after you create a
   // drill, so you see it; the toggle changes it and the choice is remembered.
@@ -216,6 +221,27 @@ export default function DrillsResponsive() {
   }, []);
 
   const [loadError, setLoadError] = useState<'error' | 'cached' | null>(null);
+  // Adding to the library needs a name (#184). Nobody is registered behind their back: the
+  // profile page explains what contributing means, so this asks and takes you there (#202).
+  const needsName = () => {
+    if (hasIdentity()) return false;
+    toast.error('Per afegir-hi coses et cal un nom. Te’n fas un en un moment.');
+    navigate('/profile');
+    return true;
+  };
+
+  // A sentence with no voice would be a silent card: left out of the session, and counted so
+  // the person knows why the number shrank.
+  const playable = (list: Drill[]) => list.filter((d) => (d.audio_url || '').trim() || (d.audio_tts_shi_url || '').trim());
+  const toPlay = selectedDrills.length ? selectedDrills : filteredDrills;
+  const startPlaying = () => {
+    const withVoice = playable(toPlay);
+    if (!withVoice.length) { toast.error('Cap d\u2019aquestes frases t\u00e9 veu encara.'); return; }
+    const silent = toPlay.length - withVoice.length;
+    if (silent) toast.info(`${silent} ${silent === 1 ? 'frase no t\u00e9 veu i no sonar\u00e0' : 'frases no tenen veu i no sonaran'}.`);
+    setPlaying(withVoice);
+  };
+
   const fetchDrills = async () => {
     try {
       let allDrills: Drill[] = [];
@@ -315,10 +341,20 @@ export default function DrillsResponsive() {
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
               <h1 style={{ margin: 0, fontSize: isMobile ? '19px' : '22px', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', fontFamily: 'var(--font-display)' }}>Drills</h1>
               <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>{filteredDrills.length}</span>
+              {playable(toPlay).length > 0 && (
+                <button
+                  onClick={startPlaying}
+                  title={selectedDrills.length ? 'Reprodueix les frases que has triat' : 'Reprodueix el que hi ha filtrat ara mateix'}
+                  style={{ padding: '6px 12px', background: 'var(--surface-2)', color: 'var(--brand-1)', border: '1px solid var(--border)', borderRadius: 'var(--r-pill)', fontSize: '13px', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+                >
+                  <FaPlay size={10} /> Reprodueix-ne {playable(toPlay).length}
+                  {selectedDrills.length ? ' (triades)' : ''}
+                </button>
+              )}
             </div>
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
               <button
-                onClick={() => setShowMobileDrillCreator(true)}
+                onClick={() => { if (!needsName()) setShowMobileDrillCreator(true); }}
                 aria-label="Nou drill"
                 style={{ padding: '10px 16px', background: 'var(--brand-1)', color: '#fff', border: 'none', borderRadius: 'var(--r-md)', fontSize: '14px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
               >
@@ -359,13 +395,13 @@ export default function DrillsResponsive() {
                 {showNewDrillOptions && (
                   <div style={{ position: 'absolute', top: 'calc(100% + 10px)', right: 0, backgroundColor: 'var(--surface)', borderRadius: 'var(--r-lg)', boxShadow: 'var(--shadow-xl)', zIndex: 1000, minWidth: '230px', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border)' }}>
                     <button
-                      onClick={() => { setShowMobileDrillCreator(true); setShowNewDrillOptions(false); }}
+                      onClick={() => { setShowNewDrillOptions(false); if (!needsName()) setShowMobileDrillCreator(true); }}
                       style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 16px', fontSize: '14px', background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', color: 'var(--text)', fontWeight: 600, whiteSpace: 'nowrap' }}
                     >
                       <FaPlus style={{ color: 'var(--emerald)' }} /> Crea un drill buit
                     </button>
                     <button
-                      onClick={() => { navigate('/srt-import'); setShowNewDrillOptions(false); }}
+                      onClick={() => { setShowNewDrillOptions(false); if (!needsName()) navigate('/srt-import'); }}
                       style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 16px', fontSize: '14px', background: 'none', border: 'none', borderTop: '1px solid var(--border)', textAlign: 'left', cursor: 'pointer', color: 'var(--text)', fontWeight: 600, whiteSpace: 'nowrap' }}
                     >
                       <FaFileImport style={{ color: 'var(--sky)' }} /> Importa subtítols (SRT)
@@ -507,7 +543,7 @@ export default function DrillsResponsive() {
           </div>
         )}
         <div style={{ flex: 1, width: '100%', overflowX: 'hidden', overflowY: 'auto', padding: isMobile ? '12px 4px' : '0', position: 'relative', boxSizing: 'border-box' }}>
-          <DrillsGrid rowData={filteredDrills} refreshData={fetchDrills} onEditDrill={(drill) => setEditingDrill(drill)} loadError={loadError} />
+          <DrillsGrid rowData={filteredDrills} refreshData={fetchDrills} onEditDrill={(drill) => setEditingDrill(drill)} loadError={loadError} onSelectionChange={setSelectedDrills} />
         </div>
       </div>
 
@@ -547,6 +583,7 @@ export default function DrillsResponsive() {
         </div>
       )}
 
+      {playing && <DrillPlayer drills={playing} onExit={() => setPlaying(null)} />}
       {showGlossary && <GlossaryModal onClose={() => setShowGlossary(false)} />}
 
       {showMobileDrillCreator && (

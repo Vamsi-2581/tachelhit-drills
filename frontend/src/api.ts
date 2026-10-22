@@ -90,9 +90,10 @@ export interface VerifyQueue {
 export interface PracticeStep {
   id?: number;
   position?: number;
-  kind: 'listen_pick' | 'write_heard' | 'say_it' | 'look_say' | 'fill_gap' | 'word_by_word' | 'script_swap' | 'pick_spelling' | 'note' | 'record';
+  kind: 'listen_pick' | 'write_heard' | 'say_it' | 'look_say' | 'fill_gap' | 'word_by_word' | 'script_swap' | 'pick_spelling' | 'note';
   drill_id?: number | null;
-  payload?: { text?: string } | null;
+  // a «note» is the document part of a practice: a heading, a paragraph, a picture
+  payload?: { text?: string; heading?: string; image_url?: string } | null;
 }
 export interface PracticeList {
   id: number; title: string; description?: string | null; drill_ids: string;
@@ -240,6 +241,8 @@ export const api = {
   practices: () => request<PracticeList[]>('/tests/'),
   /** The sentences a practice's steps point at, in one request. */
   drillsByIds: (ids: number[]) => request<Drill[]>(`/drills/?ids=${ids.join(',')}`),
+  updatePractice: (id: number, patch: { title?: string; description?: string }) =>
+    request<PracticeList>(`/tests/${id}`, { method: 'PUT', body: JSON.stringify(patch) }),
   createPractice: (title: string) => request<PracticeList>('/tests/', { method: 'POST', body: JSON.stringify({ title, description: '', question_type: 'audio', hint_level: 'none', hint_percentage: 30, hint_tries_before_reveal: 3, passing_score: 70, drill_ids: '' }) }),
   renamePractice: (id: number, title: string) => request<PracticeList>(`/tests/${id}`, { method: 'PUT', body: JSON.stringify({ title }) }),
   deletePractice: (id: number) => request<{ detail: string }>(`/tests/${id}`, { method: 'DELETE' }),
@@ -250,10 +253,12 @@ export const api = {
    *  purpose, by a person — never by a machine pass. */
   editDrillText: (id: number, patch: { text_tachelhit?: string; text_catalan?: string }) =>
     request<Drill>(`/drills/${id}`, { method: 'PUT', body: JSON.stringify(patch) }),
-  aiAgent: (message: string, drillIds?: number[], history?: { role: string; text: string }[]) =>
+  // `testId` tells the copilot which practice is open, which is what lets it read and rewrite
+  // the sequence instead of only talking about it.
+  aiAgent: (message: string, drillIds?: number[], history?: { role: string; text: string }[], testId?: number) =>
     request<{ answer: string; actions: { name: string; args: any; result: any }[] }>('/ai/agent', {
       method: 'POST',
-      body: JSON.stringify({ message, drill_ids: drillIds ?? [], history: history ?? [] }),
+      body: JSON.stringify({ message, drill_ids: drillIds ?? [], history: history ?? [], test_id: testId ?? null }),
     }),
   aiSuggestTranslation: (drillId: number) =>
     request<{ field: string; suggestion: string }>(`/ai/suggest-translation/${drillId}`, { method: 'POST' }),
@@ -266,7 +271,10 @@ export const api = {
     }),
   captureStatus: (id: number) => request<CaptureStatus>(`/capture/${id}`),
   captureAgent: () => request<{ online: boolean; last_seen: string | null; version: string | null }>('/capture/agent'),
-  captureQueue: (limit = 20) => request<{ requests: CaptureQueueItem[]; agent: { online: boolean; version: string | null } }>(`/capture/queue?limit=${limit}`),
+  // `latest`: the version the release is built from, so an old agent can be named as old (#197)
+  captureQueue: (limit = 20) => request<{ requests: CaptureQueueItem[]; agent: { online: boolean; version: string | null; latest?: string | null } }>(`/capture/queue?limit=${limit}`),
+  retryCapture: (id: number) => request<{ id: number; status: string }>(`/capture/${id}/retry`, { method: 'POST' }),
+  forgetCapture: (id: number) => request<{ id: number; forgotten: boolean }>(`/capture/${id}`, { method: 'DELETE' }),
 
   // --- AI Space health (reliability) ---
   spacesHealth: () => request<SpacesHealth>('/health/spaces'),
@@ -277,7 +285,14 @@ export const api = {
   grammarUnits: () => request<{ units: GrammarUnit[]; counts: Record<string, number>; status: { running: boolean; done: number; pending: number } }>('/grammar'),
   grammarUnit: (slug: string, limit = 60) => request<GrammarUnitPage>(`/grammar/${slug}?limit=${limit}`),
   grammarRewrite: (slug: string) => request<GrammarUnitPage>(`/grammar/${slug}/rewrite`, { method: 'POST' }),
-  grammarLesson: (slug: string) => request<{ slug: string; lesson: GrammarLesson; writing: boolean }>(`/grammar/${slug}/lesson`),
+  // `hand_written`: somebody edited this lesson, so the writer leaves it alone (#187)
+  grammarLesson: (slug: string) => request<{ slug: string; lesson: GrammarLesson; writing: boolean; hand_written?: boolean }>(`/grammar/${slug}/lesson`),
+  putGrammarLesson: (slug: string, lesson: { intro: string; steps: LessonStep[] }) =>
+    request<{ slug: string; hand_written: boolean; steps: number }>(`/grammar/${slug}/lesson`, {
+      method: 'PUT', body: JSON.stringify({ lesson }),
+    }),
+  releaseGrammarLesson: (slug: string) =>
+    request<{ slug: string; hand_written: boolean }>(`/grammar/${slug}/lesson/release`, { method: 'POST' }),
   /** The unit's «a fons» level: same shape as the unit page, written on first open. */
   grammarDeep: (slug: string, limit = 60) => request<GrammarUnitPage>(`/grammar/${slug}/deep?limit=${limit}`),
   grammarDeepRewrite: (slug: string) => request<GrammarUnitPage>(`/grammar/${slug}/deep/rewrite`, { method: 'POST' }),
@@ -297,6 +312,15 @@ export const api = {
   decideProposal: (id: number, accept: boolean) => request<{ id: number; status: string }>(`/grammar/proposals/${id}/decide`, { method: 'POST', body: JSON.stringify({ accept }) }),
   userPage: (username: string) => request<UserPublicPage>(`/users/by-name/${encodeURIComponent(username)}`),
   drillVariants: (id: number) => request<{ original: Drill; variants: Drill[] }>(`/drills/${id}/variants`),
+  // One word, said by a person: a recording we already have and the span the word sits in. No new
+  // sound files -- the player seeks there and stops at the end of the word.
+  wordAudio: (word: string, limit = 6) =>
+    request<{ word: string; count: number; clips: WordClip[] }>(`/words/audio?word=${encodeURIComponent(word)}&limit=${limit}`),
+  wordAlignStatus: () => request<{ running: boolean; done: number; words: number; failed: number; stored: number; recordings: number }>('/words/align/status'),
+  runWordAlign: (limit = 200, redo = false) =>
+    request<{ started: boolean }>(`/words/align/run?limit=${limit}&redo=${redo}`, { method: 'POST' }),
+  // What the project owes to other people, read from the repository's own docs/CREDITS.md
+  credits: () => request<{ markdown: string; source: string }>('/credits'),
   practiceCollections: () => request<PracticeCollections>('/practice/collections'),
   practiceSession: (query: string) => request<{ drills: Drill[]; cards: PracticeCard[] }>(`/practice/session?${query}`),
   reviewsDue: (limit = 10) => request<Drill[]>(`/reviews/due?limit=${limit}`),
@@ -399,6 +423,12 @@ export interface PracticeCollections {
   videos: { title: string; url: string | null; count: number }[];
   people: { name: string; count: number }[];
   tags: { tag: string; count: number }[];
+}
+/** Where one word is spoken: the recording, and the seconds it sits between. `source`:
+ *  'library' = one of our speakers, with a name; 'tosd' = the open corpus, anonymous. */
+export interface WordClip {
+  word: string; drill_id: number; audio_url: string; start: number; end: number;
+  speaker: string | null; source: string; sentence: string | null; meaning: string | null;
 }
 export interface PracticeTip { sound: string; label: string; found: string; tip: string }
 export interface PracticeCard { speaker: string; origin: string; day: string | null; tips: PracticeTip[]; highlights: string[] }

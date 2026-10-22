@@ -126,3 +126,87 @@ def test_the_editor_can_find_a_sentence_without_downloading_the_library():
     tam = client.get("/drills/", params={"search": "tasarut"}).json()
     assert any("tasarut" in (d.get("text_tachelhit") or "") for d in tam)
     assert client.get("/drills/", params={"search": "   "}).status_code == 200   # blank asks for nothing
+
+
+def test_a_practice_can_be_renamed_by_whoever_made_it_and_by_nobody_else():
+    """Until 2026-10-22 any visitor could rename or delete anyone's practice: PUT and DELETE
+    /tests/{id} checked nothing at all, while the steps underneath them did."""
+    import main
+    from test_api import client, as_stranger, register
+
+    main._register_attempts.clear(); main._login_attempts.clear()
+    hdr = {"X-User-Token": register("practice_owner")}
+    other = {"X-User-Token": register("someone_else")}
+
+    mine = client.post("/tests/", headers=hdr, json={
+        "title": "Com es diu", "description": "", "question_type": "audio",
+        "hint_level": "none", "passing_score": 70, "drill_ids": ""}).json()
+
+    # a field at a time: what is not sent is left alone, not blanked
+    renamed = client.put(f"/tests/{mine['id']}", headers=hdr, json={"title": "Els possessius"})
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["title"] == "Els possessius"
+    assert renamed.json()["question_type"] == "audio"
+
+    with as_stranger():
+        assert client.put(f"/tests/{mine['id']}", json={"title": "Teva no"}).status_code == 401
+    assert client.put(f"/tests/{mine['id']}", headers=other, json={"title": "Teva no"}).status_code == 403
+    assert client.delete(f"/tests/{mine['id']}", headers=other).status_code == 403
+    assert client.get(f"/tests/{mine['id']}").json()["title"] == "Els possessius"
+
+    assert client.delete(f"/tests/{mine['id']}", headers=hdr).status_code == 200
+    assert client.get(f"/tests/{mine['id']}").status_code == 404
+
+
+def test_a_tifinagh_sentence_can_be_practised_even_if_the_course_cannot_quote_it():
+    """Two groups showed «aquest grup no té cap drill» while holding 84 and 9 sentences.
+
+    One of them («Tamazight For All · faules») is written in Tifinagh, and practice was filtering
+    with the grammar course's rule, which refuses Tifinagh because the course itself is written in
+    Latin letters. Practice has no such reason: you can hear the sentence and read it.
+    """
+    import grammar
+
+    tifinagh = "ⵉⵎⵎⵓⵜ ⵡⴰⵡⵜⵉⵍ ⵙ ⵜⴰⴹⵚⴰ"
+    latin = "immut wawtil s taḍṣa"
+
+    assert grammar.well_formed(tifinagh)       # practisable
+    assert not grammar.quotable(tifinagh)      # the course keeps its Latin letters
+    assert grammar.well_formed(latin) and grammar.quotable(latin)
+
+    # and what is not a sentence at all stays out of both
+    for junk in ("text", "a.b.c", "", "Mana Lun ija +tEli"):
+        assert not grammar.well_formed(junk), junk
+
+    class FakeDrill:
+        text_catalan = "La llebre va morir de riure"
+        text_tachelhit = tifinagh
+    assert practice.quotable_any(FakeDrill())
+
+
+def test_a_step_that_points_at_no_sentence_becomes_a_note_instead_of_showing_as_frase_hash():
+    """The owner opened a practice and saw a step reading «frase #»: a listening step with
+    nothing to listen to. The old editor allowed it (a note switched to a tool that needs a
+    sentence), and a deleted drill leaves the same wreck behind."""
+    import main
+    import practice_steps
+    from models import PracticeStep
+    from test_api import client, register
+
+    hdr = {"X-User-Token": register("step_repairer")}
+    p = client.post("/tests/", headers=hdr, json={
+        "title": "Amb un pas trencat", "description": "", "question_type": "audio",
+        "hint_level": "none", "passing_score": 70, "drill_ids": ""}).json()
+
+    # written straight into the table: the API refuses to create one, which is the point
+    db = main.SessionLocal()
+    db.add(PracticeStep(test_id=p["id"], position=0, kind="listen_pick", drill_id=None))
+    db.add(PracticeStep(test_id=p["id"], position=1, kind="listen_pick", drill_id=999999))
+    db.commit(); db.close()
+
+    assert practice_steps.repair_pointless_steps(main.SessionLocal) >= 2
+    steps = client.get(f"/tests/{p['id']}/steps").json()["steps"]
+    assert [s["kind"] for s in steps] == ["note", "note"]
+    assert all(s["drill_id"] is None for s in steps)
+    assert "esborrat" in steps[1]["payload"]["text"]
+    assert practice_steps.repair_pointless_steps(main.SessionLocal) == 0  # safe to run again
