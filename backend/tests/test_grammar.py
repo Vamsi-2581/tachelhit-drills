@@ -333,7 +333,7 @@ def test_the_lesson_shows_the_library_word_by_word():
     assert grammar.gloss_of(R(4, "ad dduɣ", "hi anire", "not json")) is None
 
     e = grammar.example_dict(R(5, "ad dduɣ", "hi aniré", good))
-    assert e["gloss"][0] == {"shi": "ad", "ca": "partícula de futur"}
+    assert {k: e["gloss"][0][k] for k in ("shi", "ca")} == {"shi": "ad", "ca": "partícula de futur"}
 
     kept = {"intro": "", "steps": [
         {"type": "explain", "title": "t", "text": "x", "examples": [{"id": 5, "shi": "ad dduɣ", "ca": "hi aniré"}]},
@@ -457,3 +457,43 @@ def test_the_second_level_leaves_the_first_lesson_alone():
         assert rows["numerals"].version == grammar.LESSON_VERSION and rows["deep:numerals"].version == grammar.DEEP_VERSION
     finally:
         db.close()
+
+
+def test_the_wrong_answers_can_pass_for_the_right_one():
+    """A one-word answer among three long sentences gives itself away by its shape, and the four
+    together read as nonsense: «tu (masc.)» next to «Menjo el dinar» is not a question."""
+    import grammar
+    def e(i, shi, ca, audio=True):
+        return {"id": i, "shi": shi, "ca": ca, "image_url": None, "audio_url": "u" if audio else None,
+                "recorded": audio, "author": None, "region": None, "origin": ""}
+    pool = [e(1, "kyy", "tu (masc.)"), e(2, "kmm", "tu (fem.)"), e(3, "nkk", "jo"), e(4, "ntta", "ell"),
+            e(5, "da ttɣ imkli", "Menjo el dinar"), e(6, "hak ad gan", "Així són ells."),
+            e(7, "bla tili", "sense ombra"), e(8, "ur ssinɣ mani", "no sé on")]
+    steps = [{"type": "explain", "title": "t", "text": "x", "examples": [pool[0]]}]
+    lesson = grammar._with_quizzes({"intro": "", "steps": steps}, pool)
+    quiz = next(s for s in lesson["steps"] if s["type"] == "quiz")
+    field = "ca" if quiz["kind"] == "listen" else "shi"
+    answer = quiz["example"][field]
+    lengths = {grammar._words(o) for o in quiz["options"]}
+    assert quiz["options"][quiz["answer"]] == answer
+    assert max(lengths) - min(lengths) <= 1, quiz["options"]   # all of a kind: words with words
+    assert len(set(quiz["options"])) == 4
+
+
+def test_the_language_shows_its_own_script():
+    """Tifinagh belongs with the sentence: under the speaker's own spelling and under each word of
+    the word-by-word reading. The PROSE of a lesson stays in Latin — that rule does not change."""
+    import grammar
+
+    class D:  # noqa
+        id, text_tachelhit, text_catalan = 7, "ɣur-i yat", "en tinc una"
+        image_url = audio_url = author = region = tag = None
+        glosses = '[{"shi": "\u0263ur-i", "tif": "\u2d96\u2d53\u2d54\u2d49", "ca": "tinc"}]'
+
+    e = grammar.example_dict(D())
+    assert e["tif"] and all("\u2d30" <= ch <= "\u2d7f" or ch == " " for ch in e["tif"])  # Tifinagh only
+    assert e["gloss"][0]["tif"] == "\u2d96\u2d53\u2d54\u2d49"
+    assert grammar.tifinagh("nkk") == "\u2d4f\u2d3d\u2d3d"
+    assert grammar.tifinagh("") is None
+    # the prose is still cleaned of it: an explanation a beginner reads stays in Latin
+    assert grammar._clean_prose("El pronom \u2d4f\u2d3d\u2d3d vol dir jo").strip() == "El pronom vol dir jo"

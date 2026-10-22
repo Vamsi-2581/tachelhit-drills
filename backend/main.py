@@ -5267,6 +5267,27 @@ def auth_attach(email: str = Body(..., embed=True), password: str = Body(..., em
     return _user_payload(user)
 
 
+@app.post("/auth/username")
+def auth_change_username(username: str = Body(..., embed=True),
+                         user: UserModel = Depends(require_user), db: Session = Depends(get_db)):
+    """Change the handle people see («@pablo»). Everything a person has given the library hangs on
+    the account, not on the name, so nothing is lost by changing it."""
+    uname = (username or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9_\-\.]{3,32}", uname):
+        raise HTTPException(status_code=400, detail="El nom d'usuari té de 3 a 32 caràcters: a-z 0-9 _ - .")
+    if uname == (user.username or "").lower():
+        return _user_payload(user)
+    if db.query(UserModel).filter(UserModel.username == uname, UserModel.id != user.id).first():
+        raise HTTPException(status_code=409, detail="Aquest nom d'usuari ja és d'algú altre")
+    was = user.username
+    user.username = uname
+    if not (user.display_name or "").strip() or (user.display_name or "").strip().lower() == (was or "").lower():
+        user.display_name = uname  # the name shown followed the handle: keep them together
+    db.commit()
+    print(f"[AUTH] @{was} is now @{uname}")
+    return _user_payload(user)
+
+
 @app.post("/auth/password")
 def auth_change_password(old_password: str = Body(..., embed=True), new_password: str = Body(..., embed=True),
                          user: UserModel = Depends(require_user), db: Session = Depends(get_db)):
@@ -5279,17 +5300,21 @@ def auth_change_password(old_password: str = Body(..., embed=True), new_password
 
 
 @app.post("/auth/forgot")
-def auth_forgot(request: Request, email: str = Body(..., embed=True), db: Session = Depends(get_db)):
-    """E-mail a 6-digit reset code (30 min). Always answers ok, so addresses cannot be probed;
-    503 only when no SMTP sender is configured."""
+def auth_forgot(request: Request, email: Optional[str] = Body(None, embed=True),
+                login: Optional[str] = Body(None, embed=True), db: Session = Depends(get_db)):
+    """E-mail a 6-digit reset code (30 min) to the account's address. Say who you are with your
+    e-mail OR your user name: someone who signed up without an address has only the name, and that
+    is exactly the person who cannot ask for help any other way. Always answers ok, so neither
+    addresses nor names can be probed from outside."""
     ip = request.client.host if request.client else "unknown"
     _rate_limit(_login_attempts, ip, 10, 900)
     if not _mail_ready():
         # Not an error: this library recovers accounts with a code an admin hands over. The page
         # says so instead of showing a server fault nobody can act on.
         return {"ok": True, "mail": False}
-    user = db.query(UserModel).filter(UserModel.email == (email or "").strip().lower()).first()
-    if user:
+    key = (login or email or "").strip().lower()
+    user = db.query(UserModel).filter((UserModel.email == key) | (UserModel.username == key)).first() if key else None
+    if user and user.email:  # with no address there is nowhere to send it: ask the admin for a code
         code = f"{secrets.randbelow(10**6):06d}"
         user.reset_code_hash = _hash_token(code); user.reset_expires = datetime.utcnow() + timedelta(minutes=30)
         db.commit()
@@ -5775,6 +5800,43 @@ def catalog_topics_status():
 
 
 # ===================== GRAMMAR COURSE =====================
+@app.post("/drills/{drill_id}/voice-wanted")
+def ask_for_a_voice(drill_id: int, wanted: bool = Body(True, embed=True),
+                    user: UserModel = Depends(require_user), db: Session = Depends(get_db)):
+    """Mark a sentence as one our speakers should say out loud, from the lesson card where you
+    noticed it. Marked sentences go to the top of the «Veus» list."""
+    drill = db.query(DrillModel).filter(DrillModel.id == drill_id).first()
+    if not drill:
+        raise HTTPException(status_code=404, detail="Drill not found")
+    drill.voice_wanted = bool(wanted)
+    drill.voice_wanted_by = ((user.display_name or user.username) if wanted else None)
+    db.commit()
+    return {"id": drill.id, "voice_wanted": bool(drill.voice_wanted), "voice_wanted_by": drill.voice_wanted_by}
+
+
+@app.post("/drills/voice-wanted/missing")
+def ask_for_every_missing_voice(include_synthetic: bool = Body(True, embed=True),
+                                user: UserModel = Depends(require_admin), db: Session = Depends(get_db)):
+    """Admin: ask our speakers for EVERY sentence the library cannot say out loud. One pass in the
+    database instead of hundreds of calls from outside. A sentence that already has a human take
+    (its own or somebody else's) is left alone; a synthetic voice does not count as said."""
+    taken = {r[0] for r in db.query(RecordingModel.drill_id).all()}
+    rows = grammar_course.not_excluded(
+        db.query(DrillModel).filter((DrillModel.audio_url.is_(None)) | (DrillModel.audio_url == "")), DrillModel).all()
+    who = (user.display_name or user.username)
+    n = 0
+    for d in rows:
+        if d.id in taken or not (d.text_tachelhit or "").strip():
+            continue
+        if not include_synthetic and (d.audio_tts_shi_url or "").strip():
+            continue
+        if not d.voice_wanted:
+            d.voice_wanted, d.voice_wanted_by = True, who
+            n += 1
+    db.commit()
+    return {"asked": n, "already_asked": sum(1 for d in rows if d.voice_wanted) - n, "with_a_take": len(taken)}
+
+
 # ===================== VEUS: petitions and recordings wanted =====================
 def _petition_row(d, units_level: dict) -> dict:
     us = grammar_course.parse(d.grammar)
@@ -6019,13 +6081,17 @@ def grammar_wishlist(per_unit: int = 8, db: Session = Depends(get_db)):
         in_lesson = _lesson_quotes(db, unit["slug"])  # what the unit's lesson shows a learner
         voiced = sum(1 for d in rows if (grammar_course.origin(d) == grammar_course.AIT_MRAW and d.audio_url) or d.id in mraw_takes)
         wanted = [d for d in grammar_course.practice_rows(rows, limit=10000, slug=unit["slug"])
-                  if grammar_course.origin(d) != grammar_course.AIT_MRAW and d.id not in mraw_takes and len(d.text_tachelhit or "") <= 90]
-        # the sentences the lesson itself quotes first (recording those changes what a learner hears),
-        # then the Beni Mellal deck (real Central Atlas Tamazight), then pictured, then voiced
-        wanted.sort(key=lambda d: (d.id not in in_lesson, grammar_course.origin(d) != "Beni Mellal",
+                  if len(d.text_tachelhit or "") <= 90
+                  and (getattr(d, "voice_wanted", False)  # somebody asked for this one by hand
+                       or (grammar_course.origin(d) != grammar_course.AIT_MRAW and d.id not in mraw_takes))]
+        # what a person asked for first, then the sentences the lesson quotes (recording those
+        # changes what a learner hears), then the Beni Mellal deck, then pictured, then voiced
+        wanted.sort(key=lambda d: (not getattr(d, "voice_wanted", False), d.id not in in_lesson,
+                                   grammar_course.origin(d) != "Beni Mellal",
                                    not d.image_url, not d.audio_url, d.id))
         out.append({**{k: unit[k] for k in ("slug", "title", "level")}, "total": len(rows), "aitmraw_voiced": voiced,
                     "in_lesson": sum(1 for d in wanted if d.id in in_lesson),
+                    "asked": sum(1 for d in wanted if getattr(d, "voice_wanted", False)),
                     "wanted": [Drill.model_validate(d, from_attributes=True) for d in wanted[:max(0, min(per_unit, 30))]]})
     out.sort(key=lambda u: (u["aitmraw_voiced"], -u["total"]))
     return {"units": out}

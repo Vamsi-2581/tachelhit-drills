@@ -85,7 +85,7 @@ SLUGS = [u["slug"] for u in UNITS]
 TITLES = {u["slug"]: u["title"] for u in UNITS}
 BATCH = 40
 DEEP_VERSION = 1   # the «a fons» level of a unit, kept under «deep:<slug>» in the same table
-LESSON_VERSION = 17  # bump when the lesson format or prompt changes: old rows are rewritten on next open
+LESSON_VERSION = 18  # bump when the lesson format or prompt changes: old rows are rewritten on next open
 
 # Drills whose tag names another language are never part of the course (the owner's old Irish tests).
 EXCLUDED_TAGS = ("irish",)
@@ -352,12 +352,13 @@ def gloss_of(d) -> Optional[List[dict]]:
             continue
         w, ca = str(g.get("shi") or "").strip(), str(g.get("ca") or "").strip()
         if w and ca and ca != "?" and ca.lower() != w.lower():
-            out.append({"shi": w, "ca": ca})
+            out.append({"shi": w, "ca": ca, "tif": (str(g.get("tif") or "").strip() or None)})
     return out or None
 
 
 NOTE_VERSION = 1       # bump to rewrite every «why this sentence is here» note
 NOTES_BATCH = 12       # sentences per Gemini call: ~160 calls cover the whole course
+NOTES_PAUSE = 4.0      # seconds between calls: the free instance serves pages with the same CPU
 NO_NOTE = "-"          # asked, and the honest answer was that the sentence shows nothing of the unit
 
 _notes_state = {"running": False, "done": 0, "pending": 0, "errors": 0, "unit": None,
@@ -470,6 +471,11 @@ def fill_notes(session_factory, rows_for, grammar_md: str = "", only: Optional[s
                 sheet = sheet_for(db, slug, grammar_md)
                 for i in range(0, len(todo), NOTES_BATCH):
                     batch = todo[i:i + NOTES_BATCH]
+                    # a lesson being written is what a learner is waiting for: let it go first
+                    for _ in range(60):
+                        if not writing():
+                            break
+                        time.sleep(5)
                     try:
                         notes = write_notes(unit, sheet, batch)
                         for e in batch:  # a sentence the writer passed over is marked asked, once
@@ -481,7 +487,7 @@ def fill_notes(session_factory, rows_for, grammar_md: str = "", only: Optional[s
                         _notes_state["errors"] += 1
                         _notes_state["last_error"] = f"{slug}: {str(e)[:160]}"
                         print(f"[NOTES] {slug}: {e}")
-                    time.sleep(1)
+                    time.sleep(NOTES_PAUSE)  # half a CPU is also serving pages
                 print(f"[NOTES] {slug}: {len(todo)} sentences explained")
             except Exception as e:
                 _notes_state["errors"] += 1
@@ -500,14 +506,27 @@ def fill_notes(session_factory, rows_for, grammar_md: str = "", only: Optional[s
     return {"started": True, **notes_status()}
 
 
+def tifinagh(shi: str) -> Optional[str]:
+    """The sentence in Tifinagh, from the app's own transliterator. Shown under the speaker's own
+    spelling: the prose of a lesson stays in Latin, but the language's own script belongs with the
+    language. Never raises: a sentence we cannot transliterate simply shows none."""
+    try:
+        import transliteration
+        return (transliteration.to_forms(shi or "")["tifinagh"] or "").strip() or None
+    except Exception:
+        return None
+
+
 def example_dict(d) -> dict:
     """What a lesson step shows of a drill: both texts, the picture, a voice (speaker's first),
-    and the word-by-word reading when the library has one."""
-    audio = d.audio_url or getattr(d, "audio_tts_shi_url", None) or getattr(d, "audio_tts_url", None)
+    the word-by-word reading when the library has one, and the sentence in Tifinagh."""
+    # Tamazight only. `audio_tts_url` is the CATALAN reading of the meaning: in a lesson it would
+    # say the answer out loud in the wrong language, and «escolta i tria el sentit» would be a joke.
+    audio = d.audio_url or getattr(d, "audio_tts_shi_url", None)
     return {"id": d.id, "shi": _clean_text(d.text_tachelhit), "ca": _clean_text(d.text_catalan),
             "image_url": d.image_url, "audio_url": audio, "recorded": bool(d.audio_url),
             "author": (d.author or "").strip() or None, "region": d.region, "origin": origin(d),
-            "gloss": gloss_of(d),
+            "gloss": gloss_of(d), "tif": tifinagh(_clean_text(d.text_tachelhit)),
             "source_url": getattr(d, "source_url", None), "source_channel": getattr(d, "source_channel", None)}
 
 
@@ -955,6 +974,11 @@ def _top_up(lesson: dict, examples: List[dict], want: int = 4, notes: Optional[D
     return lesson
 
 
+def _words(t: str) -> int:
+    """How many words a text has: what tells a one-word answer from a whole sentence."""
+    return len(re.findall(r"[^\W\d_]+", t or ""))
+
+
 def _with_quizzes(lesson: dict, examples: List[dict]) -> dict:
     """A quick check after every explanation and a short review before the end, three kinds in turn:
     read the meaning and pick the sentence; listen to the voice and pick the meaning; look at the
@@ -982,11 +1006,17 @@ def _with_quizzes(lesson: dict, examples: List[dict]) -> dict:
         used.add(target["id"]); n_quiz += 1
         rnd = random.Random(target["id"])
         field = "ca" if kind == "listen" else "shi"
-        wrong = [e[field] for e in pool if e["id"] != target["id"] and e["shi"].lower() != target["shi"].lower() and not same(e["ca"], target["ca"])]
-        wrong = list(dict.fromkeys(wrong))
+        cands = [e for e in pool if e["id"] != target["id"] and e["shi"].lower() != target["shi"].lower()
+                 and not same(e["ca"], target["ca"])]
+        rnd.shuffle(cands)
+        # The wrong answers must be able to pass for the right one. A single word among three long
+        # sentences is given away by its shape alone, and the four together read as nonsense: so
+        # the nearest in length come first, and the choice stays random among equals.
+        n_target = _words(target[field])
+        cands.sort(key=lambda e: (abs(_words(e[field]) - n_target), (_words(e[field]) > 1) != (n_target > 1)))
+        wrong = list(dict.fromkeys(e[field] for e in cands))
         if len(wrong) < 3:
             continue
-        rnd.shuffle(wrong)
         options = [target[field]] + wrong[:3]
         rnd.shuffle(options)
         question = {"meaning": f"Com es diu «{target['ca']}»?", "listen": "Escolta. Què vol dir?", "picture": "Quina frase va amb la imatge?"}[kind]
@@ -1014,11 +1044,14 @@ def _review_quizzes(pool: List[dict], used: set, n_quiz: int, how_many: int) -> 
         used.add(target["id"]); n_quiz += 1
         rnd = random.Random(target["id"] * 7)
         field = "ca" if kind == "listen" else "shi"
-        wrong = [e[field] for e in pool if e["id"] != target["id"] and e["shi"].lower() != target["shi"].lower() and not same(e["ca"], target["ca"])]
-        wrong = list(dict.fromkeys(wrong))
+        cands = [e for e in pool if e["id"] != target["id"] and e["shi"].lower() != target["shi"].lower()
+                 and not same(e["ca"], target["ca"])]
+        rnd.shuffle(cands)
+        n_target = _words(target[field])   # the wrong answers look like the right one (see _with_quizzes)
+        cands.sort(key=lambda e: (abs(_words(e[field]) - n_target), (_words(e[field]) > 1) != (n_target > 1)))
+        wrong = list(dict.fromkeys(e[field] for e in cands))
         if len(wrong) < 3:
             break
-        rnd.shuffle(wrong)
         options = [target[field]] + wrong[:3]
         rnd.shuffle(options)
         question = {"meaning": f"Repàs: com es diu «{target['ca']}»?", "listen": "Repàs: escolta. Què vol dir?",
