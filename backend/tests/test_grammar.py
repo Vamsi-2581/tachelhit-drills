@@ -10,6 +10,18 @@ def test_units_are_ordered_and_endpoint_lists_them():
     assert set(r["counts"]) == set(grammar.SLUGS)
 
 
+def _wait_lesson(slug: str, secs: float = 20.0) -> dict:
+    """The lesson a unit page asked for in the background, once the writer has finished."""
+    import time
+    for _ in range(int(secs * 10)):
+        if slug not in grammar.writing():
+            body = client.get(f"/grammar/{slug}/lesson").json()
+            if not body["lesson"].get("writing"):
+                return body["lesson"]
+        time.sleep(0.1)
+    raise AssertionError(f"lesson {slug} was never written")
+
+
 def test_classification_fills_grammar_and_unit_page_shows_lesson_and_examples(monkeypatch):
     a = client.post("/drills/", json={"text_catalan": "No hi aniré", "text_tachelhit": "ur rad dduɣ", "audio_url": "https://example.test/a.webm"}).json()
     b = client.post("/drills/", json={"text_catalan": "la casa del meu pare", "text_tachelhit": "tigmmi n baba"}).json()
@@ -36,7 +48,8 @@ def test_classification_fills_grammar_and_unit_page_shows_lesson_and_examples(mo
     monkeypatch.setattr(gemini_client, "gemini_generate", lambda sys_, contents, **k: calls.append(contents[0]["text"]) or (sheet if "STUDY SHEET in" in contents[0]["text"] else answer))
     page = client.get("/grammar/negacio").json()
     assert page["title"].startswith("La negació") and page["total"] >= 1
-    lesson = page["lesson"]
+    assert page["lesson"]["writing"] and page["lesson"]["steps"][-1]["type"] == "end"  # never a wait for Gemini
+    lesson = _wait_lesson("negacio")
     kinds = [s["type"] for s in lesson["steps"]]
     assert lesson["intro"] == "Sabràs dir que no." and kinds[:2] == ["explain", "explain"] and kinds[-1] == "end"
     assert lesson["steps"][0]["examples"] == [lesson["steps"][0]["examples"][0]] and lesson["steps"][0]["examples"][0]["id"] == a["id"]
@@ -47,11 +60,35 @@ def test_classification_fills_grammar_and_unit_page_shows_lesson_and_examples(mo
     assert len(calls) == 2 and "7.2.1. La partícula negativa" in calls[0] and "7.3. L'oració" not in calls[0]
     assert "ur rad dduɣ" in calls[1] and sheet in calls[1] and lesson["study"] == sheet
     assert page["drills"][0]["id"] == a["id"]
-    client.get("/grammar/negacio")
+    assert client.get("/grammar/negacio").json()["lesson"]["intro"] == "Sabràs dir que no."  # kept, and now served at once
     assert len(calls) == 2  # written once, kept in the grammar_lessons table
     assert client.get("/grammar/no-such-unit").status_code == 404
     assert client.post("/grammar/run").status_code == 401  # admin only
     assert client.post("/grammar/negacio/rewrite").status_code == 401
+
+
+def test_the_wishlist_asks_for_the_sentences_the_lesson_shows(monkeypatch):
+    """Recording a sentence the course quotes changes what a learner hears; recording any other
+    sentence of the unit does not."""
+    import json as _json, main as _main
+    from models import GrammarLesson
+    quoted = client.post("/drills/", json={"text_catalan": "No ho sé", "text_tachelhit": "ur ssinɣ", "tag": "benimellal-anki"}).json()
+    other = client.post("/drills/", json={"text_catalan": "No hi és", "text_tachelhit": "ur illi", "tag": "benimellal-anki"}).json()
+    for d in (quoted, other):
+        client.put(f"/drills/{d['id']}", json={"grammar": "negacio", "grammar_source": "owner"})
+    with _main.SessionLocal() as db:
+        body = _json.dumps({"intro": "", "steps": [{"type": "explain", "title": "ur", "text": "x",
+                                                    "examples": [{"id": quoted["id"], "shi": "ur ssinɣ", "ca": "No ho sé"}]}]})
+        row = db.query(GrammarLesson).filter(GrammarLesson.id == "negacio").first()
+        if row is None:
+            db.add(GrammarLesson(id="negacio", body=body, version=grammar.LESSON_VERSION))
+        else:
+            row.body = body
+        db.commit()
+    unit = next(u for u in client.get("/grammar/wishlist").json()["units"] if u["slug"] == "negacio")
+    ids = [d["id"] for d in unit["wanted"]]
+    assert ids and ids[0] == quoted["id"] and unit["in_lesson"] >= 1
+    assert ids.index(quoted["id"]) < (ids.index(other["id"]) if other["id"] in ids else 99)
 
 
 def test_practice_is_sentences_only_and_wishlist_names_what_our_speakers_could_record(monkeypatch):
@@ -100,7 +137,7 @@ def test_lessons_start_basic_and_skip_capture_artefacts():
         def __init__(self, id, shi, ca): self.id, self.text_tachelhit, self.text_catalan, self.image_url, self.audio_url, self.author, self.region, self.tag = id, shi, ca, None, None, None, None, None
     rows = [R(1, "jigh labas, tanmmirt", "estic bé, gràcies"), R(2, "azul", "hola"), R(3, "ⵜ.ⵅⵙ.ⵛ ⵙⵙ", "hola, encàrrec'm")]
     ex = grammar.pick_examples(rows, slug="formules")
-    assert [e["id"] for e in ex] == [1, 2] and [e["id"] for e in grammar.pick_examples(rows, slug="negacio")] == [1]
+    assert [e["id"] for e in ex] == [2, 1] and [e["id"] for e in grammar.pick_examples(rows, slug="negacio")] == [1]  # shortest first
     assert [d.id for d in grammar.practice_rows(rows, slug="formules")] == [1, 2]
     unit = next(u for u in grammar.UNITS if u["slug"] == "formules")
     p = grammar._lesson_prompt(unit, ex, "sheet")
@@ -114,7 +151,7 @@ def test_level_one_units_quote_only_short_examples():
     long = R(1, "waxxa, isul-yan g-usawn n-tuwrirt-in", "D'acord, encara n'hi ha una al vessant")
     rows = [long, R(2, "3afaš", "gràcies"), R(3, "Adeu", "Adeu"), R(4, "jigh labas, tanmmirt", "estic bé, gràcies")]
     assert [e["id"] for e in grammar.pick_examples(rows, slug="formules")] == [2, 4]  # level 1: a few words; «Adeu»=«Adeu» never
-    assert [e["id"] for e in grammar.pick_examples(rows, slug="subordinades")] == [1, 4]  # level 3: the long one is fine
+    assert [e["id"] for e in grammar.pick_examples(rows, slug="subordinades")] == [4, 1]  # level 3: the long one is fine, last
     assert grammar.fits_level("ur ssinɣ ša", "formules") and not grammar.fits_level("a b c d e", "formules") and grammar.fits_level("a b c d e", "negacio")
     assert not grammar.fits_level("tex", "formules", "Quan era petit els meus pares van anar a viure a la ciutat")  # a long meaning is not level 1 either
     unit = next(u for u in grammar.UNITS if u["slug"] == "formules")
@@ -140,7 +177,8 @@ def test_lesson_prose_has_no_tifinagh_and_examples_have_no_capture_noise():
     assert grammar.quotable("iga argaz", "ser-tenir")
     unit = next(u for u in grammar.UNITS if u["slug"] == "ser-tenir")
     p = grammar._lesson_prompt(unit, [], "sheet")
-    assert "example_ids (3-5" in p and "focus must be the rule itself" in p
+    assert "example_ids (4-6" in p and "focus must be the rule itself" in p
+    assert "fewer than seven is not acceptable" in p  # the lesson must cover the whole point
 
 
 def test_lesson_prose_is_latin_only_and_never_cites_ids():
@@ -156,6 +194,82 @@ def test_lesson_json_tolerates_trailing_commas():
     assert lesson["steps"][0]["examples"][0]["id"] == 1
 
 
+def test_the_lesson_never_uses_a_word_a_beginner_would_look_up():
+    import grammar
+    assert grammar._clean_prose("el tema d'inacomplert") == "el tema d'inacabat"
+    assert grammar._clean_prose("els clítics van davant") == "els pronoms enganxats al verb van davant"
+    assert grammar._clean_prose("un díctic marca el lloc") == "un mot que assenyala marca el lloc"
+    for w in ("inacomplert", "clítics", "díctic", "morfema", "lexema", "sintagma"):
+        assert w not in grammar._clean_prose(f"text amb {w} dins").lower()
+
+
+def test_an_explanation_never_shows_fewer_than_four_sentences():
+    """The writer quotes three; the library has thirty more that carry the same piece."""
+    import grammar, json as _json
+    ex = [{"id": 1, "shi": "ɣur-i yat", "ca": "en tinc una", "image_url": None, "audio_url": None, "recorded": False, "author": None, "region": None, "origin": ""},
+          {"id": 2, "shi": "ghori tigmmi", "ca": "tinc una casa", "image_url": None, "audio_url": None, "recorded": False, "author": None, "region": None, "origin": ""},
+          {"id": 3, "shi": "ɣur-i aman", "ca": "tinc aigua", "image_url": None, "audio_url": None, "recorded": False, "author": None, "region": None, "origin": ""},
+          {"id": 4, "shi": "ur ɣur-i walu", "ca": "no tinc res", "image_url": None, "audio_url": None, "recorded": False, "author": None, "region": None, "origin": ""},
+          {"id": 5, "shi": "izri wass", "ca": "el dia ha passat", "image_url": None, "audio_url": None, "recorded": False, "author": None, "region": None, "origin": ""}]
+    answer = _json.dumps({"intro": "x", "steps": [{"type": "explain", "title": "ɣur-i", "text": "Per dir que tens una cosa.",
+                                                   "example_ids": [1], "focus": {"1": "ɣur-i"}}]})
+    lesson = grammar._parse_lesson(answer, ex)
+    got = [e["id"] for e in lesson["steps"][0]["examples"]]
+    assert got[0] == 1 and len(got) == 4 and 5 not in got  # «izri wass» does not carry the rule
+    assert 2 in got  # «ghori», the same word spelled another way, does
+    assert lesson["steps"][0]["examples"][2]["focus"] == "ɣur-i"  # the piece is marked where it is written
+    marked = {e["id"]: e.get("focus") for e in lesson["steps"][0]["examples"]}
+    assert marked[2] == "ghori"  # another spelling of the same word is marked as the speaker wrote it
+    assert grammar._mark("hla ghori udghar", "ɣur-i") == "ghori" and grammar._mark("izri wass", "ɣur-i") is None
+
+
+def test_conjugation_lists_become_the_lessons_tables():
+    """The deck wrote out 299 paradigms; they are no example, but they are what a table is made of."""
+    import grammar
+    class R:  # noqa
+        def __init__(self, id, shi, ca): self.id, self.text_tachelhit, self.text_catalan = id, shi, ca
+    rows = [R(1, "rgl, rglkh, trgld, irgl, nrgl, trglm(t), rgln(t)", "tancar"),
+            R(2, "adhadh / idhudhan afus / ifasn", "dit / dits mà / mans"), R(3, "ur rgliɣ", "no he tancat")]
+    tables = grammar.paradigms(rows)
+    assert [t["id"] for t in tables] == [1, 2]  # the fullest list first, and never the sentence
+    assert not any(t["id"] == 3 for t in tables)
+    unit = next(u for u in grammar.UNITS if u["slug"] == "perfectiu")
+    p = grammar._lesson_prompt(unit, [], "sheet", tables)
+    assert "OUR LISTS" in p and "trglm(t)" in p and "build the table from THEM" in p  # the writer is told to copy the forms
+    assert "OUR LISTS" not in grammar._lesson_prompt(unit, [], "sheet", [])
+
+
+def test_every_deck_reaches_the_examples():
+    """A unit with hundreds of Aït Mraw sentences used to hide the Beni Mellal deck completely."""
+    import grammar
+    class R:  # noqa
+        def __init__(self, id, shi, ca, tag=None, author=None):
+            self.id, self.text_tachelhit, self.text_catalan, self.tag, self.author = id, shi, ca, tag, author
+            self.image_url = self.audio_url = self.region = None
+    words = ["aman", "argaz", "tamghart", "afus", "ixf", "tigmmi", "ighrm", "amud", "izm", "ul",
+             "akal", "tafukt", "ayyur", "itri", "adrar", "asif", "tazart", "agharas", "ikchm", "afullus"]
+    rows = [R(i, f"ur ɣriɣ {words[i % 20]} {i}", f"no he llegit {i}", author="Halima") for i in range(1, 200)]
+    rows += [R(1000 + i, f"ur ufiɣ {words[i % 20]} {i} walu", f"no he trobat {i}", tag="benimellal-anki, private") for i in range(1, 200)]
+    rows += [R(2000 + i, f"ur sawlɣ {words[i % 20]} {i} ša", f"no he parlat {i}") for i in range(1, 60)]
+    picked = grammar.pick_examples(rows, slug="negacio")
+    by_source = [sum(1 for e in picked if grammar.origin_rank(e) == r) for r in (0, 1, 2)]
+    assert all(n >= 15 for n in by_source), by_source  # all three decks, every time
+    assert len({e["shi"].lower() for e in picked}) == len(picked)  # and no sentence twice
+
+
+def test_a_quick_check_after_every_explanation_and_a_review_at_the_end():
+    import grammar
+    ex = [{"id": i, "shi": f"frase {i}", "ca": f"sentit {i}", "image_url": None, "audio_url": None, "recorded": False, "author": None, "region": None} for i in range(1, 16)]
+    steps = [{"type": "explain", "title": f"t{i}", "text": "x", "examples": [ex[i]]} for i in range(5)]
+    lesson = grammar._with_quizzes({"intro": "", "steps": steps}, ex)
+    kinds = [s["type"] for s in lesson["steps"]]
+    assert kinds.count("quiz") >= 7  # one per explanation plus the review
+    assert kinds[-1] == "end" and kinds[-2] == "quiz"
+    asked = [s["example"]["id"] for s in lesson["steps"] if s["type"] == "quiz"]
+    assert len(asked) == len(set(asked))  # never the same sentence twice
+    assert sum(1 for s in lesson["steps"] if s["type"] == "quiz" and s["question"].startswith("Repàs")) == 3
+
+
 def test_quizzes_and_excluded_language(monkeypatch):
     import grammar
     ex = [{"id": i, "shi": f"frase {i}", "ca": f"sentit {i}", "image_url": None, "audio_url": None, "recorded": False, "author": None, "region": None} for i in range(1, 7)]
@@ -163,18 +277,19 @@ def test_quizzes_and_excluded_language(monkeypatch):
         {"type": "explain", "title": "u", "text": "t", "examples": [ex[0]]}, {"type": "explain", "title": "d", "text": "t", "examples": [ex[1]]},
         {"type": "explain", "title": "t", "text": "t", "examples": []}, {"type": "explain", "title": "q", "text": "t", "examples": [ex[2]]}]}, ex)
     quizzes = [s for s in lesson["steps"] if s["type"] == "quiz"]
-    assert len(quizzes) == 2 and lesson["steps"][-1]["type"] == "end"
+    assert len(quizzes) > 4 and lesson["steps"][-1]["type"] == "end"  # one per explanation, plus the review
     q = quizzes[0]
-    assert q["kind"] == "meaning" and q["example"]["id"] == 2 and len(q["options"]) == 4 and q["options"][q["answer"]] == "frase 2" and q["question"] == "Com es diu «sentit 2»?"
+    assert q["kind"] == "meaning" and q["example"]["id"] == 1 and len(q["options"]) == 4 and q["options"][q["answer"]] == "frase 1" and q["question"] == "Com es diu «sentit 1»?"
     assert quizzes[1]["kind"] == "meaning"  # no voice in this pool: the listening check falls back to reading
     voiced = [{**e, "audio_url": "https://x/a.webm", "image_url": "https://x/i.jpg"} for e in ex]
     lesson = grammar._with_quizzes({"intro": "", "steps": [{"type": "explain", "title": "u", "text": "t", "examples": [voiced[0]]}] * 6}, voiced)
     kinds = [(s["kind"], s["options"][s["answer"]]) for s in lesson["steps"] if s["type"] == "quiz"]
-    assert [k for k, _ in kinds] == ["meaning", "listen", "picture"]
+    assert [k for k, _ in kinds] == ["meaning", "listen", "picture", "meaning", "listen", "picture"]
     assert kinds[1][1].startswith("sentit") and kinds[2][1].startswith("frase")  # listening: pick the meaning; picture: pick the sentence
     twin = ex + [{**ex[0], "id": 9, "shi": "una altra frase", "ca": "sentit 2"}]  # same meaning: never a wrong answer
     lesson = grammar._with_quizzes({"intro": "", "steps": [{"type": "explain", "title": "u", "text": "t", "examples": []}, {"type": "explain", "title": "d", "text": "t", "examples": [ex[1]]}]}, twin)
-    assert "una altra frase" not in next(s for s in lesson["steps"] if s["type"] == "quiz")["options"]
+    asked = next(s for s in lesson["steps"] if s["type"] == "quiz" and s["example"]["id"] == 2)
+    assert "una altra frase" not in asked["options"]
     # an Irish test drill never enters the course, even when it carries a unit
     irish = client.post("/drills/", json={"text_catalan": "Bon dia", "text_tachelhit": "Maidin Mhaith", "tag": "Irish"}).json()
     client.put(f"/drills/{irish['id']}", json={"grammar": "formules", "grammar_source": "owner"})
@@ -193,3 +308,33 @@ def test_quizzes_and_excluded_language(monkeypatch):
     assert grammar.pick_examples([h])[0]["origin"] == grammar.AIT_MRAW
     t = R(8, "ur ssinx", "no sé"); t.tag = "frase, Driss"  # the owner tags Driss's recordings by name
     assert grammar.our_speaker(t) == "Driss" and grammar.origin(t) == grammar.AIT_MRAW and grammar.our_speaker(o) is None
+
+
+def test_the_lesson_shows_the_library_word_by_word():
+    """The glosses are written once for the whole library; a lesson must show them without a call,
+    and a gloss that improves must reach a lesson already written."""
+    import grammar
+
+    class R:  # noqa
+        def __init__(self, id, shi, ca, glosses=None):
+            self.id, self.text_tachelhit, self.text_catalan, self.glosses = id, shi, ca, glosses
+            self.image_url = self.audio_url = self.region = self.author = self.tag = None
+
+    good = '[{"shi": "ad", "tif": null, "ca": "part\u00edcula de futur"}, {"shi": "ddu\u0263", "tif": null, "ca": "anir\u00e9"}]'
+    noise = '[{"shi": "ad", "ca": "ad"}, {"shi": "?", "ca": "?"}, {"shi": "ddu\u0263", "ca": "anir\u00e9"}]'
+    assert [g["ca"] for g in grammar.gloss_of(R(1, "ad dduɣ", "hi anire", good))] == ["partícula de futur", "aniré"]
+    assert [g["shi"] for g in grammar.gloss_of(R(2, "ad dduɣ", "hi anire", noise))] == ["dduɣ"]  # the parrot and the «?» are not shown
+    assert grammar.gloss_of(R(3, "ad dduɣ", "hi anire", None)) is None
+    assert grammar.gloss_of(R(4, "ad dduɣ", "hi anire", "not json")) is None
+
+    e = grammar.example_dict(R(5, "ad dduɣ", "hi aniré", good))
+    assert e["gloss"][0] == {"shi": "ad", "ca": "partícula de futur"}
+
+    kept = {"intro": "", "steps": [
+        {"type": "explain", "title": "t", "text": "x", "examples": [{"id": 5, "shi": "ad dduɣ", "ca": "hi aniré"}]},
+        {"type": "quiz", "kind": "meaning", "question": "q", "options": ["a"], "answer": 0,
+         "example": {"id": 5, "shi": "ad dduɣ", "ca": "hi aniré"}},
+        {"type": "end"}]}
+    fresh = grammar._with_glosses(kept, [e])
+    assert fresh["steps"][0]["examples"][0]["gloss"][1]["ca"] == "aniré"
+    assert fresh["steps"][1]["example"]["gloss"][0]["ca"] == "partícula de futur"

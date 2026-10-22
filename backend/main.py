@@ -1559,6 +1559,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[INIT] Dead-job reaper skipped: {e}")
 
+    # The course writes itself: after a deploy (or a change in the lesson's shape) every unit whose
+    # lesson is missing or outdated is written here, one at a time and out of the way, so no learner
+    # is the one who waits for Gemini. Set GRAMMAR_SELF_WRITE=0 to leave the lessons alone.
+    if os.getenv("GRAMMAR_SELF_WRITE", "1") != "0":
+        threading.Thread(target=_write_missing_lessons, daemon=True).start()
+
     # Add sample data if database is empty
     with SessionLocal() as db:
         count = db.query(DrillModel).count()
@@ -2112,6 +2118,12 @@ def reap_dead_jobs(db) -> tuple:
         db.commit()
     return len(dead), requeued
 DEFAULT_TZ = "Europe/Madrid"
+
+# ---- Pagination + delta-sync helpers (P4.1-4.3)
+DEFAULT_PAGE_LIMIT = 100
+MAX_PAGE_LIMIT = 500
+JOB_TERMINAL_STATUSES = ("COMPLETED", "FAILED")
+
 
 def _page_bounds(limit: Optional[int], offset: Optional[int]):
     """None = no pagination (legacy "return everything"); else (offset, limit)."""
@@ -5883,6 +5895,46 @@ def grammar_units():
             "counts": grammar_course.counts(SessionLocal), "status": grammar_course.status()}
 
 
+def _write_missing_lessons() -> None:
+    """Write the lessons that are missing or outdated, oldest unit of the course first. One at a
+    time: Gemini is slow and the free database has few connections."""
+    import time
+    time.sleep(20)  # let the server answer its first requests first
+    if not gemini_available():
+        print("[GRAMMAR] self-write skipped: no Gemini key")
+        return
+    written = 0
+    for unit in grammar_course.UNITS:
+        slug = unit["slug"]
+        try:
+            with SessionLocal() as db:
+                rows = _grammar_unit_rows(db, slug)
+                if not rows:
+                    continue
+                examples = grammar_course.pick_examples(rows, slug=slug)
+                before = grammar_course.get_lesson(db, slug, "", examples, unit_ids={d.id for d in rows})
+                if not before.get("writing") and not before.get("stale"):
+                    continue
+        except Exception as e:
+            print(f"[GRAMMAR] self-write {slug}: {e}")
+            continue
+        try:
+            with SessionLocal() as db:
+                rows = _grammar_unit_rows(db, slug)
+                examples = grammar_course.pick_examples(rows, slug=slug)
+                lesson = grammar_course.write_lesson(slug, _load_grammar(), examples,
+                                                     sheet=grammar_course.sheet_for(db, slug, _load_grammar()),
+                                                     tables=grammar_course.paradigms(rows))
+                lesson["unit_size"] = len({d.id for d in rows})
+                grammar_course._store_lesson(db, slug, lesson)
+                written += 1
+                print(f"[GRAMMAR] self-write {slug}: {len(lesson.get('steps') or [])} steps")
+        except Exception as e:
+            print(f"[GRAMMAR] self-write {slug}: {e}")
+        time.sleep(5)
+    print(f"[GRAMMAR] self-write finished: {written} lesson(s)")
+
+
 def _grammar_unit_rows(db, slug: str, limit: int = 1500):
     """The unit's drills, pictured-and-voiced first, then voiced, then by id; excluded tags left out."""
     if slug == grammar_course.SOUNDS_UNIT:
@@ -5901,14 +5953,27 @@ def _grammar_unit_payload(db, slug: str, limit: int, force: bool):
     practice = grammar_course.practice_rows(rows, slug=slug)  # the test: sentences (and words, in the units about words)
     try:
         lesson = grammar_course.get_lesson(db, slug, _load_grammar() if gemini_available() else "", examples, force=force,
-                                           unit_ids={d.id for d in rows})
+                                           unit_ids={d.id for d in rows}, session_factory=SessionLocal,
+                                           tables=grammar_course.paradigms(rows))
     except Exception as e:
         print(f"[GRAMMAR] lesson {slug}: {e}")
         lesson = {"intro": "", "steps": [{"type": "explain", "title": unit["title"], "text": "La lliçó encara no s’ha pogut escriure. Mira els exemples de la biblioteca mentrestant.", "examples": examples[:3]}, {"type": "end"}], "error": str(e)[:160]}
-    total = len(rows) if slug == grammar_course.SOUNDS_UNIT else sum(1 for (g,) in grammar_course.not_excluded(db.query(DrillModel.grammar).filter(DrillModel.grammar.ilike(f"%{slug}%")), DrillModel).all() if slug in grammar_course.parse(g))
+    total = len(rows)  # the rows are already every drill of the unit (the query's limit is far above any unit)
     return {**{k: unit[k] for k in ("slug", "title", "level")}, "lesson": lesson, "total": total,
             "practice": [d.id for d in practice],
             "drills": [Drill.model_validate(d, from_attributes=True) for d in rows[:max(1, min(limit, 300))]]}
+
+
+def _lesson_quotes(db, slug: str) -> set:
+    """The drills the unit's stored lesson quotes, if it has one."""
+    from models import GrammarLesson
+    row = db.query(GrammarLesson).filter(GrammarLesson.id == slug).first()
+    if row is None:
+        return set()
+    try:
+        return grammar_course.quoted_ids(json.loads(row.body))
+    except Exception:
+        return set()
 
 
 @app.get("/grammar/wishlist")
@@ -5922,15 +5987,30 @@ def grammar_wishlist(per_unit: int = 8, db: Session = Depends(get_db)):
     out = []
     for unit in grammar_course.UNITS:
         rows = _grammar_unit_rows(db, unit["slug"])
+        in_lesson = _lesson_quotes(db, unit["slug"])  # what the unit's lesson shows a learner
         voiced = sum(1 for d in rows if (grammar_course.origin(d) == grammar_course.AIT_MRAW and d.audio_url) or d.id in mraw_takes)
         wanted = [d for d in grammar_course.practice_rows(rows, limit=10000, slug=unit["slug"])
                   if grammar_course.origin(d) != grammar_course.AIT_MRAW and d.id not in mraw_takes and len(d.text_tachelhit or "") <= 90]
-        # the Beni Mellal deck's sentences first (real Central Atlas Tamazight), then pictured, then voiced
-        wanted.sort(key=lambda d: (grammar_course.origin(d) != "Beni Mellal", not d.image_url, not d.audio_url, d.id))
+        # the sentences the lesson itself quotes first (recording those changes what a learner hears),
+        # then the Beni Mellal deck (real Central Atlas Tamazight), then pictured, then voiced
+        wanted.sort(key=lambda d: (d.id not in in_lesson, grammar_course.origin(d) != "Beni Mellal",
+                                   not d.image_url, not d.audio_url, d.id))
         out.append({**{k: unit[k] for k in ("slug", "title", "level")}, "total": len(rows), "aitmraw_voiced": voiced,
+                    "in_lesson": sum(1 for d in wanted if d.id in in_lesson),
                     "wanted": [Drill.model_validate(d, from_attributes=True) for d in wanted[:max(0, min(per_unit, 30))]]})
     out.sort(key=lambda u: (u["aitmraw_voiced"], -u["total"]))
     return {"units": out}
+
+
+@app.get("/grammar/{slug}/lesson")
+def grammar_lesson(slug: str, db: Session = Depends(get_db)):
+    """Just the unit's lesson: what a page asks for again while a new one is being written."""
+    rows = _grammar_unit_rows(db, slug)
+    examples = grammar_course.pick_examples(rows, slug=slug)
+    lesson = grammar_course.get_lesson(db, slug, _load_grammar() if gemini_available() else "", examples,
+                                       unit_ids={d.id for d in rows}, session_factory=SessionLocal,
+                                       tables=grammar_course.paradigms(rows))
+    return {"slug": slug, "lesson": lesson, "writing": slug in grammar_course.writing()}
 
 
 @app.get("/grammar/{slug}")
